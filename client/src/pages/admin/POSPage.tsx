@@ -4,6 +4,7 @@ import { MenuCategory, CartItem } from '../../types'
 import { Plus, Minus, Trash2, ShoppingCart, X, Search, CreditCard } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
+import { formatMoney } from '../../lib/locale'
 
 export default function POSPage() {
   const { t } = useTranslation()
@@ -107,7 +108,7 @@ export default function POSPage() {
                     : 'bg-surface-800 text-surface-300 hover:text-surface-50 border border-surface-600/30'
                 }`}
               >
-                {c.nameAr || c.name}
+                {c.name || c.nameAr}
               </button>
             ))}
           </div>
@@ -123,8 +124,8 @@ export default function POSPage() {
               {item.image && (
                 <img src={item.image} className="w-full h-24 object-cover rounded-lg mb-2" />
               )}
-              <p className="font-medium text-sm text-surface-50">{item.nameAr || item.name}</p>
-              <p className="text-primary-200 font-bold mt-1">{item.discountPrice || item.price} {t('currency')}</p>
+              <p className="font-medium text-sm text-surface-50">{item.name || item.nameAr}</p>
+              <p className="text-primary-200 font-bold mt-1">{formatMoney(item.discountPrice || item.price)}</p>
             </button>
           ))}
         </div>
@@ -142,8 +143,8 @@ export default function POSPage() {
           {cart.map((item, idx) => (
             <div key={idx} className="flex items-center gap-3 bg-surface-700 rounded-xl p-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-surface-50 truncate">{item.menuItem.nameAr || item.menuItem.name}</p>
-                <p className="text-xs text-surface-400">{item.menuItem.price} {t('currency')}</p>
+                <p className="text-sm font-medium text-surface-50 truncate">{item.menuItem.name || item.menuItem.nameAr}</p>
+                <p className="text-xs text-surface-400">{formatMoney(item.menuItem.price)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => updateQty(item.menuItem.id, -1)} className="w-7 h-7 rounded-full bg-surface-600 flex items-center justify-center hover:bg-surface-500 text-surface-200">
@@ -165,7 +166,7 @@ export default function POSPage() {
         <div className="p-4 border-t border-surface-600/40 space-y-3">
           <div className="flex justify-between text-sm">
             <span className="text-surface-400">{t('menu_customer.subtotal')}</span>
-            <span className="font-bold text-surface-50">{subtotal.toFixed(2)} {t('currency')}</span>
+            <span className="font-bold text-surface-50">{formatMoney(subtotal)}</span>
           </div>
           <button
             onClick={() => setShowPayment(true)}
@@ -190,11 +191,11 @@ export default function POSPage() {
             <div className="space-y-2 mb-6">
               <div className="flex justify-between text-sm">
                 <span className="text-surface-400">{t('menu_customer.subtotal')}</span>
-                <span className="text-surface-50">{subtotal.toFixed(2)} {t('currency')}</span>
+                <span className="text-surface-50">{formatMoney(subtotal)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg border-t border-surface-600/40 pt-2">
                 <span className="text-surface-50">{t('menu_customer.total')}</span>
-                <span className="text-primary-200">{subtotal.toFixed(2)} {t('currency')}</span>
+                <span className="text-primary-200">{formatMoney(subtotal)}</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

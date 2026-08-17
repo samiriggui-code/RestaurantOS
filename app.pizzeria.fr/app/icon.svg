@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="La Z Pizza">
+  <title>La Z Pizza</title>
+  <circle cx="16" cy="16" r="16" fill="#E85D3F"/>
+  <text
+    x="16"
+    y="22.5"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-weight="700"
+    font-size="19"
+    fill="#F5F0E6"
+  >Z</text>
+</svg>

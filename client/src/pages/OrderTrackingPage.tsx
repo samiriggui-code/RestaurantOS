@@ -273,7 +273,7 @@ export default function OrderTrackingPage() {
                     {item.quantity}
                   </span>
                   <div>
-                    <p className="font-medium text-surface-800 text-sm">{item.menuItem.nameAr || item.menuItem.name}</p>
+                    <p className="font-medium text-surface-800 text-sm">{item.menuItem.name || item.menuItem.nameAr}</p>
                     {item.notes && <p className="text-[11px] text-surface-400 mt-0.5">{item.notes}</p>}
                   </div>
                 </div>

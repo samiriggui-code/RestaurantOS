@@ -1,0 +1,58 @@
+# Overlay production Traefik — usage :
+# docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+
+networks:
+  gsms:
+    external: true
+
+services:
+  postgres:
+    ports: !reset []
+
+  server:
+    ports: !reset []
+    networks:
+      - pizzeria-internal
+      - gsms
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gsms
+      - traefik.http.routers.pizzeria-express.rule=Host(`${API_HOST:-api.pizzeria.fr}`)
+      - traefik.http.routers.pizzeria-express.entrypoints=websecure
+      - traefik.http.routers.pizzeria-express.tls.certresolver=letsencrypt
+      - traefik.http.routers.pizzeria-express.service=pizzeria-express
+      - traefik.http.routers.pizzeria-express.priority=40
+      - traefik.http.services.pizzeria-express.loadbalancer.server.port=3001
+
+  web:
+    ports: !reset []
+    networks:
+      - pizzeria-internal
+      - gsms
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gsms
+      - traefik.http.routers.pizzeria-public.rule=Host(`${PUBLIC_HOST:-pizzeria.fr}`)
+      - traefik.http.routers.pizzeria-public.entrypoints=websecure
+      - traefik.http.routers.pizzeria-public.tls.certresolver=letsencrypt
+      - traefik.http.routers.pizzeria-public.service=pizzeria-web
+      # POS + KDS : IP shop — middleware file provider (sync CRM → deploy/traefik/dynamic/)
+      - traefik.http.routers.pizzeria-ops-devices.rule=Host(`${OPS_HOST:-app.pizzeria.fr}`) && (PathPrefix(`/pos`) || PathPrefix(`/kitchen`))
+      - traefik.http.routers.pizzeria-ops-devices.entrypoints=websecure
+      - traefik.http.routers.pizzeria-ops-devices.tls.certresolver=letsencrypt
+      - traefik.http.routers.pizzeria-ops-devices.service=pizzeria-web
+      - traefik.http.routers.pizzeria-ops-devices.middlewares=pizzeria-shop-ip@file
+      - traefik.http.routers.pizzeria-ops-devices.priority=30
+      # CRM / login : Internet (JWT + PIN côté app)
+      - traefik.http.routers.pizzeria-ops-admin.rule=Host(`${OPS_HOST:-app.pizzeria.fr}`) && (PathPrefix(`/admin`) || PathPrefix(`/login`))
+      - traefik.http.routers.pizzeria-ops-admin.entrypoints=websecure
+      - traefik.http.routers.pizzeria-ops-admin.tls.certresolver=letsencrypt
+      - traefik.http.routers.pizzeria-ops-admin.service=pizzeria-web
+      - traefik.http.routers.pizzeria-ops-admin.priority=25
+      # Reste app.pizzeria.fr (assets, _next, etc.)
+      - traefik.http.routers.pizzeria-ops.rule=Host(`${OPS_HOST:-app.pizzeria.fr}`)
+      - traefik.http.routers.pizzeria-ops.entrypoints=websecure
+      - traefik.http.routers.pizzeria-ops.tls.certresolver=letsencrypt
+      - traefik.http.routers.pizzeria-ops.service=pizzeria-web
+      - traefik.http.routers.pizzeria-ops.priority=10
+      - traefik.http.services.pizzeria-web.loadbalancer.server.port=3000

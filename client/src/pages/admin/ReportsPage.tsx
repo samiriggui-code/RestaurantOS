@@ -7,6 +7,7 @@ import {
 import { Download, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from '../../i18n/useTranslation'
+import { formatMoney } from '../../lib/locale'
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
 
@@ -69,7 +70,7 @@ export default function ReportsPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card">
-          <p className="text-2xl font-bold text-primary-600">{totalSales.toFixed(0)} {t('currency')}</p>
+          <p className="text-2xl font-bold text-primary-600">{formatMoney(totalSales)}</p>
           <p className="text-sm text-gray-500">{t('reports.total_sales')}</p>
         </div>
         <div className="card">
@@ -77,7 +78,7 @@ export default function ReportsPage() {
           <p className="text-sm text-gray-500">{t('reports.total_orders')}</p>
         </div>
         <div className="card">
-          <p className="text-2xl font-bold">{totalOrders > 0 ? (totalSales / totalOrders).toFixed(1) : 0} {t('currency')}</p>
+          <p className="text-2xl font-bold">{totalOrders > 0 ? formatMoney(Math.round(totalSales / totalOrders)) : formatMoney(0)}</p>
           <p className="text-sm text-gray-500">{t('reports.avg_order')}</p>
         </div>
         <div className="card">
@@ -149,9 +150,9 @@ export default function ReportsPage() {
                 const pct = totalRev > 0 ? ((cat.revenue / totalRev) * 100).toFixed(1) : 0
                 return (
                   <tr key={cat.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="py-3 px-2 font-medium">{cat.nameAr || cat.name}</td>
+                    <td className="py-3 px-2 font-medium">{cat.name || cat.nameAr}</td>
                     <td className="py-3 px-2">{cat.totalSold}</td>
-                    <td className="py-3 px-2">{cat.revenue.toFixed(2)} {t('currency')}</td>
+                    <td className="py-3 px-2">{formatMoney(cat.revenue)}</td>
                     <td className="py-3 px-2">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 bg-gray-200 rounded-full h-2">
@@ -187,7 +188,7 @@ export default function ReportsPage() {
                   <td className="py-3 px-2 font-medium">{emp.name}</td>
                   <td className="py-3 px-2">{emp.role}</td>
                   <td className="py-3 px-2">{emp.orderCount}</td>
-                  <td className="py-3 px-2">{emp.totalSales.toFixed(2)} {t('currency')}</td>
+                  <td className="py-3 px-2">{formatMoney(emp.totalSales)}</td>
                 </tr>
               ))}
             </tbody>

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import QRCode from 'qrcode'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { getPublicSiteUrl } from '../lib/public-site-url'
 
 const router = Router()
 
@@ -34,14 +35,13 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
   try {
     const prisma: PrismaClient = req.app.get('prisma')
     const { number, capacity } = req.body
-    const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const domain = getPublicSiteUrl()
 
     const table = await prisma.table.create({
       data: { number, capacity, businessId: req.user!.businessId },
     })
 
-    // Generate QR code pointing to consumer page
-    const qrData = `${domain}/consumer?businessId=${req.user!.businessId}&tableId=${table.id}&table=${table.number}`
+    const qrData = `${domain}/menu?table=${encodeURIComponent(table.number)}&tableId=${table.id}`
     const qrCode = await QRCode.toDataURL(qrData)
 
     const updated = await prisma.table.update({
@@ -121,11 +121,11 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
 router.post('/:id/regenerate-qr', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma')
-    const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const domain = getPublicSiteUrl()
     const table = await prisma.table.findUnique({ where: { id: req.params.id } })
     if (!table) return res.status(404).json({ error: 'Table not found' })
 
-    const qrData = `${domain}/consumer?businessId=${table.businessId}&tableId=${table.id}&table=${table.number}`
+    const qrData = `${domain}/menu?table=${encodeURIComponent(table.number)}&tableId=${table.id}`
     const qrCode = await QRCode.toDataURL(qrData)
 
     const updated = await prisma.table.update({

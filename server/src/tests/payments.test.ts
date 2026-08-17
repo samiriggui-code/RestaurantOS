@@ -237,5 +237,18 @@ describe('Payment Routes', () => {
       expect(res.body).toHaveProperty('publishableKey')
       expect(res.body.publishableKey).toBe('pk_test_mock')
     })
+
+    it('fallback NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY si STRIPE_PUBLISHABLE_KEY absent', async () => {
+      delete process.env.STRIPE_PUBLISHABLE_KEY
+      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_from_next_public'
+
+      const res = await request(app).get('/api/payments/config')
+
+      expect(res.status).toBe(200)
+      expect(res.body.publishableKey).toBe('pk_test_from_next_public')
+
+      process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_mock'
+      delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    })
   })
 })

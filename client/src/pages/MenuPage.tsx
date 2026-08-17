@@ -56,7 +56,7 @@ export default function MenuPage() {
         if (b?.id) {
           setBusinessId(b.id)
           setCartBusinessId(b.id)
-          setBusinessName(b.nameAr || b.name)
+          setBusinessName(b.name || b.nameAr)
         }
       })
       .catch(() => setLoading(false))
@@ -91,7 +91,7 @@ export default function MenuPage() {
     if (!selectedItem) return
     for (const mod of selectedItem.modifiers) {
       if (mod.required && (!itemModifiers[mod.id] || itemModifiers[mod.id].length === 0)) {
-        toast.error(`يرجى اختيار ${mod.nameAr || mod.name}`)
+        toast.error(`يرجى اختيار ${mod.name || mod.nameAr}`)
         return
       }
     }
@@ -117,7 +117,7 @@ export default function MenuPage() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-surface-950 to-primary-950 flex flex-col items-center justify-center p-6 text-center">
         <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center mb-6">
-          <UtensilsCrossed className="w-10 h-10 text-emerald-400" />
+          <UtensilsCrossed className="w-10 h-10 text-tomato-light" />
         </div>
         <h1 className="text-2xl font-bold text-white mb-2">{t('consumer.welcome')}</h1>
         <p className="text-white/50 mb-2">{t('no_data')}</p>
@@ -130,10 +130,10 @@ export default function MenuPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 max-w-lg mx-auto pb-28">
+    <div className="min-h-screen bg-charcoal-soft max-w-lg mx-auto pb-28 text-cream">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-surface-100">
-        <div className="bg-gradient-to-br from-primary-700 via-primary-600 to-emerald-600 px-5 pt-5 pb-7">
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-charcoal/95 backdrop-blur-xl">
+        <div className="bg-gradient-to-br from-tomato-dark via-tomato to-tomato-light px-5 pt-5 pb-7">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               {tableId && (
@@ -177,25 +177,25 @@ export default function MenuPage() {
           </div>
           <div className="text-center">
             <h1 className="font-bold text-xl text-white">{t('menu_customer.title')}</h1>
-            {businessName && <p className="text-sm text-emerald-100/80 mt-0.5">{businessName}</p>}
+            {businessName && <p className="text-sm text-cream/80 mt-0.5 font-display">{businessName}</p>}
           </div>
         </div>
 
         {/* Category tabs */}
-        <div className="flex overflow-x-auto gap-2 px-5 py-3.5 scrollbar-hide bg-white">
+        <div className="flex overflow-x-auto gap-2 px-5 py-3.5 scrollbar-hide bg-charcoal-soft">
           {categories.map((cat, i) => (
             <button
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
               className={`whitespace-nowrap px-5 py-2.5 rounded-2xl text-sm font-medium transition-all duration-300 ${
                 activeCategory === cat.id
-                  ? 'bg-gradient-to-l from-primary-600 to-emerald-500 text-white shadow-lg shadow-primary-200 scale-105'
-                  : 'bg-surface-50 text-surface-600 hover:bg-surface-100 border border-surface-200'
+                  ? 'bg-tomato text-white shadow-lg shadow-primary-500/30 scale-105'
+                  : 'bg-white/5 text-cream/70 hover:bg-white/10 border border-white/10'
               }`}
               style={{ animationDelay: `${i * 0.05}s` }}
             >
               <span className="flex items-center gap-2">
-                {cat.nameAr || cat.name}
+                {cat.name || cat.nameAr}
               </span>
             </button>
           ))}
@@ -207,7 +207,7 @@ export default function MenuPage() {
         {activeItems.map((item, i) => (
           <div
             key={item.id}
-            className="bg-white rounded-3xl p-4 border border-surface-100 shadow-soft hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300 animate-slide-up"
+            className="rounded-3xl border border-white/10 bg-charcoal/80 p-4 shadow-soft transition-all duration-300 hover:-translate-y-0.5 hover:border-tomato/30 hover:shadow-glow animate-slide-up"
             style={{ animationDelay: `${i * 0.06}s` }}
           >
             <div className="flex gap-4">
@@ -223,9 +223,9 @@ export default function MenuPage() {
               )}
               <div className="flex-1 min-w-0 flex flex-col justify-between">
                 <div>
-                  <h3 className="font-bold text-surface-800 text-base leading-snug">{item.nameAr || item.name}</h3>
-                  {item.descriptionAr && (
-                    <p className="text-xs text-surface-400 mt-1 line-clamp-2 leading-relaxed">{item.descriptionAr}</p>
+                  <h3 className="font-display text-base font-bold leading-snug text-cream">{item.name || item.nameAr}</h3>
+                  {item.description && (
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cream/45">{item.description}</p>
                   )}
                   {item.prepTime > 0 && (
                     <div className="flex items-center gap-1 mt-1.5">
@@ -238,11 +238,11 @@ export default function MenuPage() {
                   <div className="flex items-center gap-2">
                     {item.discountPrice ? (
                       <div className="flex items-center gap-1.5">
-                        <span className="text-lg font-bold text-primary-600">{item.discountPrice}</span>
-                        <span className="text-xs text-surface-400 line-through">{item.price}</span>
+                        <span className="text-lg font-bold text-tomato-light">{item.discountPrice}</span>
+                        <span className="text-xs text-cream/35 line-through">{item.price}</span>
                       </div>
                     ) : (
-                      <span className="text-lg font-bold text-surface-800">{item.price}</span>
+                      <span className="text-lg font-bold text-cream">{item.price}</span>
                     )}
                   </div>
                   <button
@@ -250,8 +250,8 @@ export default function MenuPage() {
                     disabled={!item.isAvailable}
                     className={`p-3 rounded-2xl transition-all duration-200 active:scale-90 ${
                       item.isAvailable
-                        ? 'bg-gradient-to-br from-primary-500 to-emerald-400 text-white shadow-lg shadow-primary-200 hover:shadow-xl hover:shadow-primary-300 hover:-translate-y-0.5'
-                        : 'bg-surface-100 text-surface-400 cursor-not-allowed'
+                        ? 'bg-tomato text-white shadow-lg shadow-primary-500/30 hover:bg-tomato-light'
+                        : 'cursor-not-allowed bg-white/5 text-cream/35'
                     }`}
                   >
                     {item.isAvailable ? <Plus size={20} /> : 'نفذ'}
@@ -273,11 +273,11 @@ export default function MenuPage() {
       {/* Modifier Modal */}
       {selectedItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center animate-fade-in">
-          <div className="bg-white w-full max-w-lg rounded-t-4xl p-6 max-h-[80vh] overflow-y-auto animate-slide-up shadow-modal">
+          <div className="bg-charcoal-soft w-full max-w-lg rounded-t-4xl border-t border-white/10 p-6 max-h-[80vh] overflow-y-auto animate-slide-up shadow-modal text-cream">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="text-xl font-bold text-surface-800">{selectedItem.nameAr || selectedItem.name}</h2>
-                <p className="text-sm text-primary-600 font-medium mt-0.5">{selectedItem.price} د.ج</p>
+                <h2 className="font-display text-xl font-bold text-cream">{selectedItem.name || selectedItem.nameAr}</h2>
+                <p className="mt-0.5 text-sm font-medium text-tomato-light">{selectedItem.price} €</p>
               </div>
               <button onClick={() => setSelectedItem(null)} className="w-10 h-10 rounded-2xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all">
                 <ChevronLeft size={20} className="text-surface-500" />
@@ -290,7 +290,7 @@ export default function MenuPage() {
               {selectedItem.modifiers.map(mod => (
                 <div key={mod.id}>
                   <label className="block font-bold text-surface-700 mb-3 text-sm">
-                    {mod.nameAr || mod.name}
+                    {mod.name || mod.nameAr}
                     {mod.required && <span className="text-red-500 mr-1">*</span>}
                   </label>
                   <div className="space-y-2">
@@ -324,7 +324,7 @@ export default function MenuPage() {
                             }`}>
                               {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                             </div>
-                            <span className="font-medium text-sm">{opt.nameAr || opt.name}</span>
+                            <span className="font-medium text-sm">{opt.name || opt.nameAr}</span>
                           </div>
                           {opt.price > 0 && (
                             <span className="text-sm font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg">+{opt.price}</span>
@@ -360,10 +360,10 @@ export default function MenuPage() {
 
       {/* Cart floating button */}
       {itemCount > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/95 to-transparent">
+        <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-charcoal via-charcoal/95 to-transparent p-4">
           <button
             onClick={() => navigate('/cart' + window.location.search)}
-            className="w-full bg-gradient-to-br from-primary-600 to-emerald-500 hover:from-primary-700 hover:to-emerald-600 text-white font-bold py-4 px-6 rounded-2xl transition-all duration-200 active:scale-[0.98] shadow-lg shadow-emerald-200/50 flex items-center justify-between"
+            className="btn-primary flex w-full items-center justify-between py-4 px-6 text-base"
           >
             <div className="flex items-center gap-2">
               <ShoppingCart size={20} />

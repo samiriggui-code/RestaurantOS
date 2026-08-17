@@ -1,0 +1,33 @@
+﻿{
+    "apps":  {
+                 "pos-tablet":  {
+                                    "sizeBytes":  4635145,
+                                    "url":  "/downloads/pos-tablet.apk",
+                                    "versionCode":  20,
+                                    "versionName":  "1.0.19",
+                                    "file":  "pos-tablet.apk"
+                                },
+                 "livreur":  {
+                                 "sizeBytes":  4635113,
+                                 "url":  "/downloads/livreur.apk",
+                                 "versionCode":  20,
+                                 "versionName":  "1.0.19",
+                                 "file":  "livreur.apk"
+                             },
+                 "pos-sunmi":  {
+                                   "sizeBytes":  4653537,
+                                   "url":  "/downloads/pos-sunmi.apk",
+                                   "versionCode":  20,
+                                   "versionName":  "1.0.19",
+                                   "file":  "pos-sunmi.apk"
+                               },
+                 "kds":  {
+                             "sizeBytes":  4635101,
+                             "url":  "/downloads/kds.apk",
+                             "versionCode":  20,
+                             "versionName":  "1.0.19",
+                             "file":  "kds.apk"
+                         }
+             },
+    "generatedAt":  "2026-07-15T08:14:48.6248182Z"
+}

@@ -24,11 +24,20 @@ import expenseRoutes from './routes/expenses'
 import licenseRoutes from './routes/licenses'
 import backupRoutes from './routes/backups'
 import invoiceRoutes from './routes/invoices'
-import paymentRoutes from './routes/payments'
+import paymentRoutes, { stripeWebhookRaw, handleStripeWebhook } from './routes/payments'
+import printJobRoutes from './routes/print-jobs'
+import posRoutes from './routes/pos'
+import publicRoutes from './routes/public'
+import marketplaceWebhooks from './routes/marketplace-webhooks'
+import deliveryRoutes from './routes/delivery'
+import devicesRoutes from './routes/devices'
+import stockRoutes from './routes/stock'
 import loyaltyRoutes from './routes/loyalty'
+import fiscalRoutes from './routes/fiscal'
+import { requireModule } from './lib/modules'
 import { apiLimiter, authLimiter } from './middleware/rateLimiter'
 import { sanitizeInput } from './middleware/sanitize'
-import { initSentry, setupSentryErrorHandler } from './sentry'
+import { initSentry, setupSentryErrorHandler, isSentryEnabled } from './sentry'
 import { validateEnv } from './check-env'
 
 dotenv.config()
@@ -41,9 +50,46 @@ const httpServer = createServer(app)
 const prisma = new PrismaClient()
 const isProduction = process.env.NODE_ENV === 'production'
 
+const STATIC_ORIGINS = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+function isLanDevOrigin(origin: string): boolean {
+  if (isProduction) return false
+  try {
+    const { hostname, port } = new URL(origin)
+    const okPort = !port || port === '3000' || port === '5173'
+    if (!okPort) return false
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+function allowCorsOrigin(
+  origin: string | undefined,
+  callback: (err: Error | null, allow?: boolean) => void
+) {
+  if (!origin || STATIC_ORIGINS.includes(origin) || isLanDevOrigin(origin)) {
+    callback(null, true)
+    return
+  }
+  if (!isProduction) {
+    console.warn(`[cors] Origin refusée : ${origin} — ajoutez-la à FRONTEND_URL si besoin`)
+  }
+  callback(new Error(`CORS blocked: ${origin}`))
+}
+
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: allowCorsOrigin,
     methods: ['GET', 'POST'],
   },
 })
@@ -69,10 +115,9 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }))
 
-// CORS
-const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173'
+// CORS — localhost + IP LAN tablette/SUNMI en dev
 app.use(cors({
-  origin: corsOrigin.split(',').map(s => s.trim()),
+  origin: allowCorsOrigin,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -84,6 +129,18 @@ app.disable('x-powered-by')
 
 // Initialize Sentry error monitoring
 initSentry(app)
+
+// Stripe webhook — raw body required for signature verification (before express.json)
+app.post('/api/payments/webhook', stripeWebhookRaw, handleStripeWebhook)
+
+// Marketplaces — conserve le corps brut pour signature HMAC
+const marketplaceWebhookJson = express.json({
+  limit: '2mb',
+  verify: (req, _res, buf) => {
+    ;(req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8')
+  },
+})
+app.use('/api/public/webhooks', marketplaceWebhookJson, marketplaceWebhooks)
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }))
@@ -98,6 +155,7 @@ app.use('/api/', sanitizeInput)
 // Rate limiting
 app.use('/api/', apiLimiter)
 app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/pin', authLimiter)
 
 // Serve uploaded images
 const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads')
@@ -107,22 +165,31 @@ app.use('/api/uploads', express.static(uploadsDir))
 app.set('prisma', prisma)
 app.set('io', io)
 
-// Routes
+// Routes publiques (commande invité — toujours actives)
+app.use('/api/public', publicRoutes)
+
+// Routes — modules hors périmètre V1 masqués (CDC §6.4)
 app.use('/api/auth', authRoutes)
-app.use('/api/menu', menuRoutes)
-app.use('/api/orders', orderRoutes)
-app.use('/api/tables', tableRoutes)
-app.use('/api/wifi', wifiRoutes)
-app.use('/api/employees', employeeRoutes)
-app.use('/api/reports', reportRoutes)
-app.use('/api/reservations', reservationRoutes)
-app.use('/api/settings', settingsRoutes)
-app.use('/api/expenses', expenseRoutes)
-app.use('/api/licenses', licenseRoutes)
+app.use('/api/menu', requireModule('menu'), menuRoutes)
+app.use('/api/orders', requireModule('orders'), orderRoutes)
+app.use('/api/print-jobs', requireModule('pos'), printJobRoutes)
+app.use('/api/pos', requireModule('pos'), posRoutes)
+app.use('/api/tables', requireModule('tables'), tableRoutes)
+app.use('/api/wifi', requireModule('wifi'), wifiRoutes)
+app.use('/api/employees', requireModule('users'), employeeRoutes)
+app.use('/api/reports', requireModule('reports'), reportRoutes)
+app.use('/api/reservations', requireModule('reservations'), reservationRoutes)
+app.use('/api/settings', requireModule('settings'), settingsRoutes)
+app.use('/api/devices', requireModule('settings'), devicesRoutes)
+app.use('/api/delivery', requireModule('settings'), deliveryRoutes)
+app.use('/api/stock', requireModule('expenses'), stockRoutes)
+app.use('/api/expenses', requireModule('expenses'), expenseRoutes)
+app.use('/api/licenses', requireModule('licenses'), licenseRoutes)
 app.use('/api/backups', backupRoutes)
 app.use('/api/invoices', invoiceRoutes)
 app.use('/api/payments', paymentRoutes)
-app.use('/api/loyalty', loyaltyRoutes)
+app.use('/api/loyalty', requireModule('loyalty'), loyaltyRoutes)
+app.use('/api/fiscal', fiscalRoutes)
 
 // Swagger documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -138,8 +205,19 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() })
 })
 
-// Sentry test endpoint (development only)
-if (!isProduction) {
+// Racine : l'API n'est pas un site web — évite la confusion "Cannot GET /"
+app.get('/', (_req, res) => {
+  res.json({
+    service: 'RestaurantOS API',
+    status: 'OK',
+    docs: '/api/docs',
+    health: '/api/health',
+    hint: 'Interface web → http://localhost:3000 (Next.js). Ne pas ouvrir :3001 dans le navigateur pour le site.',
+  })
+})
+
+// Sentry test endpoint (development only, when SENTRY_DSN is set)
+if (!isProduction && isSentryEnabled()) {
   app.get('/api/sentry-test', () => {
     throw new Error('Sentry test error — this is intentional')
   })
@@ -163,9 +241,23 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 setupSocketHandlers(io, prisma)
 
-const PORT = process.env.PORT || 3001
-httpServer.listen(PORT, () => {
-  console.log(`🚀 RestaurantOS Server running on port ${PORT}`)
+const PORT = Number(process.env.PORT || 3001)
+httpServer.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} déjà utilisé. Lancez : npm run dev:stop`)
+    process.exit(1)
+  }
+  throw err
+})
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 API Express → http://localhost:${PORT}`)
+  console.log(`   (Landing/CRM/KDS/POS → http://localhost:3000)`)
+  if (process.env.NODE_ENV !== 'test') {
+    const { ensureFiscalChainHealthy, logFiscalSoftwareStart } = require('./lib/fiscal/startup')
+    const { startFiscalScheduler } = require('./lib/fiscal/scheduler')
+    void ensureFiscalChainHealthy(prisma).then(() => logFiscalSoftwareStart(prisma))
+    startFiscalScheduler(prisma)
+  }
 })
 
 process.on('SIGTERM', async () => {

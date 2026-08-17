@@ -121,7 +121,7 @@ export default function ConsumerHomePage() {
           </div>
 
           <h1 className="text-4xl font-bold text-white mb-3 drop-shadow-lg tracking-tight">
-            {business?.nameAr || business?.name || t('consumer.welcome')}
+            {business?.name || business?.nameAr || t('consumer.welcome')}
           </h1>
 
           {tableNumber && (

@@ -1,0 +1,111 @@
+@import '../styles/admin-cockpit.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--site-header-offset);
+    color-scheme: dark;
+  }
+
+  body {
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  :root {
+    /* Header fixe : bandeau statut + logo/nav — marge de sécurité */
+    --site-header-offset: 8.5rem;
+  }
+
+  @media (min-width: 768px) {
+    :root {
+      --site-header-offset: 8.75rem;
+    }
+  }
+}
+
+@layer utilities {
+  .text-flame-gradient {
+    background: linear-gradient(100deg, #f59e0b 0%, #e85a3e 55%, #c23b22 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-flame-gradient {
+    background-image: linear-gradient(135deg, #9a2e1a 0%, #e85a3e 55%, #f59e0b 100%);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .admin-scroll-x {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .admin-scroll-x::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
+}
+
+/* Hors @layer : classes référencées via constantes (lib/site-layout.ts) */
+.site-main-offset {
+  padding-top: var(--site-header-offset);
+}
+
+.site-sticky-below-header {
+  top: var(--site-header-offset);
+}
+
+/* POS / KDS tablette — réactivité tactile WebView */
+.pos-touch button,
+.pos-touch a[role='button'],
+.pos-touch [type='button'] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Carte livraison admin (Leaflet) */
+.delivery-leaflet-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.delivery-marker-pin {
+  display: flex;
+  height: 36px;
+  width: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--pin, #8b5cf6);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 45%);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.delivery-marker-pulse {
+  animation: delivery-marker-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes delivery-marker-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px rgb(0 0 0 / 45%);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgb(139 92 246 / 25%);
+  }
+}

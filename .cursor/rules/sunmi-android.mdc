@@ -1,0 +1,51 @@
+---
+description: App SUNMI V2 — WebView, impression native, mode dégradé offline
+globs:
+  - "android/**"
+  - "app.pizzeria.fr/app/(pos)/**"
+  - "app.pizzeria.fr/lib/print/**"
+---
+
+# SUNMI V2 — contraintes techniques
+
+## Prérequis contractuel (phase 0 — bloquant)
+
+- **WebView Chrome ≥ 64** sur l'appareil réel (mesure en phase 0 §2.2.2)
+- WebView usine Android 7.1 (~52–58) **incompatible Next.js** — mise à jour Play Store ou remplacement matériel
+- Pas de polyfill legacy (ancien `@vitejs/plugin-legacy` supprimé avec Vite)
+
+## App Android (`android/`)
+
+- APK **WebView** charge `https://app.pizzeria.fr/pos` (domaine verrouillé)
+- **`minSdkVersion 25`** (Android 7.1) mais **WebView ≥ 64** requis pour le JS Next.js
+- WebView **résidente** : pas de rechargement volontaire en service (mode dégradé IndexedDB)
+- Pont `@JavascriptInterface` → `window.SunmiPrinter` :
+  - `printKitchenTicket(json)` — ticket cuisine 58 mm
+  - `printReceipt(json)` — reçu (SIRET, TVA, QR `/suivi/:token`)
+  - `getPrinterStatus()` — papier, capot
+  - `playNewOrderSound()` — haut-parleur 95 dB
+- SDK : SUNMI InnerPrinter / PrinterX
+
+## UI POS (Next.js)
+
+- Route : `app.pizzeria.fr/app/(pos)/`
+- **Client Components** uniquement
+- **Pas** WebUSB / `useThermalPrinter` legacy
+- **Pas** `react-to-print` sur le V2
+- **Pas** service worker / PWA sur POS en V1 (Serwist hors périmètre)
+
+## Mode dégradé hors-ligne
+
+- File **IndexedDB** pour commandes comptoir tant que la page reste chargée
+- Sync `POST /api/orders` (ou route sync) au retour réseau
+- Impression locale via pont SUNMI (hors réseau OK)
+- **Si rechargement pendant coupure** : POS indisponible jusqu'au réseau — comportement V1 accepté
+
+## Impression
+
+- Tracer chaque job dans `PrintJob` (succès/échec, type, orderId)
+
+## Sécurité
+
+- APK cantonnée au FQDN client
+- Aucune donnée bancaire — TPE physique pour carte sur place

@@ -1,0 +1,59 @@
+---
+description: Modules A/B/C/D — UX, contraintes écran et navigation (Next.js)
+globs:
+  - "app.pizzeria.fr/**"
+---
+
+# Modules UI — pizzeria (`app.pizzeria.fr/`)
+
+Toute l'UI est dans **Next.js** (`app.pizzeria.fr/`) — pas de Vite, pas de `client/`.
+
+**`middleware.ts`** — routage par `Host` : `pizzeria.fr` → `(public)/` ; `app.pizzeria.fr` → `(pos)|(kds)|(admin)`.
+
+## Module A — Site public `app/(public)/` — `pizzeria.fr`
+
+- Server Components pour landing SEO ; Client Components pour panier/Stripe
+- Mobile first, schema.org `LocalBusiness`, Lighthouse > 90
+- Bandeau ouvert/fermé (horaires + fermeture exceptionnelle via API Express)
+- Menu : API `/api/menu` — catégories, allergènes, modifiers, rupture instantanée
+- Tunnel : panier persistant, click & collect (créneau) ou livraison (CP), invité OK
+- Stripe Payment Element ; cuisine **après** webhook Express
+- Suivi : `/suivi/[token]` — Socket.io client
+
+## Module B — POS SUNMI `app/(pos)/` — `app.pizzeria.fr/pos`
+
+- **Client Components** uniquement (interactif, WebView 7.1)
+- UI tactile 5,45" : grosses zones, grilles produits, peu de scroll
+- Modes sur place / à emporter ; paiement déclaré espèces/carte (pas de CB dans l'app)
+- API Express pour création commande comptoir (`CONFIRMED` direct)
+- Socket.io : commande web → son + impression auto
+- Pont natif : `window.SunmiPrinter.printKitchenTicket()` / `printReceipt()`
+- CSS conservateur — pas de features non supportées WebView Android 7.1
+- File hors-ligne : porter `offlineQueue.ts` depuis `client/` ; APK résidente requise (pas de SW V1)
+
+## Module C — KDS `app/(kds)/` — `app.pizzeria.fr/kitchen`
+
+- Plein écran, mode kiosque
+- Colonnes : `CONFIRMED` / `PREPARING` / `READY`
+- Socket.io temps réel ; son nouvelle commande ; highlight retards créneau
+- PATCH statut via API Express → propage au suivi client et V2
+
+## Module D — Back-office `app/(admin)/` — `app.pizzeria.fr/admin`
+
+- Auth JWT ; **next-intl** pour le français
+- CRUD menu, zones, créneaux, horaires, fermetures, gabarits tickets
+- Historique, filtres, export CSV
+- Dashboard : CA, ticket moyen, online/counter, top produits
+- Modules hors périmètre masqués (`ENABLED_MODULES`)
+
+## Migration depuis `client/`
+
+Porter les pages `client/src/pages/*` vers les route groups correspondants.
+Remplacer `react-router` par le file-system routing Next.js.
+Remplacer `import.meta.env.VITE_*` par `process.env.NEXT_PUBLIC_*`.
+
+## Composants partagés
+
+- `components/menu/` — catalogue (public + pos)
+- `components/orders/` — cartes commande (kds + admin)
+- `lib/print/` — payloads tickets 58 mm (cuisine + reçu)

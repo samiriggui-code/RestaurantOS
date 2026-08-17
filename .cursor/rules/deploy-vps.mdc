@@ -1,0 +1,63 @@
+---
+description: Déploiement VPS Hostinger — Docker, Traefik, Laragon local
+globs:
+  - "deploy/**"
+  - "docker-compose*.yml"
+  - "Dockerfile"
+  - "app.pizzeria.fr/**"
+---
+
+# Déploiement
+
+## Développement local (Laragon)
+
+- PostgreSQL Laragon → version **majeure 16** (alignée conteneur prod)
+- Express : `npm run dev:server` (port **3001**)
+- Next.js : `npm run dev --prefix app.pizzeria.fr` (port **3000**)
+- Vhosts Laragon optionnels : `pizzeria.test`, `app.pizzeria.test`, `api.pizzeria.test`
+- Variables : `NEXT_PUBLIC_API_URL`, `JWT_SECRET`, `STRIPE_*`, `BUSINESS_ID`
+- **Pas de Docker, pas de Traefik en local**
+- **Recette et validation finale sur Docker** (préprod/prod), pas Laragon seul
+
+## Production (VPS Hostinger — Docker + Traefik)
+
+Traefik tourne en stack séparée (socket Docker). Les conteneurs rejoignent le réseau externe `traefik`.
+
+```yaml
+services:
+  postgres:           # PostgreSQL 16+, réseau internal uniquement
+  server:             # Express :3001 — labels Traefik → api.pizzeria.fr
+  app.pizzeria.fr:    # Next.js standalone :3000 — labels → pizzeria.fr + app.pizzeria.fr
+```
+
+Exemple labels Traefik (server) :
+
+```yaml
+labels:
+  - traefik.enable=true
+  - traefik.http.routers.api.rule=Host(`api.pizzeria.fr`)
+  - traefik.http.routers.api.entrypoints=websecure
+  - traefik.http.routers.api.tls.certresolver=letsencrypt
+  - traefik.http.services.api.loadbalancer.server.port=3001
+```
+
+- `restart: always` sur tous les services
+- **Pas de Caddy** dans le projet
+- Variables prod : `DATABASE_URL`, `JWT_SECRET`, `STRIPE_*`, `NEXT_PUBLIC_API_URL=https://api.pizzeria.fr`, `ENABLED_MODULES`
+
+## Sauvegardes
+
+- `pg_dump` quotidien + copie chiffrée hors VPS
+- Procédure restauration testée (< 1 h)
+
+## Monitoring
+
+- Uptime Kuma (ou équivalent)
+- Healthcheck Express : `GET /api/health` (ou route existante)
+
+## Build
+
+- Images Docker multi-stage
+- Next.js : `output: 'standalone'` dans `app.pizzeria.fr/next.config`
+- `prisma migrate deploy` au démarrage du conteneur `server`
+- Node permanent requis pour Socket.io — pas de déploiement serverless

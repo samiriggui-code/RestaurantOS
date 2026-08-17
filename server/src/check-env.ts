@@ -71,7 +71,7 @@ export function validateEnv(): void {
   }
 
   // Warn about missing but optional vars
-  const OPTIONAL_VARS = ['SENTRY_DSN', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'FRONTEND_URL']
+  const OPTIONAL_VARS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'FRONTEND_URL']
   for (const varName of OPTIONAL_VARS) {
     if (!process.env[varName]) {
       console.warn(`⚠️  Optional env var ${varName} is not set — related features will be disabled`)

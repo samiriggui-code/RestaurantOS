@@ -63,37 +63,37 @@ describe('App', () => {
   it('shows loading spinner when checking auth', () => {
     useAuthStore.setState({ isLoading: true })
     renderApp()
-    expect(screen.getByText('جاري التحميل...')).toBeInTheDocument()
+    expect(screen.getByText('Chargement…')).toBeInTheDocument()
   })
 
-  it('renders the consumer home page at /', async () => {
+  it('redirects / to login when not authenticated', async () => {
     useAuthStore.setState({ isLoading: false })
     renderApp(['/'])
-    const el = await screen.findByText('مرحباً بكم')
-    expect(el).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
+    expect(heading).toBeInTheDocument()
   })
 
   it('renders login page at /login', async () => {
     renderApp(['/login'])
-    const heading = await screen.findByRole('heading', { level: 2, name: 'تسجيل الدخول' })
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
     expect(heading).toBeInTheDocument()
   })
 
-  it('renders menu page at /menu', async () => {
+  it('redirects legacy /menu to login', async () => {
     renderApp(['/menu'])
-    const el = await screen.findByText('القائمة')
-    expect(el).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
+    expect(heading).toBeInTheDocument()
   })
 
-  it('renders cart page at /cart', async () => {
-    renderApp(['/cart'])
-    const el = await screen.findByText('السلة فارغة')
-    expect(el).toBeInTheDocument()
+  it('redirects legacy /consumer to login', async () => {
+    renderApp(['/consumer'])
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
+    expect(heading).toBeInTheDocument()
   })
 
   it('redirects /admin to login when not authenticated', async () => {
     renderApp(['/admin'])
-    const heading = await screen.findByRole('heading', { level: 2, name: 'تسجيل الدخول' })
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
     expect(heading).toBeInTheDocument()
   })
 
@@ -104,13 +104,13 @@ describe('App', () => {
       user: { id: 'user-1', email: 'admin@cafe.com', name: 'Admin', role: 'ADMIN' },
     })
     renderApp(['/admin'])
-    const el = await screen.findByText('لوحة التحكم')
+    const el = await screen.findByText('Tableau de bord')
     expect(el).toBeInTheDocument()
   })
 
-  it('redirects unknown routes to /', async () => {
+  it('redirects unknown routes to login when not authenticated', async () => {
     renderApp(['/nonexistent-route'])
-    const el = await screen.findByText('مرحباً بكم')
-    expect(el).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Connexion' })
+    expect(heading).toBeInTheDocument()
   })
 })

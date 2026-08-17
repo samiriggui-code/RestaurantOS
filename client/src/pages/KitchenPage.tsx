@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
-import { getSocket } from '../services/socket'
+import { reconnectSocket } from '../services/socket'
+import { useAuthStore } from '../store/authStore'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { Order } from '../types'
 import { ChefHat, Bell, CheckCircle, Clock, AlertCircle, WifiOff } from 'lucide-react'
@@ -8,6 +9,9 @@ import toast from 'react-hot-toast'
 import { useTranslation } from '../i18n/useTranslation'
 
 const CACHE_KEY = 'kitchen-orders-cache'
+
+/** Statuts visibles en cuisine (CDC : CONFIRMED après paiement, pas PENDING_PAYMENT). */
+const KITCHEN_ORDER_STATUSES = 'CONFIRMED,PENDING,PREPARING,READY'
 
 function cacheOrders(orders: Order[]) {
   try {
@@ -26,6 +30,7 @@ function getCachedOrders(): Order[] {
 
 export default function KitchenPage() {
   const { t } = useTranslation()
+  const businessId = useAuthStore((s) => s.business?.id)
   const isOnline = useNetworkStatus()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,7 +40,14 @@ export default function KitchenPage() {
   useEffect(() => {
     audioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACAf39/f4B/f3+AgH9/f3+Af39/gIB/f3+AgH9/f4CAf39/gH9/f4CAf3+Af39/gICAf39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f3+Af39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf3+Af39/gH9/f4CAf39/gH9/f4B/f3+Af39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4CAf3+Af39/gIB/f3+Af39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4CAf3+Af39/gIB/f3+Af39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4B/f39/gH9/f4B/f3+Af39/gIB/f3+Af39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f3+Af39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4B/f39/gH9/f4CAf39/gH9/f4CAf39/gH9/f4B/f39/')
 
-    const socket = getSocket()
+    const token = localStorage.getItem('accessToken') || undefined
+    const socket = reconnectSocket(token)
+
+    const joinBusinessRoom = () => {
+      if (businessId) socket.emit('join:business', businessId)
+    }
+    joinBusinessRoom()
+    socket.on('connect', joinBusinessRoom)
 
     const handleNewOrder = (order: Order) => {
       setOrders(prev => {
@@ -89,7 +101,7 @@ export default function KitchenPage() {
       }
     }
 
-    api.getOrders('status=PENDING,PREPARING,READY')
+    api.getOrders(`status=${KITCHEN_ORDER_STATUSES}`)
       .then(data => {
         setOrders(data)
         cacheOrders(data)
@@ -111,11 +123,12 @@ export default function KitchenPage() {
       .finally(() => setLoading(false))
 
     return () => {
+      socket.off('connect', joinBusinessRoom)
       socket.off('order:new', handleNewOrder)
       socket.off('order:statusUpdate', handleStatusUpdate)
       socket.off('kitchen:itemUpdated', handleItemUpdate)
     }
-  }, [])
+  }, [businessId, t])
 
   const handleItemStatus = async (orderId: string, itemId: string, status: string) => {
     try {
@@ -127,7 +140,9 @@ export default function KitchenPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'PENDING': return 'text-yellow-600 bg-yellow-50'
+      case 'PENDING':
+      case 'CONFIRMED':
+        return 'text-yellow-600 bg-yellow-50'
       case 'PREPARING': return 'text-blue-600 bg-blue-50'
       case 'READY': return 'text-green-600 bg-green-50'
       case 'DELIVERED': return 'text-gray-600 bg-gray-50'
@@ -137,7 +152,9 @@ export default function KitchenPage() {
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'PENDING': return t('orders.pending')
+      case 'PENDING':
+      case 'CONFIRMED':
+        return t('orders.pending')
       case 'PREPARING': return t('orders.preparing')
       case 'READY': return t('orders.ready')
       case 'DELIVERED': return t('orders.delivered')
@@ -207,7 +224,7 @@ export default function KitchenPage() {
                   <div key={item.id} className="flex items-center justify-between">
                     <div>
                       <span className="font-medium">{item.quantity}x </span>
-                      <span>{item.menuItem.nameAr || item.menuItem.name}</span>
+                      <span>{item.menuItem.name || item.menuItem.nameAr}</span>
                       {item.notes && (
                         <p className="text-xs text-yellow-400 mt-0.5">{item.notes}</p>
                       )}
@@ -246,7 +263,7 @@ export default function KitchenPage() {
               )}
 
               <div className="flex gap-2 pt-2">
-                {order.status === 'PENDING' && (
+                {(order.status === 'PENDING' || order.status === 'CONFIRMED') && (
                   <button
                     onClick={() => api.updateOrderStatus(order.id, 'PREPARING')}
                     className="flex-1 py-2 bg-blue-600 rounded-xl hover:bg-blue-500 text-sm font-medium"

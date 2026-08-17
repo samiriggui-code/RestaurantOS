@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import type { Language } from './translations'
+import { DEFAULT_LANGUAGE, applyDocumentLanguage, ensureDefaultLanguage } from '../lib/locale'
 
 interface LanguageContextType {
   language: Language
@@ -8,21 +9,19 @@ interface LanguageContextType {
 }
 
 const LanguageContext = createContext<LanguageContextType>({
-  language: 'ar',
+  language: DEFAULT_LANGUAGE,
   setLanguage: () => {},
-  dir: 'rtl',
+  dir: 'ltr',
 })
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem('language') as Language | null
-    return saved || 'ar'
+    return (ensureDefaultLanguage() as Language) || DEFAULT_LANGUAGE
   })
 
   useEffect(() => {
     localStorage.setItem('language', language)
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
-    document.documentElement.lang = language
+    applyDocumentLanguage(language)
   }, [language])
 
   const setLanguage = (lang: Language) => {

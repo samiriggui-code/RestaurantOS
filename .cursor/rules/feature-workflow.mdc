@@ -1,0 +1,88 @@
+---
+description: Workflow feature — Prisma d'abord, modules A/B/C/D, API Express cohérentes
+alwaysApply: true
+---
+
+# Pizzeria — workflow avant toute page ou feature
+
+## Étape 0 — Toujours lire Prisma en premier
+
+1. Ouvrir `server/prisma/schema.prisma` — modèles, relations existants.
+2. Vérifier `server/prisma/seed.ts` (ou équivalent) et données de démo.
+3. Décider : **réutiliser** · **étendre** (migration + `npm run db:generate --prefix server`) · **nouveau modèle**.
+
+Interdit : second schema Prisma, `new PrismaClient()` dispersé.
+
+Côté serveur : singleton Prisma existant dans `server/src`.
+
+---
+
+## Carte applicative
+
+```
+server/                         # API Express — source de vérité métier
+  prisma/schema.prisma
+  src/routes/
+    auth.ts                     # JWT staff
+    menu.ts                     # catalogue
+    orders.ts                   # commandes + Socket.io emit
+    payments.ts                 # Stripe + webhook
+    reports.ts, settings.ts…
+  src/sockets/                  # Socket.io handlers
+
+app.pizzeria.fr/                # Next.js — TOUTE l'UI (pas Vite)
+  middleware.ts                 # Routage par Host (pizzeria.fr vs app.pizzeria.fr)
+  app/
+    (public)/                   # Module A — pizzeria.fr
+    (pos)/                      # Module B — SUNMI POS
+    (kds)/                      # Module C — kitchen display
+    (admin)/                    # Module D — back-office
+  components/                   # portés depuis client/src/ si existants
+  lib/api.ts                    # fetch vers NEXT_PUBLIC_API_URL
+
+android/                        # Wrapper WebView SUNMI + pont impression
+deploy/                         # docker-compose, labels Traefik, scripts backup
+```
+
+**Ne pas développer dans `client/`** (Vite legacy, exclu build/CI/Docker).
+
+---
+
+## API Express — conventions
+
+Racine : `server/src/routes/` — préfixe `/api/`
+
+| Route | Rôle |
+|-------|------|
+| `/api/menu`, `/api/settings/public` | Catalogue public (sans auth) |
+| `/api/orders` | CRUD commandes (auth JWT staff ou endpoints public dédiés) |
+| `/api/payments` | Stripe intent + webhook |
+| `/api/auth` | Login staff JWT |
+
+Routes protégées : middleware `authenticate` existant dans `server/src/middleware/auth.ts`.
+
+Réponses JSON : `{ data }` ou `{ error }` selon conventions existantes du socle.
+
+Le front Next.js appelle l'API via `fetch(process.env.NEXT_PUBLIC_API_URL + '/api/...')`.
+
+---
+
+## Règles métier commandes
+
+- **En ligne** : `PENDING_PAYMENT` → webhook Stripe `payment_intent.succeeded` → `CONFIRMED` + emit Socket.io + `PrintJob`.
+- **Comptoir** : créée directement `CONFIRMED` ; impression via `window.SunmiPrinter`.
+- Prix figés sur `OrderItem` à la validation.
+- `isActive: false` → exclu immédiatement du menu public et POS.
+
+---
+
+## Checklist création feature
+
+- [ ] `server/prisma/schema.prisma` lu ; changement justifié
+- [ ] Si schema modifié : `npm run db:generate --prefix server` (+ push/migration)
+- [ ] Route API dans `server/src/routes/` (pas `app/api/` Next.js)
+- [ ] JWT / rôle vérifiés sur routes protégées
+- [ ] Emit Socket.io si impact commande/statut
+- [ ] UI dans le bon route group `app.pizzeria.fr/app/(public|pos|kds|admin)/`
+- [ ] Compat WebView Android 7.1 si touchant le POS (Client Components)
+- [ ] Aucun fichier ajouté dans `client/`

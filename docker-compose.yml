@@ -1,107 +1,112 @@
 version: '3.8'
 
+# Stack local / préprod sans Traefik (ports exposés)
+name: pizzeria
+
 networks:
-  restaurantos-net:
+  pizzeria-internal:
     driver: bridge
 
 services:
   postgres:
     image: postgres:16-alpine
-    # ⚠️ DB_PASSWORD is REQUIRED. Never use a default password in production.
-    # Generate a strong password: openssl rand -base64 24
+    container_name: pizzeria-postgres
     environment:
-      POSTGRES_DB: restaurantos
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    # Do NOT expose port 5432 to host in production — internal network only
+      POSTGRES_DB: ${POSTGRES_DB:-pizzeria_app}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
-      - restaurantos-net
+      - pizzeria-internal
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 512M
 
   server:
     build:
       context: ./server
       dockerfile: Dockerfile
+    container_name: pizzeria-api
     ports:
       - '${SERVER_PORT:-3001}:3001'
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@postgres:5432/restaurantos?schema=public
-      JWT_SECRET: ${JWT_SECRET}
-      REFRESH_SECRET: ${REFRESH_SECRET}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${DB_PASSWORD:-devpassword}@pizzeria-postgres:5432/${POSTGRES_DB:-pizzeria_app}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      REFRESH_SECRET: ${REFRESH_SECRET:-dev-refresh-secret-change-me}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:3000}
       NODE_ENV: production
       PORT: 3001
-      BACKUP_DIR: /app/backups
-      UPLOAD_DIR: /app/uploads
+      BUSINESS_ID: ${BUSINESS_ID:-}
+      ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kitchen,orders,reports,users,settings,expenses,wifi,tables,reservations,loyalty,shifts}
+      TRAEFIK_DYNAMIC_DIR: ${TRAEFIK_DYNAMIC_DIR:-/traefik-dynamic}
+      EMAIL_SERVER_HOST: ${EMAIL_SERVER_HOST:-}
+      EMAIL_SERVER_PORT: ${EMAIL_SERVER_PORT:-465}
+      EMAIL_SERVER_USER: ${EMAIL_SERVER_USER:-}
+      EMAIL_SERVER_PASSWORD: ${EMAIL_SERVER_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      ADMIN_NOTIFICATION_EMAIL: ${ADMIN_NOTIFICATION_EMAIL:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PIZZERIA_PRODUCT_ID: ${STRIPE_PIZZERIA_PRODUCT_ID:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SMS_PROVIDER: ${SMS_PROVIDER:-}
+      DRIVER_ACCESS_PIN: ${DRIVER_ACCESS_PIN:-2580}
+      MINIO_ENABLED: ${MINIO_ENABLED:-}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://pizzeria-minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-pizzeria-backups}
+      MINIO_CONSOLE_HOST: ${MINIO_CONSOLE_HOST:-}
+      MINIO_DEV_CONSOLE: ${MINIO_DEV_CONSOLE:-}
+      BACKUP_DIR: ${BACKUP_DIR:-/app/backups}
+      FISCAL_ARCHIVE_DIR: ${FISCAL_ARCHIVE_DIR:-/app/data/fiscal-archives}
     volumes:
-      - server_uploads:/app/uploads
-      - server_backups:/app/backups
+      - ${TRAEFIK_DYNAMIC_HOST_DIR:-./deploy/traefik/dynamic}:/traefik-dynamic
+      - ${BACKUP_HOST_DIR:-./backups}:/app/backups:ro
+      - ${FISCAL_DATA_HOST_DIR:-./data/fiscal-archives}:/app/data/fiscal-archives
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - restaurantos-net
-    deploy:
-      resources:
-        limits:
-          memory: 512M
+      - pizzeria-internal
 
-  client:
+  web:
     build:
-      context: ./client
+      context: ./app.pizzeria.fr
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
+        API_URL: ${API_URL:-http://server:3001}
+        NEXT_PUBLIC_PUBLIC_HOST: ${PUBLIC_HOST:-}
+        NEXT_PUBLIC_OPS_HOST: ${OPS_HOST:-}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kitchen,orders,reports,users,settings}
+    container_name: pizzeria-web
     ports:
-      - '${CLIENT_PORT:-80}:80'
+      - '${WEB_PORT:-3000}:3000'
     environment:
-      VITE_API_URL: /api
-      VITE_SOCKET_URL: http://server:3001
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api}
+      NEXT_PUBLIC_PUBLIC_HOST: ${PUBLIC_HOST:-}
+      NEXT_PUBLIC_OPS_HOST: ${OPS_HOST:-}
     depends_on:
       - server
     restart: unless-stopped
     networks:
-      - restaurantos-net
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - client
-      - server
-    restart: unless-stopped
-    networks:
-      - restaurantos-net
-    profiles:
-      - production
-    deploy:
-      resources:
-        limits:
-          memory: 128M
+      - pizzeria-internal
 
 volumes:
   postgres_data:
-  server_uploads:
-  server_backups:
-  caddy_data:
-  caddy_config:

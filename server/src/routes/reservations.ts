@@ -13,10 +13,11 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     if (date) {
       const d = new Date(date as string)
-      where.dateTime = {
-        gte: new Date(d.setHours(0, 0, 0, 0)),
-        lte: new Date(d.setHours(23, 59, 59, 999)),
-      }
+      const start = new Date(d)
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(d)
+      end.setHours(23, 59, 59, 999)
+      where.dateTime = { gte: start, lte: end }
     }
     if (status) where.status = status as string
 
@@ -31,14 +32,14 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, requireRole('ADMIN', 'MANAGER', 'WAITER'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma')
-    const { businessId, customerName, customerPhone, guests, tableId, dateTime, notes } = req.body
+    const { customerName, customerPhone, guests, tableId, dateTime, notes } = req.body
 
     const reservation = await prisma.reservation.create({
       data: {
-        businessId: businessId || req.user?.businessId,
+        businessId: req.user!.businessId,
         customerName,
         customerPhone,
         guests,
@@ -86,10 +87,12 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
     })
 
     if (status === 'SEATED' || status === 'CANCELLED' || status === 'NO_SHOW') {
-      await prisma.table.update({
-        where: { id: reservation.tableId! },
-        data: { status: status === 'SEATED' ? 'OCCUPIED' : 'AVAILABLE' },
-      })
+      if (reservation.tableId) {
+        await prisma.table.update({
+          where: { id: reservation.tableId },
+          data: { status: status === 'SEATED' ? 'OCCUPIED' : 'AVAILABLE' },
+        })
+      }
     }
 
     res.json(reservation)

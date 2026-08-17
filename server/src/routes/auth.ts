@@ -3,8 +3,58 @@ import bcrypt from 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
 import { generateToken, generateRefreshToken, verifyRefreshToken, authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { canAccessKitchen, canAccessPos } from '../lib/roles'
+import { isValidStaffPin } from '../lib/pin'
+import { logFiscalEvent } from '../lib/fiscal/events'
 
 const router = Router()
+
+function issueTokens(user: {
+  id: string
+  businessId: string
+  role: string
+  name: string
+  email: string
+  business: {
+    id: string
+    name: string
+    nameAr?: string | null
+    currency?: string
+    taxRate?: number
+    serviceChargeRate?: number
+    kitchenDisplayEnabled?: boolean
+  }
+}) {
+  const payload = {
+    userId: user.id,
+    businessId: user.businessId,
+    role: user.role,
+    name: user.name,
+  }
+  const accessToken = generateToken(payload)
+  const refreshToken = generateRefreshToken(payload)
+  return {
+    accessToken,
+    refreshToken,
+    token: accessToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      businessId: user.businessId,
+    },
+    business: {
+      id: user.business.id,
+      name: user.business.name,
+      nameAr: user.business.nameAr ?? null,
+      currency: user.business.currency ?? 'EUR',
+      taxRate: user.business.taxRate ?? 10,
+      serviceChargeRate: user.business.serviceChargeRate ?? 0,
+      kitchenDisplayEnabled: user.business.kitchenDisplayEnabled ?? true,
+    },
+  }
+}
 
 /**
  * POST /api/auth/login
@@ -18,54 +68,117 @@ const router = Router()
 router.post('/login', async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma')
-    const { email, password, pin } = req.body
+    const { email, password } = req.body
 
-    if (!email && !pin) {
-      return res.status(400).json({ error: 'Email or PIN required' })
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email et mot de passe requis' })
     }
 
+    const normalizedEmail = String(email).trim().toLowerCase()
+
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       include: { business: true },
     })
 
     if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Invalid credentials' })
+      return res.status(401).json({ error: 'Identifiants incorrects' })
     }
 
-    if (password) {
-      const valid = await bcrypt.compare(password, user.password)
-      if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
-    }
+    const valid = await bcrypt.compare(password, user.password)
+    if (!valid) return res.status(401).json({ error: 'Identifiants incorrects' })
 
-    if (pin && user.pin !== pin) {
-      return res.status(401).json({ error: 'Invalid PIN' })
-    }
-
-    const payload = {
-      userId: user.id,
+    void logFiscalEvent(prisma, {
       businessId: user.businessId,
-      role: user.role,
-      name: user.name,
-    }
-    const accessToken = generateToken(payload)
-    const refreshToken = generateRefreshToken(payload)
+      eventType: 'OPERATOR_LOGIN',
+      operatorId: user.id,
+      entityType: 'User',
+      entityId: user.id,
+      payload: { method: 'email', role: user.role },
+    }).catch((err) => console.error('[fiscal] OPERATOR_LOGIN:', err))
 
-    res.json({
-      accessToken,
-      refreshToken,
-      token: accessToken, // backward compat
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        businessId: user.businessId,
-      },
-      business: user.business,
-    })
+    res.json(issueTokens(user))
   } catch (error) {
     console.error('Login error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/auth/pin
+ * Déverrouillage POS / KDS — PIN employé (pas d'accès CRM).
+ */
+router.post('/pin', async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const { pin, businessId, device } = req.body as {
+      pin?: string
+      businessId?: string
+      device?: 'pos' | 'kitchen'
+    }
+
+    const bid = businessId || process.env.BUSINESS_ID
+    if (!pin || !bid) {
+      return res.status(400).json({ error: 'PIN requis' })
+    }
+    if (device !== 'pos' && device !== 'kitchen') {
+      return res.status(400).json({ error: 'Appareil invalide' })
+    }
+
+    const normalizedPin = String(pin).trim()
+    if (!isValidStaffPin(normalizedPin)) {
+      return res.status(400).json({ error: 'PIN invalide (4 chiffres)' })
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { businessId: bid, pin: normalizedPin, isActive: true },
+      select: {
+        id: true,
+        businessId: true,
+        role: true,
+        name: true,
+        email: true,
+        business: {
+          select: {
+            id: true,
+            name: true,
+            nameAr: true,
+            currency: true,
+            taxRate: true,
+            serviceChargeRate: true,
+            kitchenDisplayEnabled: true,
+          },
+        },
+      },
+    })
+
+    if (!user) {
+      return res.status(401).json({ error: 'PIN incorrect' })
+    }
+
+    if (device === 'pos' && !canAccessPos(user.role)) {
+      return res.status(403).json({
+        error: 'Ce PIN est réservé à la cuisine — utilisez le PIN caisse (ex. 1234).',
+      })
+    }
+    if (device === 'kitchen' && !canAccessKitchen(user.role)) {
+      return res.status(403).json({
+        error: 'Ce PIN ne peut pas ouvrir le KDS — utilisez le PIN cuisine (5678) ou admin (2468).',
+      })
+    }
+
+    void logFiscalEvent(prisma, {
+      businessId: user.businessId,
+      eventType: 'OPERATOR_LOGIN',
+      operatorId: user.id,
+      entityType: 'User',
+      entityId: user.id,
+      payload: { method: 'pin', device, role: user.role },
+    }).catch((err) => console.error('[fiscal] OPERATOR_LOGIN:', err))
+
+    res.json(issueTokens(user))
+  } catch (error) {
+    console.error('PIN login error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

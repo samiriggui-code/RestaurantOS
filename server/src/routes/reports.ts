@@ -2,8 +2,29 @@ import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { effectiveOrderChannel } from '../lib/order-channel'
+import { UNPAID_PENDING_ORDER_FILTER } from '../lib/order-list-filters'
+import { renderSalesReportHtml } from '../lib/report-document-service'
 
 const router = Router()
+
+/**
+ * GET /api/reports/print — rapport ventes HTML (React Email, prêt PDF)
+ */
+router.get('/print', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const period = Math.min(parseInt(String(req.query.period ?? '7'), 10) || 7, 90)
+    const to = new Date()
+    const from = new Date()
+    from.setDate(from.getDate() - period)
+    const html = await renderSalesReportHtml(prisma, req.user!.businessId, from, to)
+    res.type('text/html; charset=utf-8').send(html)
+  } catch (error) {
+    console.error('[reports/print]', error)
+    res.status(500).json({ error: 'Génération rapport impossible' })
+  }
+})
 
 /**
  * GET /api/reports/dashboard
@@ -20,15 +41,19 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
     const todayEnd = new Date(today)
     todayEnd.setHours(23, 59, 59, 999)
 
+    const weekStart = new Date(today)
+    weekStart.setDate(weekStart.getDate() - 6)
+
     const [
-      todayOrders,
-      todayRevenue,
+      todayOrdersCount,
+      todayRevenueAgg,
       pendingOrders,
       activeTables,
       totalItems,
       totalCategories,
       recentOrders,
-      topItems,
+      todayOrdersDetail,
+      weekPaidOrders,
     ] = await Promise.all([
       prisma.order.count({
         where: { businessId, createdAt: { gte: today, lte: todayEnd } },
@@ -36,21 +61,22 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
       prisma.order.aggregate({
         where: { businessId, createdAt: { gte: today, lte: todayEnd }, paymentStatus: 'PAID' },
         _sum: { total: true },
+        _count: true,
       }),
       prisma.order.count({
-        where: { businessId, status: { in: ['PENDING', 'CONFIRMED', 'PREPARING'] } },
+        where: { businessId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'CONFIRMED', 'PREPARING', 'READY'] } },
       }),
       prisma.table.count({
         where: { businessId, status: 'OCCUPIED' },
       }),
       prisma.menuItem.count({
-        where: { category: { businessId }, isActive: true },
+        where: { category: { businessId }, isActive: true, slug: { not: '__snapshot__' } },
       }),
       prisma.menuCategory.count({
         where: { businessId, isActive: true },
       }),
       prisma.order.findMany({
-        where: { businessId },
+        where: { businessId, NOT: UNPAID_PENDING_ORDER_FILTER },
         orderBy: { createdAt: 'desc' },
         take: 10,
         include: {
@@ -58,38 +84,209 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
           table: true,
         },
       }),
-      prisma.orderItem.groupBy({
-        by: ['menuItemId'],
-        _sum: { quantity: true },
-        orderBy: { _sum: { quantity: 'desc' } },
-        take: 10,
+      prisma.order.findMany({
+        where: { businessId, createdAt: { gte: today, lte: todayEnd } },
+        select: {
+          type: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          total: true,
+          createdAt: true,
+          isOnlineOrder: true,
+          status: true,
+          channel: true,
+        },
+      }),
+      prisma.order.findMany({
+        where: {
+          businessId,
+          createdAt: { gte: weekStart, lte: todayEnd },
+          paymentStatus: 'PAID',
+        },
+        select: { createdAt: true, total: true },
       }),
     ])
 
-    // Get top item names
-    const itemIds = topItems.map(i => i.menuItemId)
-    const items = await prisma.menuItem.findMany({
-      where: { id: { in: itemIds } },
-      select: { id: true, name: true, nameAr: true },
+    const todayRevenue = todayRevenueAgg._sum.total || 0
+    const todayPaidCount = todayRevenueAgg._count || 0
+    const avgBasketToday = todayPaidCount > 0 ? Math.round(todayRevenue / todayPaidCount) : 0
+
+    const hourlyToday: { hour: number; count: number; revenue: number }[] = []
+    for (let h = 18; h <= 23; h++) {
+      hourlyToday.push({ hour: h, count: 0, revenue: 0 })
+    }
+
+    const orderTypes: Record<string, { count: number; revenue: number }> = {}
+    const paymentMethods: Record<string, { count: number; revenue: number }> = {}
+    const channelsToday: Record<string, { count: number; revenue: number }> = {}
+    const statusToday: Record<string, number> = {}
+    let onlineToday = 0
+    let counterToday = 0
+
+    const itemQtyToday: Record<string, { name: string; quantity: number; revenue: number }> = {}
+
+    for (const order of todayOrdersDetail) {
+      statusToday[order.status] = (statusToday[order.status] ?? 0) + 1
+      if (order.isOnlineOrder) onlineToday++
+      else counterToday++
+
+      if (order.paymentStatus === 'PAID') {
+        const type = order.type || 'DINE_IN'
+        if (!orderTypes[type]) orderTypes[type] = { count: 0, revenue: 0 }
+        orderTypes[type].count++
+        orderTypes[type].revenue += order.total
+
+        const method = order.paymentMethod || (order.isOnlineOrder ? 'STRIPE' : 'CASH')
+        if (!paymentMethods[method]) paymentMethods[method] = { count: 0, revenue: 0 }
+        paymentMethods[method].count++
+        paymentMethods[method].revenue += order.total
+
+        const ch = effectiveOrderChannel(order)
+        if (!channelsToday[ch]) channelsToday[ch] = { count: 0, revenue: 0 }
+        channelsToday[ch].count++
+        channelsToday[ch].revenue += order.total
+
+        const hour = new Date(order.createdAt).getHours()
+        const slot = hourlyToday.find((h) => h.hour === hour)
+        if (slot) {
+          slot.count++
+          slot.revenue += order.total
+        }
+      }
+    }
+
+    const todayOrderIds = await prisma.order.findMany({
+      where: { businessId, createdAt: { gte: today, lte: todayEnd }, paymentStatus: 'PAID' },
+      select: { id: true },
     })
-    const itemMap = new Map(items.map(i => [i.id, i]))
-    const topSellingItems = topItems.map(i => ({
-      ...i,
-      menuItem: itemMap.get(i.menuItemId),
-    }))
+    if (todayOrderIds.length > 0) {
+      const todayItems = await prisma.orderItem.findMany({
+        where: { orderId: { in: todayOrderIds.map((o) => o.id) } },
+        include: { menuItem: { select: { id: true, name: true } } },
+      })
+      for (const oi of todayItems) {
+        const id = oi.menuItemId
+        if (!itemQtyToday[id]) {
+          itemQtyToday[id] = { name: oi.menuItem.name, quantity: 0, revenue: 0 }
+        }
+        itemQtyToday[id].quantity += oi.quantity
+        itemQtyToday[id].revenue += oi.price * oi.quantity
+      }
+    }
+
+    const topItemsToday = Object.entries(itemQtyToday)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 8)
+
+    const salesByDay: { date: string; count: number; total: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const key = d.toISOString().slice(0, 10)
+      const dayOrders = weekPaidOrders.filter(
+        (o) => new Date(o.createdAt).toISOString().slice(0, 10) === key
+      )
+      salesByDay.push({
+        date: key,
+        count: dayOrders.length,
+        total: dayOrders.reduce((s, o) => s + o.total, 0),
+      })
+    }
 
     res.json({
-      todayOrders,
-      todayRevenue: todayRevenue._sum.total || 0,
+      todayOrders: todayOrdersCount,
+      todayPaidCount,
+      todayRevenue,
+      avgBasketToday,
       pendingOrders,
       activeTables,
       totalItems,
       totalCategories,
+      onlineToday,
+      counterToday,
       recentOrders,
-      topSellingItems,
+      topItemsToday,
+      hourlyToday,
+      orderTypes,
+      paymentMethods,
+      channelsToday,
+      statusToday,
+      salesByDay,
     })
   } catch (error) {
     console.error('Dashboard error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/reports/customers-summary — clients agrégés par téléphone (365 j)
+ */
+router.get('/customers-summary', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const businessId = req.user!.businessId
+    const since = new Date()
+    since.setDate(since.getDate() - 365)
+
+    const orders = await prisma.order.findMany({
+      where: {
+        businessId,
+        createdAt: { gte: since },
+        customerPhone: { not: null },
+        status: { not: 'CANCELLED' },
+      },
+      select: {
+        customerPhone: true,
+        customerName: true,
+        customerEmail: true,
+        total: true,
+        paymentStatus: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const byPhone = new Map<
+      string,
+      {
+        phone: string
+        name: string
+        email: string | null
+        orderCount: number
+        paidTotalCents: number
+        lastOrderAt: string
+      }
+    >()
+
+    for (const o of orders) {
+      const phone = o.customerPhone?.trim()
+      if (!phone) continue
+      const key = phone.replace(/\s/g, '')
+      const existing = byPhone.get(key)
+      const paid = o.paymentStatus === 'PAID' ? o.total : 0
+      if (!existing) {
+        byPhone.set(key, {
+          phone,
+          name: o.customerName?.trim() || 'Client',
+          email: o.customerEmail,
+          orderCount: 1,
+          paidTotalCents: paid,
+          lastOrderAt: o.createdAt.toISOString(),
+        })
+      } else {
+        existing.orderCount++
+        existing.paidTotalCents += paid
+        if (!existing.name && o.customerName) existing.name = o.customerName.trim()
+        if (!existing.email && o.customerEmail) existing.email = o.customerEmail
+      }
+    }
+
+    const customers = [...byPhone.values()].sort((a, b) => b.paidTotalCents - a.paidTotalCents)
+    res.json({ customers })
+  } catch (error) {
+    console.error('[reports/customers-summary]', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -228,7 +425,10 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
         name: true,
         role: true,
         orders: {
-          where: { createdAt: { gte: dateFrom, lte: dateTo } },
+          where: {
+            createdAt: { gte: dateFrom, lte: dateTo },
+            paymentStatus: 'PAID',
+          },
           select: { id: true, total: true },
         },
       },
@@ -243,6 +443,50 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
     }))
 
     res.json(employeeData)
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/reports/drivers
+ * Performance livreurs (commandes livraison payées assignées).
+ */
+router.get('/drivers', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const businessId = req.user!.businessId
+    const { from, to } = req.query
+
+    const dateFrom = from ? new Date(from as string) : new Date(0)
+    const dateTo = to ? new Date(to as string) : new Date()
+
+    const drivers = await prisma.user.findMany({
+      where: { businessId, isActive: true, role: 'DRIVER' },
+      select: {
+        id: true,
+        name: true,
+        driverOrders: {
+          where: {
+            createdAt: { gte: dateFrom, lte: dateTo },
+            paymentStatus: 'PAID',
+            type: 'DELIVERY',
+          },
+          select: { id: true, total: true, status: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const driverData = drivers.map((d) => ({
+      id: d.id,
+      name: d.name,
+      deliveryCount: d.driverOrders.length,
+      deliveredCount: d.driverOrders.filter((o) => o.status === 'DELIVERED' || o.status === 'COMPLETED').length,
+      totalSales: d.driverOrders.reduce((sum, o) => sum + o.total, 0),
+    }))
+
+    res.json(driverData)
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
@@ -329,6 +573,7 @@ router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) 
     const orders = await prisma.order.findMany({
       where: {
         businessId,
+        paymentStatus: 'PAID',
         createdAt: { gte: dateFrom, lte: dateTo },
       },
       select: { createdAt: true, total: true },
@@ -398,6 +643,42 @@ router.get('/payment-methods', authenticate, async (req: AuthRequest, res: Respo
     res.json(methods)
   } catch (error) {
     console.error('Payment methods error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/reports/order-types
+ * Répartition livraison / emporter / sur place.
+ */
+router.get('/order-types', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const businessId = req.user!.businessId
+    const { from, to } = req.query
+
+    const dateFrom = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30))
+    const dateTo = to ? new Date(to as string) : new Date()
+
+    const orders = await prisma.order.findMany({
+      where: {
+        businessId,
+        paymentStatus: 'PAID',
+        createdAt: { gte: dateFrom, lte: dateTo },
+      },
+      select: { type: true, total: true, isOnlineOrder: true },
+    })
+
+    const types: Record<string, { count: number; revenue: number }> = {}
+    for (const order of orders) {
+      const type = order.type || 'DINE_IN'
+      if (!types[type]) types[type] = { count: 0, revenue: 0 }
+      types[type].count++
+      types[type].revenue += order.total
+    }
+
+    res.json(types)
+  } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }
 })

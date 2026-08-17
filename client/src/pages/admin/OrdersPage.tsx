@@ -5,6 +5,7 @@ import { Order } from '../../types'
 import { Search, Filter, Eye, X, Printer, Usb, Clock, ShoppingCart } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from '../../i18n/useTranslation'
+import { formatMoney } from '../../lib/locale'
 
 const statusColors: Record<string, string> = {
   PENDING: 'badge-pending',
@@ -144,14 +145,14 @@ export default function OrdersPage() {
                 </span>
               </div>
               <span className="font-bold text-primary-200">
-                {order.total.toFixed(2)} {t('currency')}
+                {formatMoney(order.total)}
               </span>
             </div>
 
             <div className="mt-3 pt-3 border-t border-surface-600/40 flex gap-1.5 flex-wrap">
               {order.items?.slice(0, 4).map((item: any) => (
                 <span key={item.id} className="text-xs px-2 py-1 bg-surface-700 rounded-lg text-surface-300 truncate max-w-[120px]">
-                  {item.menuItem.nameAr || item.menuItem.name}
+                  {item.menuItem.name || item.menuItem.nameAr}
                 </span>
               ))}
               {(order.items?.length || 0) > 4 && (
@@ -209,8 +210,8 @@ export default function OrdersPage() {
                 <h3 className="font-semibold mb-2 text-surface-50">{t('orders.items')}</h3>
                 {selectedOrder.items.map(item => (
                   <div key={item.id} className="flex justify-between py-2 text-sm border-b border-surface-600/40 last:border-0">
-                    <span className="text-surface-200">{item.quantity}x {item.menuItem.nameAr || item.menuItem.name}</span>
-                    <span className="text-surface-50">{(item.price * item.quantity).toFixed(2)} {t('currency')}</span>
+                    <span className="text-surface-200">{item.quantity}x {item.menuItem.name || item.menuItem.nameAr}</span>
+                    <span className="text-surface-50">{formatMoney(item.price * item.quantity)}</span>
                   </div>
                 ))}
               </div>
@@ -218,21 +219,21 @@ export default function OrdersPage() {
               <div className="border-t border-surface-600/40 pt-4 space-y-1 text-sm">
                 <div className="flex justify-between text-surface-400">
                   <span>{t('orders.subtotal')}</span>
-                  <span>{selectedOrder.subtotal.toFixed(2)} {t('currency')}</span>
+                  <span>{formatMoney(selectedOrder.subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-surface-400">
                   <span>{t('orders.tax')}</span>
-                  <span>{selectedOrder.tax.toFixed(2)} {t('currency')}</span>
+                  <span>{formatMoney(selectedOrder.tax)}</span>
                 </div>
                 {selectedOrder.serviceCharge > 0 && (
                   <div className="flex justify-between text-surface-400">
                     <span>{t('orders.service')}</span>
-                    <span>{selectedOrder.serviceCharge.toFixed(2)} {t('currency')}</span>
+                    <span>{formatMoney(selectedOrder.serviceCharge)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg pt-2 border-t border-surface-600/40">
                   <span className="text-surface-50">{t('orders.total')}</span>
-                  <span className="text-primary-200">{selectedOrder.total.toFixed(2)} {t('currency')}</span>
+                  <span className="text-primary-200">{formatMoney(selectedOrder.total)}</span>
                 </div>
               </div>
 

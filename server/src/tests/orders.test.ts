@@ -8,9 +8,28 @@ jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn(),
 }))
 
+jest.mock('../lib/fiscal/auto-void', () => ({
+  voidFiscalTicketForCancelledOrder: jest.fn().mockResolvedValue(undefined),
+}))
+
+jest.mock('../lib/stripe-refund', () => ({
+  refundStripePaymentForOrder: jest.fn().mockResolvedValue({ ok: true, refundId: '' }),
+}))
+
+jest.mock('../lib/order-stock', () => ({
+  restoreStockForOrder: jest.fn().mockResolvedValue(undefined),
+  deductStockForOrder: jest.fn().mockResolvedValue(undefined),
+}))
+
 jest.mock('../middleware/auth', () => ({
   authenticate: jest.fn((req: any, _res: any, next: any) => {
     req.user = { userId: 'user-1', businessId: 'biz-1', role: 'ADMIN', name: 'Admin' }
+    next()
+  }),
+  optionalAuthenticate: jest.fn((req: any, _res: any, next: any) => {
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      req.user = { userId: 'user-1', businessId: 'biz-1', role: 'CASHIER', name: 'Caisse' }
+    }
     next()
   }),
   requireRole: jest.fn((...roles: string[]) => {
@@ -174,6 +193,45 @@ describe('Order Routes', () => {
         })
       )
     })
+
+    it('should create counter order as CONFIRMED and emit order:new', async () => {
+      ;(prisma.menuItem.findUnique as jest.Mock).mockResolvedValue(mockMenuItem)
+      ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
+      ;(prisma.order.create as jest.Mock).mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          ...mockOrder,
+          id: 'counter-order',
+          status: data.status,
+          paymentStatus: data.paymentStatus,
+          isOnlineOrder: data.isOnlineOrder,
+          items: [],
+          table: null,
+        })
+      )
+
+      const res = await request(app)
+        .post('/api/orders')
+        .set('Authorization', 'Bearer staff-token')
+        .send({
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+          type: 'TAKEAWAY',
+          paymentMethod: 'CASH',
+          paymentStatus: 'PAID',
+          isOnlineOrder: false,
+        })
+
+      expect(res.status).toBe(201)
+      expect(prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'CONFIRMED',
+            paymentStatus: 'PAID',
+            isOnlineOrder: false,
+          }),
+        })
+      )
+      expect(mockIo.emit).toHaveBeenCalledWith('order:new', expect.objectContaining({ id: 'counter-order' }))
+    })
   })
 
   describe('GET /api/orders', () => {
@@ -280,6 +338,11 @@ describe('Order Routes', () => {
 
   describe('PATCH /api/orders/:id/payment', () => {
     it('should update payment status', async () => {
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        items: [],
+        table: null,
+      })
       ;(prisma.order.update as jest.Mock).mockResolvedValue({
         ...mockOrder,
         paymentStatus: 'PAID',
@@ -300,34 +363,79 @@ describe('Order Routes', () => {
   })
 
   describe('PATCH /api/orders/:id/cancel', () => {
-    it('should cancel an order', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
+    it('should cancel an order with reason', async () => {
+      const existingOrder = {
         ...mockOrder,
-        status: 'CANCELLED',
-        items: [],
+        status: 'PREPARING',
+        paymentStatus: 'PAID',
+        items: [{ menuItemId: 'item-1', quantity: 1 }],
         table: null,
-      })
+      }
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue(existingOrder)
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn) =>
+        fn({
+          order: {
+            update: jest.fn().mockResolvedValue({
+              ...existingOrder,
+              status: 'CANCELLED',
+              cancelReason: 'OUT_OF_STOCK',
+              items: [],
+              table: null,
+            }),
+          },
+          stockItem: { findMany: jest.fn().mockResolvedValue([]) },
+          stockMovement: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+          table: { update: jest.fn() },
+        })
+      )
 
-      const res = await request(app).patch('/api/orders/order-1/cancel')
+      const res = await request(app)
+        .patch('/api/orders/order-1/cancel')
+        .send({ reason: 'OUT_OF_STOCK', source: 'KITCHEN' })
 
       expect(res.status).toBe(200)
       expect(res.body.status).toBe('CANCELLED')
+      expect(mockIo.emit).toHaveBeenCalledWith('order:cancelled', expect.any(Object))
+      expect(mockIo.emit).toHaveBeenCalledWith('order:statusUpdate', expect.any(Object))
+    })
+
+    it('should reject cancel without reason', async () => {
+      const res = await request(app).patch('/api/orders/order-1/cancel').send({})
+      expect(res.status).toBe(400)
     })
 
     it('should free the table when cancelling a dine-in order with table', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
+      const tableUpdate = jest.fn().mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' })
+      const existingOrder = {
         ...mockOrder,
         tableId: 'table-1',
-        status: 'CANCELLED',
+        status: 'CONFIRMED',
         items: [],
-        table: null,
-      })
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' })
+        table: { id: 'table-1', number: 5 },
+      }
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue(existingOrder)
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn) =>
+        fn({
+          order: {
+            update: jest.fn().mockResolvedValue({
+              ...existingOrder,
+              status: 'CANCELLED',
+              items: [],
+              table: null,
+            }),
+          },
+          stockItem: { findMany: jest.fn().mockResolvedValue([]) },
+          stockMovement: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+          table: { update: tableUpdate },
+        })
+      )
 
-      const res = await request(app).patch('/api/orders/order-1/cancel')
+      const res = await request(app)
+        .patch('/api/orders/order-1/cancel')
+        .send({ reason: 'CLIENT_REFUSED' })
 
       expect(res.status).toBe(200)
-      expect(prisma.table.update).toHaveBeenCalledWith(
+      expect(tableUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'table-1' },
           data: { status: 'AVAILABLE' },

@@ -27,15 +27,13 @@ test.describe('Authentication Flow', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 5000 })
   })
 
-  test('should load menu page', async ({ page }) => {
+  test('redirects legacy /menu to login', async ({ page }) => {
     await page.goto('/menu')
-    await expect(page.locator('body')).toBeVisible()
+    await expect(page).toHaveURL(/\/login/)
   })
 
-  test('should handle offline mode', async ({ page }) => {
+  test('redirects home to login', async ({ page }) => {
     await page.goto('/')
-    await page.context().setOffline(true)
-    await page.waitForTimeout(500)
-    await page.context().setOffline(false)
+    await expect(page).toHaveURL(/\/login/)
   })
 })

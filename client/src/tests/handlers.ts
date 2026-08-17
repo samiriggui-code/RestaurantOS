@@ -121,7 +121,7 @@ export const handlers = [
   http.get('/api/orders', ({ request }) => {
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
-    if (status && status.includes('PENDING')) {
+    if (status && (status.includes('PENDING') || status.includes('CONFIRMED'))) {
       return HttpResponse.json([
         {
           id: 'order-1',

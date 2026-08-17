@@ -1,5 +1,15 @@
 node_modules/
 dist/
+
+# Android / Gradle (caches volumineux, régénérables)
+android/build/
+android/app/build/
+android/.gradle/
+android/.gradle-user-home/
+android/captures/
+android/local.properties
+*.apk
+*.aab
 .env
 .env.*
 !.env.example
@@ -41,7 +51,12 @@ temp/
 # Database
 *.db
 server/prisma/*.db
+server/data/
 server/backups/
+
+# Next.js
+app.pizzeria.fr/.next/
+app.pizzeria.fr/out/
 
 # Screenshots
 *.png
@@ -49,6 +64,11 @@ client/public/screenshots/
 
 # Build artifacts
 *.tsbuildinfo
+
+# Android (genere localement)
+android/local.properties
+android/.gradle/
+android/app/build/
 
 # Root artifacts
 code.html

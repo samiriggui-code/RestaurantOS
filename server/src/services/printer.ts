@@ -1,3 +1,14 @@
+import { centsToEuros } from '../lib/money'
+import { orderItemDisplayName, orderItemModifierLines } from '../lib/order-item-display'
+import {
+  buildTicketFooter,
+  buildTicketHeader,
+  padCenter,
+  resolveTicketBranding,
+  TICKET_WIDTH,
+  wrapTicketLines,
+} from '../lib/ticket-branding'
+
 interface ReceiptData {
   businessName: string
   businessNameAr?: string
@@ -23,113 +34,28 @@ interface ReceiptData {
   footer?: string
 }
 
-function padCenter(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length)
-  const left = Math.floor(padding / 2)
-  const right = padding - left
-  return ' '.repeat(left) + text + ' '.repeat(right)
+function euros(cents: number): string {
+  return centsToEuros(cents).toFixed(2)
 }
 
-function padRight(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length)
-  return ' '.repeat(padding) + text
-}
-
-export function generateEscPosReceipt(data: ReceiptData): Uint8Array {
-  const WIDTH = 32
-  const LF = '\n'
+function formatDeliveryAddress(order: {
+  deliveryAddress?: string | null
+  deliveryPostalCode?: string | null
+  deliveryCity?: string | null
+}): string[] {
   const lines: string[] = []
-
-  // Header
-  lines.push('')
-  lines.push(padCenter(data.businessNameAr || data.businessName, WIDTH))
-  lines.push('='.repeat(WIDTH))
-
-  // Order info
-  lines.push(`طلب #${data.orderNumber}`)
-  if (data.tableNumber) lines.push(`طاولة: ${data.tableNumber}`)
-  if (data.customerName) lines.push(`العميل: ${data.customerName}`)
-  lines.push(`التاريخ: ${data.date}`)
-  if (data.cashierName) lines.push(`الكاشير: ${data.cashierName}`)
-  lines.push('-'.repeat(WIDTH))
-
-  // Items header
-  lines.push('الكمية  الصنف               السعر')
-  lines.push('-'.repeat(WIDTH))
-
-  // Items
-  for (const item of data.items) {
-    const name = (item.nameAr || item.name).substring(0, 16)
-    const qty = `${item.quantity}`
-    const price = `${(item.price * item.quantity).toFixed(2)}`
-    lines.push(`${qty.padEnd(4)}   ${name.padEnd(14)} ${price.padStart(8)}`)
-    if (item.modifiers && item.modifiers.length > 0) {
-      for (const mod of item.modifiers) {
-        lines.push(`       ${mod.substring(0, 20)}`)
-      }
-    }
+  if (order.deliveryAddress?.trim()) {
+    lines.push(...wrapTicketLines(order.deliveryAddress.trim(), 32))
   }
+  const cityLine = [order.deliveryPostalCode?.trim(), order.deliveryCity?.trim()].filter(Boolean).join(' ')
+  if (cityLine) lines.push(cityLine)
+  return lines
+}
 
-  lines.push('-'.repeat(WIDTH))
-
-  // Totals
-  const fmtAmount = (label: string, amount: number) => {
-    return `${label.padEnd(20)} ${amount.toFixed(2).padStart(10)}`
-  }
-
-  lines.push(fmtAmount('المجموع الفرعي', data.subtotal))
-  lines.push(fmtAmount('الضريبة', data.tax))
-  if (data.serviceCharge > 0) {
-    lines.push(fmtAmount('خدمة', data.serviceCharge))
-  }
-  if (data.discount > 0) {
-    lines.push(fmtAmount('الخصم', data.discount))
-  }
-  lines.push('='.repeat(WIDTH))
-  lines.push(fmtAmount('الإجمالي', data.total))
-  lines.push('='.repeat(WIDTH))
-
-  // Payment info
-  if (data.paymentMethod) {
-    lines.push(`طريقة الدفع: ${data.paymentMethod}`)
-  }
-  if (data.paymentStatus === 'PAID') {
-    lines.push(padCenter('مدفوع', WIDTH))
-  }
-
-  lines.push('')
-  if (data.footer) {
-    lines.push(padCenter(data.footer, WIDTH))
-  }
-  lines.push(padCenter('شكراً لزيارتكم', WIDTH))
-  lines.push('')
-  lines.push('')
-  lines.push('')
-
-  // Convert to ESC/POS bytes
-  const text = lines.join(LF)
-  const encoder = new TextEncoder()
-  const textBytes = encoder.encode(text)
-
-  // Build ESC/POS command sequence
-  const ESC = 0x1B
-  const GS = 0x1D
-  const LF_BYTE = 0x0A
-
-  const commands: number[] = [
-    ESC, 0x40,                         // Initialize printer
-    ESC, 0x61, 0x01,                   // Center alignment
-    ESC, 0x21, 0x30,                   // Double height + double width
-    ...textBytes.slice(0, 40),         // Business name
-    LF_BYTE,
-    LF_BYTE,
-    ESC, 0x61, 0x00,                   // Left alignment
-    ESC, 0x21, 0x00,                   // Normal font
-    ...textBytes.slice(40),
-    GS, 0x56, 0x00,                    // Cut paper
-  ]
-
-  return new Uint8Array(commands)
+const TYPE_LABEL: Record<string, string> = {
+  DINE_IN: 'Sur place',
+  TAKEAWAY: 'À emporter',
+  DELIVERY: 'Livraison',
 }
 
 export function generateReceiptData(order: any, business: any): ReceiptData {
@@ -140,13 +66,15 @@ export function generateReceiptData(order: any, business: any): ReceiptData {
     tableNumber: order.table?.number,
     cashierName: order.cashier?.name,
     items: order.items.map((item: any) => ({
-      name: item.menuItem.name,
-      nameAr: item.menuItem.nameAr,
+      name: orderItemDisplayName(item),
+      nameAr: item.menuItem?.nameAr,
       quantity: item.quantity,
       price: item.price,
-      modifiers: item.selectedModifiers
-        ? Object.values(item.selectedModifiers).flat()
-        : undefined,
+      modifiers: orderItemModifierLines(item).length
+        ? orderItemModifierLines(item)
+        : item.selectedModifiers
+          ? Object.values(item.selectedModifiers).flat()
+          : undefined,
     })),
     subtotal: order.subtotal,
     tax: order.tax,
@@ -155,8 +83,244 @@ export function generateReceiptData(order: any, business: any): ReceiptData {
     total: order.total,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
-    date: new Date(order.createdAt).toLocaleDateString('ar-DZ'),
+    date: new Date(order.createdAt).toLocaleDateString('fr-FR'),
     customerName: order.customerName,
-    footer: business.nameAr || business.name,
+    footer: business.name || business.nameAr,
   }
+}
+
+export function generateEscPosReceipt(data: ReceiptData): Uint8Array {
+  const WIDTH = 32
+  const LF = '\n'
+  const lines: string[] = []
+
+  lines.push('')
+  lines.push(padCenter(data.businessName, WIDTH))
+  lines.push('='.repeat(WIDTH))
+  lines.push(`Commande #${data.orderNumber}`)
+  if (data.tableNumber) lines.push(`Table: ${data.tableNumber}`)
+  if (data.customerName) lines.push(`Client: ${data.customerName}`)
+  lines.push(`Date: ${data.date}`)
+  if (data.cashierName) lines.push(`Caissier: ${data.cashierName}`)
+  lines.push('-'.repeat(WIDTH))
+  lines.push('Qte   Article          Prix')
+  lines.push('-'.repeat(WIDTH))
+
+  for (const item of data.items) {
+    const name = (item.name || item.nameAr || '').substring(0, 16)
+    const qty = `${item.quantity}`
+    const lineTotal = euros(item.price * item.quantity)
+    lines.push(`${qty.padEnd(4)}   ${name.padEnd(14)} ${lineTotal.padStart(8)}`)
+    if (item.modifiers?.length) {
+      for (const mod of item.modifiers) {
+        lines.push(`       ${String(mod).substring(0, 20)}`)
+      }
+    }
+  }
+
+  lines.push('-'.repeat(WIDTH))
+  const fmtAmount = (label: string, amountCents: number) =>
+    `${label.padEnd(20)} ${euros(amountCents).padStart(10)}`
+  lines.push(fmtAmount('Sous-total', data.subtotal))
+  lines.push(fmtAmount('TVA', data.tax))
+  if (data.serviceCharge > 0) lines.push(fmtAmount('Service', data.serviceCharge))
+  if (data.discount > 0) lines.push(fmtAmount('Remise', data.discount))
+  lines.push('='.repeat(WIDTH))
+  lines.push(fmtAmount('TOTAL', data.total))
+  lines.push('='.repeat(WIDTH))
+  if (data.paymentMethod) lines.push(`Paiement: ${data.paymentMethod}`)
+  if (data.paymentStatus === 'PAID') lines.push(padCenter('PAYE', WIDTH))
+  lines.push('')
+  if (data.footer) lines.push(padCenter(data.footer, WIDTH))
+  lines.push(padCenter('Merci de votre commande', WIDTH))
+
+  const text = lines.join(LF)
+  const textBytes = new TextEncoder().encode(text)
+  const ESC = 0x1b
+  const GS = 0x1d
+  const LF_BYTE = 0x0a
+  const commands: number[] = [
+    ESC, 0x40, ESC, 0x61, 0x01, ESC, 0x21, 0x30,
+    ...textBytes.slice(0, 40), LF_BYTE, LF_BYTE,
+    ESC, 0x61, 0x00, ESC, 0x21, 0x00,
+    ...textBytes.slice(40), GS, 0x56, 0x00,
+  ]
+  return new Uint8Array(commands)
+}
+
+/** Ticket préparation cuisine (Epson / SUNMI) — compact, sans pied légal. */
+export function generateKitchenTicketText(order: any, business: any): string {
+  const W = TICKET_WIDTH
+  const branding = resolveTicketBranding(business)
+  const time = new Date(order.createdAt).toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const mode = TYPE_LABEL[order.type] ?? order.type
+  const origin = order.isOnlineOrder ? 'Web' : 'Comptoir'
+
+  const lines: string[] = [
+    ...buildTicketHeader(branding, { banner: 'CUISINE', mode: 'kitchen' }),
+    `#${order.orderNumber} · ${mode} · ${time}`,
+    `${origin}`,
+  ]
+  if (order.customerName) lines.push(`Client: ${order.customerName}`)
+  if (order.customerPhone) lines.push(`Tel: ${order.customerPhone}`)
+  if (order.type === 'DELIVERY' && order.deliveryAddress) {
+    for (const part of wrapTicketLines(order.deliveryAddress, W)) {
+      lines.push(`> ${part}`)
+    }
+  }
+  if (order.notes) {
+    for (const part of wrapTicketLines(`Note: ${order.notes}`, W)) {
+      lines.push(part)
+    }
+  }
+  lines.push('-'.repeat(W))
+  for (const item of order.items) {
+    lines.push(`${item.quantity}x ${orderItemDisplayName(item)}`)
+    for (const mod of orderItemModifierLines(item)) {
+      lines.push(`  + ${mod}`)
+    }
+    if (item.notes) lines.push(`  (${item.notes})`)
+  }
+  return lines.join('\n')
+}
+
+/** Étiquette sac / colis (traçabilité livraison ou emporter). */
+export function generateBagLabelText(order: any, business: any): string {
+  const W = TICKET_WIDTH
+  const branding = resolveTicketBranding(business)
+  const dash = '-'.repeat(W)
+  const lines: string[] = [
+    ...buildTicketHeader(branding, { banner: 'LIVRAISON', mode: 'label' }),
+    `#${order.orderNumber} · ${(TYPE_LABEL[order.type] ?? order.type).toUpperCase()}`,
+    dash,
+  ]
+
+  if (order.customerName?.trim()) lines.push(order.customerName.trim())
+  if (order.customerPhone?.trim()) lines.push(order.customerPhone.trim())
+
+  if (order.type === 'DELIVERY') {
+    const addrLines = formatDeliveryAddress(order)
+    if (addrLines.length) {
+      lines.push(...addrLines)
+    } else {
+      lines.push('(adresse non renseignée)')
+    }
+  } else if (order.type === 'TAKEAWAY') {
+    lines.push('À emporter — comptoir')
+  } else if (order.table?.number != null) {
+    lines.push(`Table ${order.table.number}`)
+  }
+
+  lines.push(dash)
+  for (const item of order.items ?? []) {
+    lines.push(`${item.quantity}x ${orderItemDisplayName(item)}`)
+  }
+
+  if (order.notes?.trim()) {
+    lines.push(...wrapTicketLines(`Note: ${order.notes.trim()}`, W))
+  }
+
+  lines.push(dash, padCenter('Coller sur le sac', W))
+  return lines.join('\n')
+}
+
+export type PrintTicketType = 'KITCHEN' | 'BAG_LABEL' | 'RECEIPT'
+
+function trackingUrl(token: string | null | undefined, baseUrl?: string): string | null {
+  if (!token) return null
+  const base = (baseUrl ?? process.env.PUBLIC_SITE_URL ?? 'https://pizzeria.fr').replace(/\/$/, '')
+  return `${base}/suivi/${token}`
+}
+
+export type ReceiptPrintOptions = {
+  reprintBanner?: string
+  fiscalSerial?: number
+  fiscalHashPreview?: string
+  fiscalKind?: string
+  publicSiteUrl?: string
+}
+
+/** Reçu client texte 58 mm (SIRET, TVA, QR suivi). */
+export function generateReceiptText(
+  order: any,
+  business: any,
+  options?: ReceiptPrintOptions,
+): string {
+  const W = TICKET_WIDTH
+  const data = generateReceiptData(order, business)
+  const branding = resolveTicketBranding(business)
+  const trackUrl = trackingUrl(order.trackingToken, options?.publicSiteUrl)
+
+  const lines: string[] = [...buildTicketHeader(branding)]
+  if (options?.reprintBanner) {
+    lines.push(padCenter(options.reprintBanner, W))
+    lines.push('='.repeat(W))
+  }
+  lines.push(
+    `Commande #${data.orderNumber}`,
+    `Date: ${data.date}`,
+  )
+  if (data.customerName) lines.push(`Client: ${data.customerName}`)
+  if (data.cashierName) lines.push(`Caissier: ${data.cashierName}`)
+  lines.push('-'.repeat(W))
+
+  for (const item of data.items) {
+    const name = (item.name || '').substring(0, 16)
+    lines.push(`${item.quantity}x ${name} ${euros(item.price * item.quantity).padStart(7)}`)
+    if (item.modifiers?.length) {
+      for (const mod of item.modifiers) lines.push(`   ${String(mod).substring(0, 24)}`)
+    }
+  }
+
+  lines.push('-'.repeat(W))
+  const fmt = (label: string, cents: number) => `${label.padEnd(20)} ${euros(cents).padStart(10)}`
+  lines.push(fmt('Sous-total HT', data.subtotal))
+  lines.push(fmt('TVA', data.tax))
+  if (data.discount > 0) lines.push(fmt('Remise', -data.discount))
+  lines.push('='.repeat(W))
+  lines.push(fmt('TOTAL TTC', data.total))
+  lines.push('='.repeat(W))
+  if (data.paymentMethod) {
+    const pm =
+      data.paymentMethod === 'CASH'
+        ? 'Espèces'
+        : data.paymentMethod === 'CARD'
+          ? 'Carte'
+          : data.paymentMethod
+    lines.push(`Paiement: ${pm}`)
+  }
+  if (data.paymentStatus === 'PAID') {
+    lines.push(padCenter('PAYÉ', W))
+    if (options?.fiscalSerial != null) {
+      lines.push('')
+      const training = options.fiscalKind === 'TRAINING' ? ' (FORMATION)' : ''
+      lines.push(`Ticket fiscal n°${options.fiscalSerial}${training}`)
+      if (options.fiscalHashPreview) {
+        lines.push(`Intégrité: ${options.fiscalHashPreview}`)
+      }
+    }
+  }
+  lines.push('')
+  if (trackUrl) {
+    lines.push('')
+    lines.push(padCenter('Suivi commande', W))
+    lines.push(padCenter('Scannez ou ouvrez :', W))
+    for (const l of wrapTicketLines(trackUrl, W)) lines.push(l)
+  }
+  lines.push(...buildTicketFooter(branding, { thankYou: 'Merci de votre visite !' }))
+  return lines.join('\n')
+}
+
+export function generatePrintText(
+  order: any,
+  business: any,
+  type: PrintTicketType,
+  options?: { receipt?: ReceiptPrintOptions },
+): string {
+  if (type === 'BAG_LABEL') return generateBagLabelText(order, business)
+  if (type === 'RECEIPT') return generateReceiptText(order, business, options?.receipt)
+  return generateKitchenTicketText(order, business)
 }

@@ -79,7 +79,7 @@ export default function ShiftsPage() {
                 <Clock className="text-emerald-600" size={24} />
               </div>
               <div>
-                <h3 className="font-medium">{shift.nameAr || shift.name}</h3>
+                <h3 className="font-medium">{shift.name || shift.nameAr}</h3>
                 <p className="text-sm text-gray-500">{shift.startTime} - {shift.endTime}</p>
                 <div className="flex gap-1 mt-1">
                   {getDays(shift.days).map(d => (

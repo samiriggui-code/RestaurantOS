@@ -1,0 +1,8 @@
+# Généré par le CRM (POST /api/devices/capture-wan-ip) ou deploy/scripts/sync-traefik-shop-ip.mjs
+# Bloque /pos et /kitchen hors IP shop — 127.0.0.1 seul = tout bloqué jusqu'à onboarding.
+http:
+  middlewares:
+    pizzeria-shop-ip:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"

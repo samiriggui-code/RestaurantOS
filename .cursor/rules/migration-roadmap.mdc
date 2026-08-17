@@ -1,0 +1,19 @@
+---
+description: Roadmap migration RestaurantOS → Pizzeria (priorités P0–P5)
+alwaysApply: true
+---
+
+# Roadmap — toujours consulter `MIGRATION-ROADMAP.md`
+
+Avant toute correction build ou feature menu/commandes :
+
+1. **P0** — build serveur + Next (imports croisés, types Prisma, TS front)
+2. **P1** — menu 100 % BDD, contrat API unique, snapshots OrderItem
+3. **P2** — parité POS/KDS/livreur/socket/admin
+4. **P3** — modules hors périmètre V1 (flags)
+5. **P4** — doc, legacy, Docker prod
+6. **P5** — Android SUNMI phase 0
+
+**Interdit :** catalogue métier en dur dans le front ; import `app.pizzeria.fr` depuis `server/`.
+
+Détail complet : racine du repo → `MIGRATION-ROADMAP.md`.

@@ -1,0 +1,54 @@
+---
+description: Stack, architecture monorepo et conventions projet pizzeria
+alwaysApply: true
+---
+
+# Projet Pizzeria — règles globales
+
+## Monorepo
+
+- **`server/`** — API Express, Prisma, Socket.io, webhooks Stripe
+- **`app.pizzeria.fr/`** — Next.js App Router : site public + POS + KDS + back-office
+- **`client/`** — LEGACY Vite — **interdit** ; exclu du build Docker et de la CI
+- **`android/`** — APK WebView SUNMI (pont impression)
+
+## Stack
+
+- Next.js + **next-intl** (FR) + TypeScript + Tailwind + shadcn/ui (`app.pizzeria.fr/`)
+- **`middleware.ts`** : routage par `Host` (`pizzeria.fr` → public ; `app.pizzeria.fr` → pos/kds/admin)
+- Express + Prisma (`server/`) — PostgreSQL **16** (même majeure Laragon/Docker)
+- JWT staff (Express) — rôles `admin` / `employé` ; **pas Auth.js**, pas Clerk
+- Recette finale sur environnement **Docker**, pas Laragon seul
+- Socket.io pour le temps réel — **pas SSE**, pas Pusher/Ably
+- Stripe Payment Element (front) + webhook signé (Express)
+- Single-tenant neutralisé : un `Business` au seed, `BUSINESS_ID` en env
+
+## Développement local (Laragon)
+
+- PostgreSQL via Laragon (`DATABASE_URL`)
+- `npm run dev:server` → Express `:3001`
+- `npm run dev:web` → Next.js `:3000` dans `app.pizzeria.fr/`
+- `NEXT_PUBLIC_API_URL=http://api.pizzeria.test` (ou `localhost:3001`)
+- Pas de Docker ni Traefik en dev
+
+## Production (VPS Hostinger)
+
+- Docker Compose : `postgres` + `server` + `app.pizzeria.fr`
+- **Traefik** (stack existante, réseau `traefik` externe, labels Docker) — **pas Caddy**
+- `pizzeria.fr` + `app.pizzeria.fr` → Next.js ; `api.pizzeria.fr` → Express
+
+## Règles métier
+
+- SUNMI V2 : WebView **Chrome ≥ 64** obligatoire (jalon go/no-go phase 0) ; APK résidente pour offline IndexedDB
+- Commande en ligne : `PENDING_PAYMENT` jusqu'au webhook Stripe → `CONFIRMED` + Socket.io + `PrintJob`
+- Commande comptoir : `CONFIRMED` direct, impression SUNMI immédiate
+- Prix figés sur `OrderItem` à la validation
+- Produit `isActive: false` → exclu des APIs publiques et POS
+
+## Interdits
+
+- Vite, `react-router`, nouveau code dans `client/`
+- Réécrire l'API Express en `app/api/` Next.js
+- `new PrismaClient()` hors `server/` — singleton dans `server/src`
+
+Références : `.cursor/context.md` · `cahier-des-charges-pizzeria-v2.md` · `.cursor/rules/feature-workflow.mdc`

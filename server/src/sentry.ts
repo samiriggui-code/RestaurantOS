@@ -2,10 +2,16 @@ import * as Sentry from '@sentry/node'
 import { nodeProfilingIntegration } from '@sentry/profiling-node'
 import express from 'express'
 
-export function initSentry(app: express.Application): void {
-  const dsn = process.env.SENTRY_DSN
+let sentryEnabled = false
+
+export function isSentryEnabled(): boolean {
+  return sentryEnabled
+}
+
+export function initSentry(_app: express.Application): void {
+  const dsn = process.env.SENTRY_DSN?.trim()
   if (!dsn) {
-    console.warn('SENTRY_DSN not set — Sentry error monitoring disabled')
+    sentryEnabled = false
     return
   }
 
@@ -13,13 +19,13 @@ export function initSentry(app: express.Application): void {
     dsn,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-    integrations: [
-      nodeProfilingIntegration(),
-    ],
+    integrations: [nodeProfilingIntegration()],
   })
+  sentryEnabled = true
 }
 
 export function setupSentryErrorHandler(app: express.Application): void {
+  if (!sentryEnabled) return
   Sentry.setupExpressErrorHandler(app)
 }
 

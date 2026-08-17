@@ -1,9 +1,17 @@
 import { Router, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import multer, { FileFilterCallback } from 'multer'
 import path from 'path'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import {
+  INTERNAL_MENU_CATEGORY_FILTER,
+  LAZ_PIZZA_CATALOG_EXPECTED,
+  syncLazPizzaCatalog,
+} from '../lib/sync-lazpizza-catalog'
+import { syncPizzaSizeModifiers } from '../lib/sync-pizza-modifiers'
+import { syncMenuFormules } from '../lib/sync-menu-formules'
+import { logFiscalEvent } from '../lib/fiscal/events'
 
 const storage = multer.diskStorage({
   destination: (_req: any, _file: any, cb: (error: Error | null, destination: string) => void) => {
@@ -47,11 +55,11 @@ router.get('/categories', async (req: AuthRequest, res: Response) => {
     if (!businessId) return res.status(400).json({ error: 'businessId required' })
 
     const categories = await prisma.menuCategory.findMany({
-      where: { businessId, isActive: true },
+      where: { businessId, isActive: true, ...INTERNAL_MENU_CATEGORY_FILTER },
       orderBy: { sortOrder: 'asc' },
       include: {
         items: {
-          where: { isActive: true },
+          where: { isActive: true, isAvailable: true },
           orderBy: { sortOrder: 'asc' },
           include: {
             modifiers: {
@@ -66,6 +74,76 @@ router.get('/categories', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+/**
+ * GET /api/menu/categories/manage
+ * Toutes les catégories + produits pour le CRM (y compris indisponibles / inactifs).
+ */
+router.get(
+  '/categories/manage',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma')
+      const businessId = req.user!.businessId
+
+      const categories = await prisma.menuCategory.findMany({
+        where: { businessId, ...INTERNAL_MENU_CATEGORY_FILTER },
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          items: {
+            where: { slug: { not: '__snapshot__' } },
+            orderBy: { sortOrder: 'asc' },
+            include: {
+              modifiers: {
+                include: { options: { orderBy: { sortOrder: 'asc' } } },
+              },
+            },
+          },
+        },
+      })
+
+      const itemCount = categories.reduce(
+        (n, cat) => n + cat.items.filter((i) => i.isActive).length,
+        0,
+      )
+      res.json({
+        categories,
+        stats: {
+          categories: categories.length,
+          items: itemCount,
+          expectedCategories: LAZ_PIZZA_CATALOG_EXPECTED.categories,
+          expectedItems: LAZ_PIZZA_CATALOG_EXPECTED.items,
+        },
+      })
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
+
+/**
+ * POST /api/menu/sync-catalog
+ * Importe le catalogue flyer (menu-catalog.ts) dans la base.
+ */
+router.post(
+  '/sync-catalog',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma')
+      const result = await syncLazPizzaCatalog(prisma, req.user!.businessId)
+      const modifiers = await syncPizzaSizeModifiers(prisma, req.user!.businessId)
+      const formules = await syncMenuFormules(prisma, req.user!.businessId)
+      res.json({ success: true, ...result, pizzaModifiers: modifiers, menuFormules: formules })
+    } catch (error) {
+      console.error('[menu/sync-catalog]', error)
+      res.status(500).json({ error: 'Import catalogue impossible' })
+    }
+  }
+)
 
 /**
  * POST /api/menu/categories
@@ -129,8 +207,16 @@ router.delete('/categories/:id', authenticate, requireRole('ADMIN', 'MANAGER'), 
 router.post('/items', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma')
+    const body = req.body as Record<string, unknown>
+    if (body.vatRateBps !== undefined) {
+      const bps = Number(body.vatRateBps)
+      if (!Number.isInteger(bps) || bps < 0 || bps > 10000) {
+        return res.status(400).json({ error: 'vatRateBps invalide (0–10000 basis points)' })
+      }
+      body.vatRateBps = bps
+    }
     const item = await prisma.menuItem.create({
-      data: { ...req.body, categoryId: req.body.categoryId },
+      data: { ...body, categoryId: req.body.categoryId } as Prisma.MenuItemUncheckedCreateInput,
     })
     res.status(201).json(item)
   } catch (error) {
@@ -147,10 +233,38 @@ router.post('/items', authenticate, requireRole('ADMIN', 'MANAGER'), async (req:
 router.put('/items/:id', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma')
+    const existing = await prisma.menuItem.findUnique({ where: { id: req.params.id } })
+    if (!existing) return res.status(404).json({ error: 'Item not found' })
+
+    const data = { ...req.body } as Record<string, unknown>
+    if (data.vatRateBps !== undefined) {
+      const bps = Number(data.vatRateBps)
+      if (!Number.isInteger(bps) || bps < 0 || bps > 10000) {
+        return res.status(400).json({ error: 'vatRateBps invalide (0–10000 basis points)' })
+      }
+      data.vatRateBps = bps
+    }
     const item = await prisma.menuItem.update({
       where: { id: req.params.id },
-      data: req.body,
+      data,
     })
+
+    const newPrice = data.price !== undefined ? Number(data.price) : existing.price
+    if (Number.isFinite(newPrice) && newPrice !== existing.price) {
+      void logFiscalEvent(prisma, {
+        businessId: req.user!.businessId,
+        eventType: 'PRICE_CHANGE',
+        operatorId: req.user!.userId,
+        entityType: 'MenuItem',
+        entityId: item.id,
+        payload: {
+          name: item.name,
+          previousPriceCents: existing.price,
+          newPriceCents: newPrice,
+        },
+      }).catch((err) => console.error('[fiscal] PRICE_CHANGE:', err))
+    }
+
     res.json(item)
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
@@ -187,6 +301,65 @@ router.patch('/items/:id/toggle', authenticate, requireRole('ADMIN', 'MANAGER'),
       data: { isAvailable: !item.isAvailable },
     })
     res.json(updated)
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/** PATCH /api/menu/items/:id/visibility — afficher / masquer du catalogue public */
+router.patch('/items/:id/visibility', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const item = await prisma.menuItem.findFirst({
+      where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+    })
+    if (!item) return res.status(404).json({ error: 'Item not found' })
+    const updated = await prisma.menuItem.update({
+      where: { id: item.id },
+      data: { isActive: !item.isActive },
+    })
+    res.json(updated)
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/** PATCH /api/menu/categories/:id/toggle — activer / désactiver une catégorie */
+router.patch('/categories/:id/toggle', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const cat = await prisma.menuCategory.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+    })
+    if (!cat) return res.status(404).json({ error: 'Category not found' })
+    const updated = await prisma.menuCategory.update({
+      where: { id: cat.id },
+      data: { isActive: !cat.isActive },
+    })
+    res.json(updated)
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/** PATCH /api/menu/categories/:id/bulk-items — activer/désactiver tous les articles */
+router.patch('/categories/:id/bulk-items', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const { isActive, isAvailable } = req.body as { isActive?: boolean; isAvailable?: boolean }
+    const cat = await prisma.menuCategory.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+    })
+    if (!cat) return res.status(404).json({ error: 'Category not found' })
+    const data: { isActive?: boolean; isAvailable?: boolean } = {}
+    if (typeof isActive === 'boolean') data.isActive = isActive
+    if (typeof isAvailable === 'boolean') data.isAvailable = isAvailable
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'isActive or isAvailable required' })
+    }
+    await prisma.menuItem.updateMany({ where: { categoryId: cat.id }, data })
+    const items = await prisma.menuItem.findMany({ where: { categoryId: cat.id } })
+    res.json({ count: items.length, items })
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' })
   }

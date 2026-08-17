@@ -92,16 +92,16 @@ export default function CartPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 max-w-lg mx-auto pb-36">
+    <div className="min-h-screen bg-charcoal-soft max-w-lg mx-auto pb-36 text-cream">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-surface-100">
-        <div className="bg-gradient-to-br from-primary-700 via-primary-600 to-emerald-600 px-5 py-4 flex items-center gap-3">
-          <button onClick={() => navigate('/menu')} className="p-2.5 bg-white/15 hover:bg-white/25 rounded-2xl backdrop-blur-sm transition-all">
-            <ArrowRight className="w-5 h-5 text-white" />
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-charcoal/95 backdrop-blur-xl">
+        <div className="flex items-center gap-3 bg-gradient-to-br from-tomato-dark via-tomato to-tomato-light px-5 py-4">
+          <button onClick={() => navigate('/menu')} className="rounded-2xl bg-white/15 p-2.5 backdrop-blur-sm transition-all hover:bg-white/25">
+            <ArrowRight className="h-5 w-5 text-white" />
           </button>
           <div>
-            <h1 className="font-bold text-lg text-white">{t('menu_customer.cart')}</h1>
-            <p className="text-xs text-emerald-100/70">{items.length} {t('menu_customer.cart_items')}</p>
+            <h1 className="font-display text-lg font-bold text-white">{t('menu_customer.cart')}</h1>
+            <p className="text-xs text-cream/80">{items.length} {t('menu_customer.cart_items')}</p>
           </div>
           <button
             onClick={clearCart}
@@ -114,8 +114,8 @@ export default function CartPage() {
 
       <div className="p-4 space-y-4">
         {/* Order Type */}
-        <div className="bg-white rounded-3xl p-5 border border-surface-100 shadow-soft">
-          <label className="block text-sm font-bold text-surface-600 mb-4">{t('menu_customer.order_type')}</label>
+        <div className="rounded-3xl border border-white/10 bg-charcoal/80 p-5 shadow-soft">
+          <label className="mb-4 block text-sm font-bold text-cream/70">{t('menu_customer.order_type')}</label>
           <div className="grid grid-cols-3 gap-2">
             {[
               { value: 'DINE_IN', label: t('menu_customer.dine_in'), icon: Store },
@@ -177,7 +177,7 @@ export default function CartPage() {
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-surface-800">{item.menuItem.nameAr || item.menuItem.name}</h4>
+                  <h4 className="font-bold text-surface-800">{item.menuItem.name || item.menuItem.nameAr}</h4>
                   <span className="text-sm text-primary-600 font-medium">{item.totalPrice.toFixed(2)} د.ج</span>
                 </div>
                 <div className="flex items-center gap-1.5">

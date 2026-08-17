@@ -5,143 +5,94 @@ const options: swaggerJsdoc.Options = {
     openapi: '3.0.0',
     info: {
       title: 'RestaurantOS API',
-      version: '1.0.0',
+      version: '2026-07',
       description:
-        'REST API for RestaurantOS — a full-featured bilingual (AR/EN) restaurant & café management system.\n\n' +
-        'Features: POS system, kitchen display, menu management, table reservations, guest WiFi portal, ' +
-        'employee management, reports & analytics, Stripe payments, and more.',
+        'Surface API Express réelle pour La Z Pizza: menu Prisma, commandes online/comptoir, KDS/POS, settings, print jobs et modules optionnels.',
     },
-    servers: [
-      {
-        url: '/api',
-        description: 'API base path',
-      },
-    ],
+    servers: [{ url: '/api', description: 'API Express' }],
     components: {
       securitySchemes: {
         BearerAuth: {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter your JWT access token',
         },
       },
       schemas: {
-        MenuItem: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid', description: 'Unique identifier' },
-            name: { type: 'string', description: 'Item name' },
-            nameAr: { type: 'string', description: 'Item name in Arabic' },
-            description: { type: 'string', description: 'Item description' },
-            descriptionAr: { type: 'string', description: 'Item description in Arabic' },
-            price: { type: 'number', description: 'Item price' },
-            category: { type: 'string', description: 'Category ID or name' },
-            image: { type: 'string', description: 'Image URL' },
-            available: { type: 'boolean', description: 'Whether item is available' },
-            modifiers: {
-              type: 'array',
-              items: { $ref: '#/components/schemas/Modifier' },
-              description: 'Item modifiers/options',
-            },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-        Modifier: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            nameAr: { type: 'string' },
-            options: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  nameAr: { type: 'string' },
-                  price: { type: 'number' },
-                },
-              },
-            },
-          },
-        },
-        Order: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid' },
-            orderNumber: { type: 'integer', description: 'Human-readable order number' },
-            items: {
-              type: 'array',
-              items: { $ref: '#/components/schemas/OrderItem' },
-            },
-            tableId: { type: 'string', description: 'Table identifier (optional)' },
-            type: {
-              type: 'string',
-              enum: ['dine-in', 'takeaway', 'delivery'],
-              description: 'Order type',
-            },
-            status: {
-              type: 'string',
-              enum: ['pending', 'confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled'],
-            },
-            total: { type: 'number', description: 'Order total' },
-            customerName: { type: 'string' },
-            customerPhone: { type: 'string' },
-            notes: { type: 'string' },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-        OrderItem: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            menuItemId: { type: 'string' },
-            name: { type: 'string' },
-            quantity: { type: 'integer', minimum: 1 },
-            unitPrice: { type: 'number' },
-            modifiers: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  price: { type: 'number' },
-                },
-              },
-            },
-            subtotal: { type: 'number' },
-          },
-        },
-        User: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid' },
-            email: { type: 'string', format: 'email' },
-            name: { type: 'string' },
-            role: { type: 'string', enum: ['admin', 'staff', 'manager'] },
-            createdAt: { type: 'string', format: 'date-time' },
-          },
-        },
         ErrorResponse: {
           type: 'object',
           properties: {
-            error: { type: 'string', description: 'Error message' },
+            error: { type: 'string' },
+            success: { type: 'boolean' },
           },
         },
-        PaginatedResponse: {
+        PublicMenuItem: {
           type: 'object',
           properties: {
-            data: {
+            slug: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            price: { type: 'number' },
+            image: { type: 'string' },
+          },
+        },
+        PublicMenuCategory: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            shortLabel: { type: 'string' },
+            description: { type: 'string' },
+            items: {
               type: 'array',
-              items: { type: 'object' },
+              items: { $ref: '#/components/schemas/PublicMenuItem' },
             },
-            total: { type: 'integer' },
-            page: { type: 'integer' },
-            limit: { type: 'integer' },
-            totalPages: { type: 'integer' },
+          },
+        },
+        OrderSummary: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            orderNumber: { type: 'integer' },
+            status: {
+              type: 'string',
+              enum: [
+                'PENDING_PAYMENT',
+                'PENDING',
+                'CONFIRMED',
+                'PREPARING',
+                'READY',
+                'OUT_FOR_DELIVERY',
+                'DELIVERY_ISSUE',
+                'DELIVERED',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+            },
+            paymentStatus: {
+              type: 'string',
+              enum: ['UNPAID', 'PAID', 'REFUNDED'],
+            },
+            type: {
+              type: 'string',
+              enum: ['DINE_IN', 'TAKEAWAY', 'DELIVERY'],
+            },
+            total: { type: 'integer', description: 'Montant en centimes' },
+            customerName: { type: 'string', nullable: true },
+            customerPhone: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        PrintJob: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            orderId: { type: 'string', nullable: true },
+            type: { type: 'string', enum: ['KITCHEN', 'BAG_LABEL', 'RECEIPT'] },
+            status: { type: 'string', enum: ['PENDING', 'PRINTED', 'FAILED'] },
+            error: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            printedAt: { type: 'string', format: 'date-time', nullable: true },
           },
         },
       },
@@ -149,9 +100,8 @@ const options: swaggerJsdoc.Options = {
     paths: {
       '/auth/login': {
         post: {
-          tags: ['Authentication'],
-          summary: 'Login with credentials',
-          description: 'Authenticate with email and password to receive JWT tokens',
+          tags: ['Auth'],
+          summary: 'Connexion staff',
           requestBody: {
             required: true,
             content: {
@@ -160,259 +110,168 @@ const options: swaggerJsdoc.Options = {
                   type: 'object',
                   required: ['email', 'password'],
                   properties: {
-                    email: { type: 'string', format: 'email', example: 'admin@cafe.com' },
-                    password: { type: 'string', format: 'password', example: 'admin123' },
+                    email: { type: 'string', format: 'email' },
+                    password: { type: 'string' },
                   },
                 },
               },
             },
           },
-          responses: {
-            200: {
-              description: 'Login successful',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      accessToken: { type: 'string' },
-                      user: { $ref: '#/components/schemas/User' },
-                    },
-                  },
-                },
-              },
-            },
-            400: {
-              description: 'Missing required fields',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-            },
-            401: {
-              description: 'Invalid credentials',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-            },
-          },
+          responses: { 200: { description: 'JWT staff' } },
         },
       },
-      '/auth/refresh': {
-        post: {
-          tags: ['Authentication'],
-          summary: 'Refresh access token',
-          description: 'Use a valid refresh token (from cookie) to obtain a new access token',
-          responses: {
-            200: {
-              description: 'Token refreshed successfully',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      accessToken: { type: 'string' },
-                    },
-                  },
-                },
-              },
-            },
-            401: {
-              description: 'Invalid or expired refresh token',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-            },
-          },
-        },
-      },
-      '/auth/logout': {
-        post: {
-          tags: ['Authentication'],
-          summary: 'Logout',
-          description: 'Clear refresh token cookie and invalidate session',
-          responses: {
-            200: {
-              description: 'Logged out successfully',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      message: { type: 'string', example: 'Logged out' },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      '/menu': {
+      '/public/menu': {
         get: {
-          tags: ['Menu'],
-          summary: 'Get menu items',
-          description: 'Retrieve menu items with optional filtering',
+          tags: ['Public'],
+          summary: 'Catalogue public actif',
           parameters: [
-            { name: 'category', in: 'query', schema: { type: 'string' }, description: 'Filter by category' },
-            { name: 'available', in: 'query', schema: { type: 'boolean' }, description: 'Filter by availability' },
+            { name: 'businessId', in: 'query', schema: { type: 'string' } },
           ],
           responses: {
             200: {
-              description: 'List of menu items',
+              description: 'Catégories menu',
               content: {
                 'application/json': {
                   schema: {
-                    type: 'array',
-                    items: { $ref: '#/components/schemas/MenuItem' },
-                  },
-                },
-              },
-            },
-          },
-        },
-        post: {
-          tags: ['Menu'],
-          summary: 'Create menu item',
-          description: 'Add a new menu item (admin only)',
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    name: { type: 'string' },
-                    nameAr: { type: 'string' },
-                    description: { type: 'string' },
-                    descriptionAr: { type: 'string' },
-                    price: { type: 'number' },
-                    category: { type: 'string' },
-                    image: { type: 'string' },
-                    available: { type: 'boolean' },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: 'Menu item created' },
-            400: { description: 'Validation error' },
-            403: { description: 'Forbidden — admin only' },
-          },
-        },
-      },
-      '/menu/{id}': {
-        put: {
-          tags: ['Menu'],
-          summary: 'Update menu item',
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
-          ],
-          requestBody: {
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    name: { type: 'string' },
-                    nameAr: { type: 'string' },
-                    description: { type: 'string' },
-                    price: { type: 'number' },
-                    category: { type: 'string' },
-                    available: { type: 'boolean' },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            200: { description: 'Menu item updated' },
-            404: { description: 'Menu item not found' },
-          },
-        },
-        delete: {
-          tags: ['Menu'],
-          summary: 'Delete menu item (soft)',
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
-          ],
-          responses: {
-            204: { description: 'Menu item deleted' },
-            404: { description: 'Menu item not found' },
-          },
-        },
-      },
-      '/orders': {
-        get: {
-          tags: ['Orders'],
-          summary: 'Get orders',
-          description: 'Retrieve paginated orders with optional status filter',
-          parameters: [
-            { name: 'status', in: 'query', schema: { type: 'string' }, description: 'Filter by status' },
-            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
-            { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
-          ],
-          responses: {
-            200: {
-              description: 'Paginated orders',
-              content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/PaginatedResponse' },
-                },
-              },
-            },
-          },
-        },
-        post: {
-          tags: ['Orders'],
-          summary: 'Create order',
-          description: 'Place a new order (dine-in, takeaway, or delivery)',
-          requestBody: {
-            required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['items', 'type'],
-                  properties: {
-                    items: {
-                      type: 'array',
-                      items: {
-                        type: 'object',
-                        properties: {
-                          menuItemId: { type: 'string' },
-                          quantity: { type: 'integer', minimum: 1 },
-                          modifiers: { type: 'array', items: { type: 'object' } },
-                        },
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      categories: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/PublicMenuCategory' },
                       },
                     },
-                    tableId: { type: 'string' },
-                    type: { type: 'string', enum: ['dine-in', 'takeaway', 'delivery'] },
-                    customerName: { type: 'string' },
-                    customerPhone: { type: 'string' },
-                    notes: { type: 'string' },
                   },
                 },
+              },
+            },
+          },
+        },
+      },
+      '/public/hours': {
+        get: {
+          tags: ['Public'],
+          summary: 'Horaires et statut ouvert/fermé',
+          responses: { 200: { description: 'Heures ouverture' } },
+        },
+      },
+      '/public/time-slots': {
+        get: {
+          tags: ['Public'],
+          summary: 'Créneaux click & collect',
+          responses: { 200: { description: 'Slots disponibles' } },
+        },
+      },
+      '/public/formules': {
+        get: {
+          tags: ['Public'],
+          summary: 'Formules menu',
+          responses: { 200: { description: 'Formules configurées' } },
+        },
+      },
+      '/public/delivery/quote': {
+        get: {
+          tags: ['Public'],
+          summary: 'Devis livraison',
+          parameters: [
+            { name: 'postalCode', in: 'query', schema: { type: 'string' }, required: true },
+            { name: 'city', in: 'query', schema: { type: 'string' }, required: true },
+            { name: 'pizzaSubtotal', in: 'query', schema: { type: 'number' }, required: true },
+          ],
+          responses: { 200: { description: 'Quote livraison' } },
+        },
+      },
+      '/public/orders': {
+        post: {
+          tags: ['Public'],
+          summary: 'Créer une commande online',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { type: 'object', description: 'OnlineOrderBody' },
               },
             },
           },
           responses: {
             201: {
-              description: 'Order created',
+              description: 'Commande créée',
               content: {
                 'application/json': {
-                  schema: { $ref: '#/components/schemas/Order' },
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      token: { type: 'string' },
+                      orderId: { type: 'string' },
+                      orderNumber: { type: 'integer' },
+                      status: { type: 'string' },
+                    },
+                  },
                 },
               },
             },
           },
         },
       },
+      '/public/orders/track-token/{token}': {
+        get: {
+          tags: ['Public'],
+          summary: 'Suivi commande client',
+          parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Commande trackée' }, 404: { description: 'Introuvable' } },
+        },
+      },
+      '/menu/categories': {
+        get: {
+          tags: ['Menu'],
+          summary: 'Catalogue complet POS/staff',
+          parameters: [{ name: 'businessId', in: 'query', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Catégories + items + modifiers' } },
+        },
+      },
+      '/menu/categories/manage': {
+        get: {
+          tags: ['Menu'],
+          summary: 'Vue CRM de gestion menu',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Catégories staff' } },
+        },
+      },
+      '/orders': {
+        get: {
+          tags: ['Orders'],
+          summary: 'Lister les commandes staff',
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            { name: 'status', in: 'query', schema: { type: 'string' } },
+            { name: 'type', in: 'query', schema: { type: 'string' } },
+            { name: 'paymentStatus', in: 'query', schema: { type: 'string' } },
+            { name: 'limit', in: 'query', schema: { type: 'integer' } },
+          ],
+          responses: { 200: { description: 'Liste commandes' } },
+        },
+        post: {
+          tags: ['Orders'],
+          summary: 'Créer une commande staff/comptoir',
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { type: 'object', description: 'Commande comptoir ou staff' },
+              },
+            },
+          },
+          responses: { 201: { description: 'Commande créée' } },
+        },
+      },
       '/orders/{id}/status': {
         patch: {
           tags: ['Orders'],
-          summary: 'Update order status',
-          description: 'Transition order to a new status (validates allowed transitions)',
-          parameters: [
-            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
-          ],
+          summary: 'Changer le statut commande',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
             required: true,
             content: {
@@ -420,21 +279,139 @@ const options: swaggerJsdoc.Options = {
                 schema: {
                   type: 'object',
                   required: ['status'],
-                  properties: {
-                    status: {
-                      type: 'string',
-                      enum: ['pending', 'confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled'],
-                    },
+                  properties: { status: { type: 'string' } },
+                },
+              },
+            },
+          },
+          responses: { 200: { description: 'Commande mise à jour' } },
+        },
+      },
+      '/orders/{id}/encash': {
+        patch: {
+          tags: ['Orders'],
+          summary: 'Encaisser une commande online au comptoir',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Commande payée' } },
+        },
+      },
+      '/orders/{id}/pos-settle': {
+        patch: {
+          tags: ['Orders'],
+          summary: 'Finaliser une commande POS',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Commande finalisée' } },
+        },
+      },
+      '/orders/{id}/cancel': {
+        patch: {
+          tags: ['Orders'],
+          summary: 'Annuler une commande',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Commande annulée' } },
+        },
+      },
+      '/orders/{id}/print': {
+        post: {
+          tags: ['Orders'],
+          summary: 'Créer un print job pour une commande',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'PrintJob créé' } },
+        },
+      },
+      '/print-jobs': {
+        get: {
+          tags: ['Print'],
+          summary: 'Lister la file d’impression',
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            { name: 'limit', in: 'query', schema: { type: 'integer' } },
+            { name: 'status', in: 'query', schema: { type: 'string' } },
+          ],
+          responses: {
+            200: {
+              description: 'Liste print jobs',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/PrintJob' },
                   },
                 },
               },
             },
           },
-          responses: {
-            200: { description: 'Status updated' },
-            400: { description: 'Invalid status transition' },
-            404: { description: 'Order not found' },
-          },
+        },
+      },
+      '/print-jobs/{id}': {
+        patch: {
+          tags: ['Print'],
+          summary: 'ACK impression SUNMI / navigateur',
+          security: [{ BearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Statut impression mis à jour' } },
+        },
+      },
+      '/settings': {
+        get: {
+          tags: ['Settings'],
+          summary: 'Lire les réglages business',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Business settings' } },
+        },
+        put: {
+          tags: ['Settings'],
+          summary: 'Mettre à jour les réglages business',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Business settings mis à jour' } },
+        },
+      },
+      '/settings/schedule': {
+        get: {
+          tags: ['Settings'],
+          summary: 'Lire horaires, fermetures et time slots',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Planning de service' } },
+        },
+        put: {
+          tags: ['Settings'],
+          summary: 'Mettre à jour horaires et time slots',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Planning mis à jour' } },
+        },
+      },
+      '/reservations': {
+        get: {
+          tags: ['Optional Modules'],
+          summary: 'Réservations (module optionnel)',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Liste réservations' } },
+        },
+      },
+      '/wifi/qr-codes': {
+        get: {
+          tags: ['Optional Modules'],
+          summary: 'Lister QR WiFi',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'QR WiFi' } },
+        },
+        post: {
+          tags: ['Optional Modules'],
+          summary: 'Créer un QR WiFi',
+          security: [{ BearerAuth: [] }],
+          responses: { 201: { description: 'QR créé' } },
+        },
+      },
+      '/loyalty/program': {
+        get: {
+          tags: ['Optional Modules'],
+          summary: 'Programme fidélité',
+          security: [{ BearerAuth: [] }],
+          responses: { 200: { description: 'Programme fidélité' } },
         },
       },
     },

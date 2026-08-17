@@ -9,20 +9,27 @@
     box-sizing: border-box;
   }
 
-  body {
-    font-family: 'Inter', 'Noto Sans Arabic', 'Tajawal', system-ui, sans-serif;
-    direction: rtl;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    @apply bg-surface-950 text-surface-50;
+  :root {
+    --color-primary: #C23B22;
+    --color-primary-dark: #9A2E1A;
+    --color-primary-light: #E85A3E;
+    --color-surface: #1A1412;
+    --color-border: #3a332f;
+    --color-charcoal: #1A1412;
+    --color-cream: #F5E6D3;
   }
 
-  :root {
-    --color-primary: #2563eb;
-    --color-primary-dark: #0053db;
-    --color-primary-light: #b4c5ff;
-    --color-surface: #060e20;
-    --color-border: #222a3d;
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--color-charcoal);
+    color: var(--color-cream);
+    @apply antialiased;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Playfair Display', Georgia, serif;
   }
 }
 
@@ -151,11 +158,11 @@
   }
 
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-l from-primary-200 to-secondary-200;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-100 to-primary-300;
   }
 
   .text-gradient-accent {
-    @apply bg-clip-text text-transparent bg-gradient-to-l from-tertiary-200 to-amber-300;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-400 to-secondary-100;
   }
 
   .text-gradient-gold {
@@ -197,12 +204,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #434655;
+  background: #4a4340;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6e7180;
+  background: #6b625c;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

@@ -36,13 +36,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           toastOptions={{
             duration: 3000,
             style: {
-              background: '#1e293b',
-              color: '#f1f5f9',
-              border: '1px solid #334155',
+              background: '#2A2220',
+              color: '#F5E6D3',
+              border: '1px solid rgba(194, 59, 34, 0.25)',
               fontFamily: 'inherit',
             },
-            success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#C23B22', secondary: '#F5E6D3' } },
+            error: { iconTheme: { primary: '#ef4444', secondary: '#F5E6D3' } },
           }}
         />
       </BrowserRouter>

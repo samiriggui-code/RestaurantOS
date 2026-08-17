@@ -4,6 +4,8 @@ import { useAuthStore } from '../../store/authStore'
 import { Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from '../../i18n/useTranslation'
+import { displayName } from '../../lib/locale'
+import { PUBLIC_MENU_URL, PUBLIC_ORDER_URL } from '../../lib/public-site'
 
 export default function SettingsPage() {
   const { t } = useTranslation()
@@ -27,7 +29,7 @@ export default function SettingsPage() {
     }
     try {
       await api.updateSettings(data)
-      toast.success('تم حفظ الإعدادات')
+      toast.success(t('settings.saved'))
       window.location.reload()
     } catch (err: any) {
       toast.error(err.message)
@@ -47,14 +49,14 @@ export default function SettingsPage() {
         {/* Business Info */}
         <div className="card">
           <h2 className="font-bold mb-4">{t('settings.business_info')}</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-sm font-medium mb-1">الاسم (عربي)</label>
-              <input name="nameAr" defaultValue={business?.nameAr || ''} className="input-field" />
+              <label className="block text-sm font-medium mb-1">{t('settings.name')}</label>
+              <input name="name" defaultValue={business?.name || ''} className="input-field" required />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">الاسم (إنجليزي)</label>
-              <input name="name" defaultValue={business?.name || ''} className="input-field" />
+              <label className="block text-sm font-medium mb-1">{t('settings.name_secondary')}</label>
+              <input name="nameAr" defaultValue={business?.nameAr || ''} className="input-field" />
             </div>
           </div>
         </div>
@@ -73,12 +75,9 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">{t('settings.currency')}</label>
-              <select name="currency" defaultValue={business?.currency || 'SAR'} className="input-field">
-                <option value="DZD">د.ج</option>
-                <option value="SAR">ر.س</option>
-                <option value="AED">د.إ</option>
-                <option value="EGP">ج.م</option>
-                <option value="USD">$</option>
+              <select name="currency" defaultValue={business?.currency || 'EUR'} className="input-field">
+                <option value="EUR">Euro (€)</option>
+                <option value="USD">Dollar ($)</option>
               </select>
             </div>
           </div>
@@ -122,17 +121,17 @@ export default function SettingsPage() {
           <p className="text-sm text-gray-500 mb-3">{t('settings.business_public_desc')}</p>
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
             <div>
-              <span className="text-xs text-gray-400">{t('settings.customer_menu_link')}</span>
+              <span className="text-xs text-gray-400">{t('settings.public_menu_link')}</span>
               <div className="flex gap-2 mt-1">
-                <input readOnly value={`${window.location.origin}/menu?businessId=${business?.id}`} className="input-field text-xs flex-1" dir="ltr" onClick={e => (e.target as HTMLInputElement).select()} />
-                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/menu?businessId=${business?.id}`); toast.success(t('copied')) }} className="px-3 py-2 bg-primary-50 text-primary-600 rounded-xl text-sm hover:bg-primary-100">{t('copy')}</button>
+                <input readOnly value={PUBLIC_MENU_URL} className="input-field text-xs flex-1" dir="ltr" onClick={e => (e.target as HTMLInputElement).select()} />
+                <button onClick={() => { navigator.clipboard.writeText(PUBLIC_MENU_URL); toast.success(t('copied')) }} className="px-3 py-2 bg-primary-500/15 text-tomato-light rounded-xl text-sm hover:bg-primary-500/25">{t('copy')}</button>
               </div>
             </div>
             <div>
-              <span className="text-xs text-gray-400">{t('settings.customer_home_link')}</span>
+              <span className="text-xs text-gray-400">{t('settings.public_order_link')}</span>
               <div className="flex gap-2 mt-1">
-                <input readOnly value={`${window.location.origin}/consumer?businessId=${business?.id}`} className="input-field text-xs flex-1" dir="ltr" onClick={e => (e.target as HTMLInputElement).select()} />
-                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/consumer?businessId=${business?.id}`); toast.success(t('copied')) }} className="px-3 py-2 bg-primary-50 text-primary-600 rounded-xl text-sm hover:bg-primary-100">{t('copy')}</button>
+                <input readOnly value={PUBLIC_ORDER_URL} className="input-field text-xs flex-1" dir="ltr" onClick={e => (e.target as HTMLInputElement).select()} />
+                <button onClick={() => { navigator.clipboard.writeText(PUBLIC_ORDER_URL); toast.success(t('copied')) }} className="px-3 py-2 bg-primary-500/15 text-tomato-light rounded-xl text-sm hover:bg-primary-500/25">{t('copy')}</button>
               </div>
             </div>
           </div>

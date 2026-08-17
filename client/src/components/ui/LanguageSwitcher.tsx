@@ -8,9 +8,9 @@ export default function LanguageSwitcher({ compact }: Props) {
   const { i18n } = useTranslation()
 
   const languages = [
-    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
     { code: 'fr', label: 'Français', flag: '🇫🇷' },
     { code: 'en', label: 'English', flag: '🇬🇧' },
+    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
   ]
 
   const changeLanguage = (code: string) => {

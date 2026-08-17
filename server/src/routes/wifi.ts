@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import { v4 as uuidv4 } from 'uuid'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { getPublicSiteUrl } from '../lib/public-site-url'
 
 const router = Router()
 
@@ -19,7 +20,7 @@ router.post('/qr-codes', authenticate, requireRole('ADMIN', 'MANAGER'), async (r
     const { label, durationMinutes, maxSessions } = req.body
 
     const code = uuidv4().slice(0, 8).toUpperCase()
-    const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
+    const domain = getPublicSiteUrl()
 
     const wifiQr = await prisma.wifiQrCode.create({
       data: {
@@ -32,7 +33,7 @@ router.post('/qr-codes', authenticate, requireRole('ADMIN', 'MANAGER'), async (r
     })
 
     // Generate QR code data
-    const qrData = `${domain}/wifi?code=${code}&businessId=${req.user!.businessId}`
+    const qrData = `${domain}/wifi?code=${code}`
     const qrImage = await QRCode.toDataURL(qrData)
 
     res.status(201).json({ ...wifiQr, qrImage, qrUrl: qrData })

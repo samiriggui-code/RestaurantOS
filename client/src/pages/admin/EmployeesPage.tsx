@@ -116,7 +116,7 @@ export default function EmployeesPage() {
           {shifts.map(shift => (
             <div key={shift.id} className="bg-gray-50 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">{shift.nameAr || shift.name}</h3>
+                <h3 className="font-semibold">{shift.name || shift.nameAr}</h3>
                 <div className="flex gap-1">
                   <button onClick={() => { setEditingShift(shift); setShowShiftModal(true) }} className="p-1 hover:bg-gray-200 rounded"><Edit2 size={14} /></button>
                   <button onClick={() => { if (confirm('حذف المناوبة؟')) api.deleteShift(shift.id).then(loadData) }} className="p-1 hover:bg-red-50 text-red-500 rounded"><Trash2 size={14} /></button>
@@ -217,7 +217,7 @@ export default function EmployeesPage() {
                 <label className="block text-sm font-medium mb-1">{t('employees.shift')}</label>
                 <select name="shiftId" defaultValue={editingEmployee?.shiftId || ''} className="input-field">
                   <option value="">{t('employees.none')}</option>
-                  {shifts.map(s => <option key={s.id} value={s.id}>{s.nameAr || s.name}</option>)}
+                  {shifts.map(s => <option key={s.id} value={s.id}>{s.name || s.nameAr}</option>)}
                 </select>
               </div>
               <div className="flex gap-3">

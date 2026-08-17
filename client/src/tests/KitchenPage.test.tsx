@@ -14,6 +14,7 @@ const mockSocket = {
 
 vi.mock('../services/socket', () => ({
   getSocket: vi.fn(() => mockSocket),
+  reconnectSocket: vi.fn(() => mockSocket),
   disconnectSocket: vi.fn(),
 }))
 
@@ -27,10 +28,17 @@ vi.mock('../services/syncService', () => ({
 }))
 
 import KitchenPage from '../pages/KitchenPage'
+import { useAuthStore } from '../store/authStore'
 
 describe('KitchenPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useAuthStore.setState({
+      business: { id: 'biz-1', name: 'Test', taxRate: 10, serviceChargeRate: 0, currency: 'EUR', wifiDuration: 60, wifiVoucherEnabled: false, autoPrintOrders: false, kitchenDisplayEnabled: true },
+      isAuthenticated: true,
+      user: { id: 'u1', email: 'chef@test.com', name: 'Chef', role: 'CHEF', businessId: 'biz-1' },
+    } as any)
+    localStorage.setItem('accessToken', 'test-token')
   })
 
   it('should show loading state', () => {
@@ -79,6 +87,7 @@ describe('KitchenPage', () => {
     render(<KitchenPage />)
     await waitFor(() => {
       expect(mockSocket.on).toHaveBeenCalledWith('order:new', expect.any(Function))
+      expect(mockSocket.emit).toHaveBeenCalledWith('join:business', 'biz-1')
     })
   })
 

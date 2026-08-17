@@ -9,6 +9,7 @@ import {
 import { useState, useEffect } from 'react'
 import { getSocket } from '../../services/socket'
 import LanguageSwitcher from '../ui/LanguageSwitcher'
+import { displayName, formatMoney } from '../../lib/locale'
 import toast from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
@@ -53,11 +54,11 @@ export default function AdminLayout() {
 
     const handleNewOrder = (order: any) => {
       toast.custom(() => (
-        <div className="bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 min-w-[280px] border border-emerald-500/30">
+        <div className="bg-primary-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 min-w-[280px] border border-primary-500/30">
           <ShoppingBag className="w-5 h-5 shrink-0" />
           <div>
             <p className="font-semibold">{t('orders.title')}</p>
-            <p className="text-sm opacity-80">#{order.orderNumber} — {order.total?.toFixed(2)} {t('currency')}</p>
+            <p className="text-sm opacity-80">#{order.orderNumber} — {formatMoney(order.total ?? 0)}</p>
           </div>
         </div>
       ), { duration: 5000 })
@@ -82,9 +83,9 @@ export default function AdminLayout() {
   )
 
   return (
-    <div className="min-h-screen bg-surface-950 flex" dir="auto">
+    <div className="min-h-screen bg-charcoal flex" dir="auto">
       {/* Mobile header */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-surface-900/90 backdrop-blur-xl border-b border-surface-700/50 lg:hidden">
+      <header className="fixed top-0 inset-x-0 z-40 bg-charcoal-soft/95 backdrop-blur-xl border-b border-white/10 lg:hidden">
         <div className="flex items-center justify-between px-4 h-14">
           <button onClick={() => setMobileOpen(true)} className="p-2 hover:bg-surface-700 rounded-xl text-surface-200">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -92,8 +93,8 @@ export default function AdminLayout() {
             </svg>
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary-500 flex items-center justify-center text-white font-bold text-xs">R</div>
-            <span className="font-bold text-sm text-surface-50">{business?.nameAr || business?.name || 'RestaurantOS'}</span>
+            <div className="w-7 h-7 rounded-lg bg-tomato flex items-center justify-center text-white font-bold text-xs font-display">Z</div>
+            <span className="font-display font-bold text-sm text-cream">{displayName(business) || 'La Z Pizza'}</span>
           </div>
           <button
             onClick={() => setNotifications([])}
@@ -115,20 +116,20 @@ export default function AdminLayout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 right-0 z-30 w-64 bg-surface-900 border-l border-surface-700/50 transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${
+      <aside className={`fixed inset-y-0 right-0 z-30 w-64 bg-charcoal-soft border-l border-white/10 transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${
         mobileOpen ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="h-full flex flex-col">
           {/* Sidebar header */}
-          <div className="p-4 border-b border-surface-700/50">
+          <div className="p-4 border-b border-white/10">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-glow">
-                  <UtensilsCrossed size={18} />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-tomato to-tomato-dark flex items-center justify-center text-white font-display font-bold shadow-glow">
+                  Z
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h2 className="font-bold text-sm text-surface-50 truncate">{business?.nameAr || business?.name || 'RestaurantOS'}</h2>
-                  <p className="text-xs text-surface-400 truncate">{user?.name}</p>
+                  <h2 className="font-display font-bold text-sm text-cream truncate">{displayName(business) || 'La Z Pizza'}</h2>
+                  <p className="text-xs text-cream/45 truncate">{user?.name}</p>
                 </div>
               </div>
               <button onClick={() => setMobileOpen(false)} className="p-1.5 hover:bg-surface-700 rounded-lg text-surface-400 lg:hidden">
@@ -160,8 +161,8 @@ export default function AdminLayout() {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                     isActive
-                      ? 'bg-primary-500/15 text-primary-200 border border-primary-500/20'
-                      : 'text-surface-300 hover:text-surface-50 hover:bg-surface-700/50'
+                      ? 'bg-tomato/15 text-tomato-light border border-tomato/25'
+                      : 'text-cream/55 hover:text-cream hover:bg-white/5'
                   }`
                 }
               >

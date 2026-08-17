@@ -1,11 +1,8 @@
 import * as Sentry from '@sentry/react'
 
 export function initSentry(): void {
-  const dsn = import.meta.env.VITE_SENTRY_DSN
-  if (!dsn) {
-    console.warn('VITE_SENTRY_DSN not set — Sentry error monitoring disabled')
-    return
-  }
+  const dsn = import.meta.env.VITE_SENTRY_DSN?.trim()
+  if (!dsn) return
 
   Sentry.init({
     dsn,

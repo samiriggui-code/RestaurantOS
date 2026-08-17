@@ -1,0 +1,52 @@
+---
+description: Stripe, webhooks Express et cycle de vie des commandes
+globs:
+  - "server/src/routes/payments.ts"
+  - "server/src/routes/orders.ts"
+  - "app.pizzeria.fr/app/(public)/**"
+  - "app.pizzeria.fr/lib/**"
+---
+
+# Stripe et flux commandes
+
+L'API Stripe et les webhooks sont sur **Express** (`server/`), pas dans Next.js.
+
+## Paiement en ligne
+
+1. Front Next.js `(public)/` → `POST /api/orders` (ou route dédiée) crée `Order` en `PENDING_PAYMENT` + PaymentIntent Stripe.
+2. Client paie via Payment Element (CB, Apple Pay, Google Pay).
+3. Webhook Express `POST /api/payments/webhook` — `payment_intent.succeeded` :
+   - Vérifier signature Stripe (`constructEvent`)
+   - Passer commande → `CONFIRMED` (pas seulement `paymentStatus: PAID`)
+   - Émettre Socket.io `order:confirmed` (ou équivalent existant)
+   - Créer `PrintJob` pour le V2
+   - Générer `trackingToken` ; email confirmation si configuré
+4. Idempotence webhook obligatoire.
+
+## Temps réel (Socket.io)
+
+- Client Next.js s'abonne via `socket.io-client` (POS, KDS, suivi client)
+- Événements : nouvelle commande, changement statut, disponibilité produit
+- Objectif : affichage tablette + V2 **< 3 s** après confirmation
+
+## Statuts
+
+```
+PENDING_PAYMENT → CONFIRMED → PREPARING → READY → COMPLETED
+                                              ↘ CANCELLED
+```
+
+- KDS : `CONFIRMED` → `PREPARING` → `READY`
+- POS/admin : `COMPLETED` à la remise client
+- Comptoir : naît directement `CONFIRMED`
+
+## Données figées
+
+- `OrderItem` : prix et modifiers snapshot à la création
+- Ne jamais recalculer depuis le catalogue pour une commande existante
+- Montants en **centimes** (entiers) après migration A2
+
+## RGPD
+
+- Minimiser données client ; anonymisation commandes > 3 ans
+- Mentions légales, cookies sur le site public `(public)/`

@@ -3,6 +3,7 @@ import { api } from '../../services/api'
 import { Plus, Edit2, Trash2, TrendingDown, Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
+import { centsToEuros, eurosToCents, formatMoney } from '../../lib/locale'
 
 interface Expense {
   id: string
@@ -35,7 +36,7 @@ export default function ExpensesPage() {
     const form = new FormData(e.currentTarget)
     const data = {
       description: form.get('description'),
-      amount: parseFloat(form.get('amount') as string),
+      amount: eurosToCents(parseFloat(form.get('amount') as string) || 0),
       category: form.get('category'),
       notes: form.get('notes'),
       date: new Date().toISOString(),
@@ -82,7 +83,7 @@ export default function ExpensesPage() {
       <div className="card">
         <div className="flex items-center gap-3 text-lg font-bold">
           <TrendingDown className="text-red-500" size={24} />
-          <span>إجمالي المصروفات: <span className="text-red-500">{total.toFixed(2)} {t('currency')}</span></span>
+          <span>إجمالي المصروفات: <span className="text-red-500">{formatMoney(total)}</span></span>
         </div>
       </div>
 
@@ -99,7 +100,7 @@ export default function ExpensesPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="font-bold text-red-600">{expense.amount.toFixed(2)} {t('currency')}</span>
+              <span className="font-bold text-red-600">{formatMoney(expense.amount)}</span>
               <button onClick={() => { setEditingExpense(expense); setShowModal(true) }} className="p-2 hover:bg-gray-100 rounded-lg"><Edit2 size={16} /></button>
               <button onClick={() => handleDelete(expense.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg"><Trash2 size={16} /></button>
             </div>
@@ -114,7 +115,7 @@ export default function ExpensesPage() {
             <h2 className="font-bold mb-4">{editingExpense ? t('edit') : 'إضافة مصروف'}</h2>
             <form onSubmit={handleSave} className="space-y-4">
               <input name="description" defaultValue={editingExpense?.description} placeholder="الوصف" className="input-field" required />
-              <input name="amount" type="number" step="0.01" defaultValue={editingExpense?.amount} placeholder="المبلغ" className="input-field" required />
+              <input name="amount" type="number" step="0.01" defaultValue={editingExpense ? centsToEuros(editingExpense.amount) : ''} placeholder="المبلغ" className="input-field" required />
               <select name="category" defaultValue={editingExpense?.category || 'إمدادات'} className="input-field">
                 <option value="إمدادات">إمدادات</option>
                 <option value="صيانة">صيانة</option>

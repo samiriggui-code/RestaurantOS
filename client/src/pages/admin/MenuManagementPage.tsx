@@ -5,6 +5,7 @@ import { MenuCategory, MenuItem } from '../../types'
 import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, X, Image } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from '../../i18n/useTranslation'
+import { centsToEuros, eurosToCents, formatMoney } from '../../lib/locale'
 
 export default function MenuManagementPage() {
   const { business } = useAuthStore()
@@ -77,7 +78,7 @@ export default function MenuManagementPage() {
     const form = new FormData(e.currentTarget)
     const name = form.get('name') as string || ''
     const nameAr = form.get('nameAr') as string || ''
-    const price = parseFloat(form.get('price') as string) || 0
+    const price = eurosToCents(parseFloat(form.get('price') as string) || 0)
     const imageFile = itemImageFile
 
     let categoryId = form.get('categoryId') as string || ''
@@ -95,7 +96,9 @@ export default function MenuManagementPage() {
       const data = {
         name, nameAr,
         price: price || 0,
-        discountPrice: parseFloat(form.get('discountPrice') as string) || null,
+        discountPrice: form.get('discountPrice')
+          ? eurosToCents(parseFloat(form.get('discountPrice') as string) || 0)
+          : null,
         prepTime: parseInt(form.get('prepTime') as string) || 10,
         description: form.get('description') as string || '',
         categoryId,
@@ -151,7 +154,7 @@ export default function MenuManagementPage() {
         <div key={cat.id} className="card">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-bold">{cat.nameAr || cat.name}</h3>
+              <h3 className="font-bold">{cat.name || cat.nameAr}</h3>
               <p className="text-sm text-gray-500">{cat.name}</p>
             </div>
             <div className="flex gap-2">
@@ -173,13 +176,16 @@ export default function MenuManagementPage() {
                   )}
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{item.nameAr || item.name}</span>
+                      <span className="font-medium">{item.name || item.nameAr}</span>
                       {!item.isAvailable && (
                         <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{t('menu.not_available')}</span>
                       )}
                     </div>
                     <p className="text-sm text-gray-500">
-                      {item.price} {t('currency')} {item.discountPrice && <span className="text-primary-600">{item.discountPrice} {t('currency')}</span>}
+                      {formatMoney(item.price)}{' '}
+                      {item.discountPrice != null && item.discountPrice > 0 && (
+                        <span className="text-primary-600">{formatMoney(item.discountPrice)}</span>
+                      )}
                       {' | '}{t('menu.prep_time')}: {item.prepTime} {t('menu.minutes')}
                     </p>
                   </div>
@@ -246,11 +252,11 @@ export default function MenuManagementPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">{t('menu.price')}</label>
-                <input name="price" type="number" step="0.01" defaultValue={editingItem?.price || 0} className="input-field" required />
+                <input name="price" type="number" step="0.01" defaultValue={editingItem ? centsToEuros(editingItem.price) : 0} className="input-field" required />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">{t('menu.discount_price')}</label>
-                <input name="discountPrice" type="number" step="0.01" defaultValue={editingItem?.discountPrice || ''} className="input-field" />
+                <input name="discountPrice" type="number" step="0.01" defaultValue={editingItem?.discountPrice ? centsToEuros(editingItem.discountPrice) : ''} className="input-field" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -262,7 +268,7 @@ export default function MenuManagementPage() {
                 <label className="block text-sm font-medium mb-1">الفئة</label>
                 <select name="categoryId" defaultValue={editingItem?.categoryId || selectedCategory} className="input-field">
                   <option value="">اختر فئة</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.nameAr || c.name}</option>)}
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name || c.nameAr}</option>)}
                 </select>
               </div>
               <div>

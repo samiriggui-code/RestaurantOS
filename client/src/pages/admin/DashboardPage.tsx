@@ -9,6 +9,7 @@ import api from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
 import { getSocket } from '../../services/socket'
 import { useTranslation } from 'react-i18next'
+import { formatMoney } from '../../lib/locale'
 
 const StatCard = ({ title, value, sub, icon: Icon, trend, color }: any) => (
   <div className="relative group bg-surface-800 rounded-2xl p-5 border border-surface-600/40 hover:border-primary-500/30 transition-all duration-300 hover:shadow-glow overflow-hidden">
@@ -88,8 +89,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title={t('dashboard.today_revenue')}
-          value={`${(s?.today || 0).toLocaleString('ar-DZ')} ${t('currency')}`}
-          sub={`${t('dashboard.yesterday')}: ${(s?.yesterday || 0).toLocaleString('ar-DZ')}`}
+          value={formatMoney(s?.today || 0)}
+          sub={`${t('dashboard.yesterday')}: ${formatMoney(s?.yesterday || 0)}`}
           icon={DollarSign}
           color="bg-emerald-500/15"
           trend={s?.growth}
@@ -97,7 +98,7 @@ export default function DashboardPage() {
         <StatCard
           title={t('dashboard.today_orders')}
           value={s?.ordersCount || 0}
-          sub={`${t('dashboard.avg_order')}: ${Math.round(s?.avgOrderValue || 0)} ${t('currency')}`}
+          sub={`${t('dashboard.avg_order')}: ${formatMoney(Math.round(s?.avgOrderValue || 0))}`}
           icon={ShoppingCart}
           color="bg-blue-500/15"
         />
@@ -228,7 +229,7 @@ export default function DashboardPage() {
                      order.status === 'PENDING' ? t('orders.pending') : order.status}
                   </span>
                   <span className="text-sm text-emerald-300 font-medium">
-                    {order.total?.toLocaleString()} {t('currency')}
+                    {formatMoney(order.total ?? 0)}
                   </span>
                 </div>
               </div>

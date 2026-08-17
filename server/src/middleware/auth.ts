@@ -15,7 +15,24 @@ if (!REFRESH_SECRET) {
 }
 
 /**
- * Verify JWT access token from Authorization header.
+ * Optional JWT — attaches req.user when Bearer token is valid; never blocks the request.
+ */
+export const optionalAuthenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) {
+    return next()
+  }
+
+  const token = authHeader.split(' ')[1]
+  try {
+    req.user = jwt.verify(token, JWT_SECRET) as AuthPayload
+  } catch {
+    /* ignore invalid token — public routes may still proceed */
+  }
+  next()
+}
+
+/**
  * Attaches decoded user payload to `req.user` on success.
  * Returns 401 with error message on failure.
  */

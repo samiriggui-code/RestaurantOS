@@ -1,6 +1,15 @@
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import { PrismaClient } from '@prisma/client'
 import jwt from 'jsonwebtoken'
+import { parseBusinessSettings } from '../lib/business-settings'
+import { getBusinessId } from '../lib/business'
+import {
+  getDevicesFromSettings,
+  isDeviceRegistered,
+  mergeDevicesSettings,
+  touchPairedDevice,
+} from '../lib/device-settings'
+import { resolveDeviceDiagnosticResult } from '../lib/device-diagnostics'
 
 const JWT_SECRET = process.env.JWT_SECRET
 
@@ -51,6 +60,59 @@ export function setupSocketHandlers(io: SocketIOServer, prisma: PrismaClient) {
     socket.on('join:table', (tableId: string) => {
       socket.join(`table:${tableId}`)
     })
+
+    socket.on('join:track', (trackingToken: string) => {
+      if (typeof trackingToken === 'string' && trackingToken.length >= 8 && trackingToken.length <= 32) {
+        socket.join(`track:${trackingToken}`)
+      }
+    })
+
+    socket.on('join:device', async (deviceId: string, ack?: (result: { ok: boolean }) => void) => {
+      if (!socket.businessId || typeof deviceId !== 'string' || !deviceId.trim()) {
+        ack?.({ ok: false })
+        return
+      }
+      const normalizedId = deviceId.trim()
+      try {
+        const business = await prisma.business.findUnique({
+          where: { id: getBusinessId() },
+          select: { settings: true },
+        })
+        const devices = getDevicesFromSettings(parseBusinessSettings(business?.settings))
+        if (!isDeviceRegistered(devices, normalizedId)) {
+          ack?.({ ok: false })
+          return
+        }
+        socket.join(`device:${normalizedId}`)
+        const touched = touchPairedDevice(devices, normalizedId, {
+          userAgent: socket.handshake.headers['user-agent'],
+        })
+        if (touched !== devices) {
+          const merged = mergeDevicesSettings(parseBusinessSettings(business?.settings), touched)
+          await prisma.business.update({
+            where: { id: getBusinessId() },
+            data: { settings: merged },
+          })
+        }
+        ack?.({ ok: true })
+      } catch (error) {
+        console.error('join:device error:', error)
+        ack?.({ ok: false })
+      }
+    })
+
+    socket.on(
+      'device:diagnosticResponse',
+      (data: { requestId?: string; ok?: boolean; method?: string; detail?: string; error?: string }) => {
+        if (!data?.requestId) return
+        resolveDeviceDiagnosticResult(data.requestId, {
+          ok: Boolean(data.ok),
+          method: data.method,
+          detail: data.detail,
+          error: data.error,
+        })
+      },
+    )
 
     // Kitchen: mark item as done
     socket.on('kitchen:itemDone', async (data: { orderId: string; itemId: string }) => {

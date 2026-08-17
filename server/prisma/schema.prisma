@@ -3,99 +3,147 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model Business {
-  id                String   @id @default(uuid())
-  name              String
-  nameAr            String?
-  logo              String?
-  taxRate           Float    @default(15.0)
-  serviceChargeRate Float    @default(10.0)
-  currency          String   @default("SAR")
-  wifiDuration      Int      @default(120)
-  wifiVoucherEnabled Boolean @default(true)
-  autoPrintOrders   Boolean  @default(false)
-  kitchenDisplayEnabled Boolean @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  users             User[]
-  menuCategories    MenuCategory[]
-  tables            Table[]
-  shifts            Shift[]
-  wifiQrCodes       WifiQrCode[]
+  id                    String         @id @default(uuid())
+  name                  String
+  nameAr                String?
+  logo                  String?
+  taxRate               Float          @default(10.0)
+  serviceChargeRate     Float          @default(0.0)
+  currency              String         @default("EUR")
+  wifiDuration          Int            @default(120)
+  wifiVoucherEnabled    Boolean        @default(true)
+  autoPrintOrders       Boolean        @default(false)
+  kitchenDisplayEnabled Boolean        @default(true)
+  /// Horaires, fermetures exceptionnelles, réglages divers (JSON)
+  settings              Json?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  users                 User[]
+  menuCategories        MenuCategory[]
+  tables                Table[]
+  shifts                Shift[]
+  wifiQrCodes           WifiQrCode[]
+  deliveryZones         DeliveryZone[]
+  timeSlots             TimeSlot[]
+  printJobs             PrintJob[]
+  orders                Order[]
+  stockItems            StockItem[]
+  invoices              Invoice[]
+  scheduleEntries       EmployeeScheduleEntry[]
+  attendanceRecords     Attendance[]
+  fiscalSequence        FiscalSequence?
+  fiscalTickets         FiscalTicket[]
+  fiscalClosures        FiscalClosure[]
+  fiscalEvents          FiscalEvent[]
+  fiscalArchives        FiscalArchive[]
+  fiscalDayPrecloses    FiscalDayPreclose[]
+  guestCheckoutDrafts   GuestCheckoutDraft[]
+}
+
+/// Panier web temporaire — pas une commande tant que Stripe n'a pas réussi.
+model GuestCheckoutDraft {
+  id                    String    @id @default(uuid())
+  businessId            String
+  business              Business  @relation(fields: [businessId], references: [id])
+  payload               Json
+  totalCents            Int
+  stripePaymentIntentId String?   @unique
+  consumedAt            DateTime?
+  expiresAt             DateTime
+  createdAt             DateTime  @default(now())
+
+  @@index([businessId, expiresAt])
 }
 
 model User {
-  id          String   @id @default(uuid())
-  businessId  String
-  business    Business @relation(fields: [businessId], references: [id])
-  name        String
-  email       String   @unique
-  phone       String?
-  password    String
-  role        String   @default("ADMIN") // ADMIN, MANAGER, CASHIER, WAITER, CHEF
-  pin         String?
-  isActive    Boolean  @default(true)
-  shiftId     String?
-  shift       Shift?       @relation(fields: [shiftId], references: [id])
-  salary      Float        @default(0)
-  salaryPeriod String      @default("MONTHLY") // MONTHLY, BIWEEKLY, WEEKLY, DAILY
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  orders      Order[]      @relation("CashierOrders")
-  attendance  Attendance[]
+  id           String       @id @default(uuid())
+  businessId   String
+  business     Business     @relation(fields: [businessId], references: [id])
+  name         String
+  email        String       @unique
+  phone        String?
+  password     String
+  role         String       @default("ADMIN")
+  pin          String?
+  isActive     Boolean      @default(true)
+  shiftId      String?
+  shift        Shift?       @relation(fields: [shiftId], references: [id])
+  salary       Int          @default(0)
+  salaryPeriod String       @default("MONTHLY")
+  /// Planning : { employmentType?: FULL_TIME|PART_TIME, maxDaysPerWeek?: number, canSubstitute?: string[] }
+  planningMeta Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  orders           Order[]                 @relation("CashierOrders")
+  driverOrders     Order[]                 @relation("DriverOrders")
+  attendance       Attendance[]
+  scheduleEntries  EmployeeScheduleEntry[]
 }
 
 model MenuCategory {
-  id         String     @id @default(uuid())
-  businessId String
-  business   Business   @relation(fields: [businessId], references: [id])
-  name       String
-  nameAr     String?
+  id          String     @id @default(uuid())
+  businessId  String
+  business    Business   @relation(fields: [businessId], references: [id])
+  /// Identifiant catalogue public (tomate, creme, boissons…)
+  slug        String?
+  name        String
+  nameAr      String?
   description String?
-  sortOrder  Int        @default(0)
-  isActive   Boolean    @default(true)
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  items      MenuItem[]
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       MenuItem[]
+
+  @@unique([businessId, slug])
 }
 
 model MenuItem {
-  id            String          @id @default(uuid())
+  id            String         @id @default(uuid())
   categoryId    String
-  category      MenuCategory    @relation(fields: [categoryId], references: [id])
+  category      MenuCategory   @relation(fields: [categoryId], references: [id])
   name          String
   nameAr        String?
   description   String?
   descriptionAr String?
-  price         Float
-  discountPrice Float?
+  /// Identifiant catalogue (flyer / site public)
+  slug          String?
+  /// Prix en centimes EUR
+  price         Int
+  /// TVA en basis points (1000 = 10 %, 550 = 5,5 %, 2000 = 20 %)
+  vatRateBps    Int            @default(1000)
+  discountPrice Int?
   image         String?
   barcode       String?
-  isAvailable   Boolean         @default(true)
-  isActive      Boolean         @default(true)
-  prepTime      Int             @default(10)
-  sortOrder     Int             @default(0)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  isAvailable   Boolean        @default(true)
+  isActive      Boolean        @default(true)
+  prepTime      Int            @default(10)
+  sortOrder     Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   modifiers     MenuModifier[]
   orderItems    OrderItem[]
+  recipes       MenuItemRecipe[]
+
+  @@unique([categoryId, slug])
 }
 
 model MenuModifier {
-  id        String           @id @default(uuid())
+  id         String           @id @default(uuid())
   menuItemId String
-  menuItem  MenuItem         @relation(fields: [menuItemId], references: [id])
-  name      String
-  nameAr    String?
-  type      String           @default("SINGLE") // SINGLE, MULTIPLE
-  required  Boolean          @default(false)
-  min       Int              @default(0)
-  max       Int              @default(1)
-  options   ModifierOption[]
+  menuItem   MenuItem         @relation(fields: [menuItemId], references: [id])
+  name       String
+  nameAr     String?
+  type       String           @default("SINGLE")
+  required   Boolean          @default(false)
+  min        Int              @default(0)
+  max        Int              @default(1)
+  options    ModifierOption[]
 }
 
 model ModifierOption {
@@ -104,80 +152,225 @@ model ModifierOption {
   modifier   MenuModifier @relation(fields: [modifierId], references: [id])
   name       String
   nameAr     String?
-  price      Float        @default(0)
+  /// Supplément en centimes EUR
+  price      Int          @default(0)
   sortOrder  Int          @default(0)
 }
 
 model Table {
-  id        String       @id @default(uuid())
-  businessId String
-  business  Business     @relation(fields: [businessId], references: [id])
-  number    String
-  capacity  Int          @default(4)
-  status    String       @default("AVAILABLE") // AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE
-  qrCode    String?
-  isActive  Boolean      @default(true)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  orders    Order[]
+  id           String        @id @default(uuid())
+  businessId   String
+  business     Business      @relation(fields: [businessId], references: [id])
+  number       String
+  capacity     Int           @default(4)
+  status       String        @default("AVAILABLE")
+  qrCode       String?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  orders       Order[]
   reservations Reservation[]
 }
 
 model Order {
-  id            String      @id @default(uuid())
-  businessId    String
-  orderNumber   Int
-  tableId       String?
-  table         Table?      @relation(fields: [tableId], references: [id])
-  cashierId     String?
-  cashier       User?       @relation("CashierOrders", fields: [cashierId], references: [id])
-  customerName  String?
-  customerPhone String?
-  customerEmail String?
-  type          String      @default("DINE_IN") // DINE_IN, TAKEAWAY, DELIVERY, ONLINE
-  status        String      @default("PENDING") // PENDING, CONFIRMED, PREPARING, READY, DELIVERED, CANCELLED
-  paymentStatus String      @default("UNPAID") // UNPAID, PAID, REFUNDED, PARTIAL
-  paymentMethod String?     // CASH, CARD, WALLET, BANK_TRANSFER
-  subtotal      Float       @default(0)
-  tax           Float       @default(0)
-  serviceCharge Float       @default(0)
-  discount      Float       @default(0)
-  total         Float       @default(0)
-  notes         String?
-  isOnlineOrder Boolean     @default(false)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  items         OrderItem[]
+  id                    String      @id @default(uuid())
+  businessId            String
+  business              Business    @relation(fields: [businessId], references: [id])
+  orderNumber           Int
+  tableId               String?
+  table                 Table?      @relation(fields: [tableId], references: [id])
+  cashierId             String?
+  cashier               User?       @relation("CashierOrders", fields: [cashierId], references: [id])
+  /// Livreur ayant pris en charge la livraison (premier GPS / prise en charge)
+  driverId              String?
+  driver                User?       @relation("DriverOrders", fields: [driverId], references: [id])
+  customerName          String?
+  customerPhone         String?
+  customerEmail         String?
+  type                  String      @default("DINE_IN")
+  /// PENDING_PAYMENT | CONFIRMED | PREPARING | READY | COMPLETED | CANCELLED
+  status                String      @default("CONFIRMED")
+  paymentStatus         String      @default("UNPAID")
+  paymentMethod         String?
+  /// Encaissement TPE : provider, transactionId, cardBrand, mode native/manuel (facturation / stats)
+  paymentMeta           Json?
+  paymentCapturedAt     DateTime?
+  /// Montants en centimes EUR
+  subtotal              Int         @default(0)
+  tax                   Int         @default(0)
+  serviceCharge         Int         @default(0)
+  discount              Int         @default(0)
+  total                 Int         @default(0)
+  notes                 String?
+  isOnlineOrder         Boolean     @default(false)
+  /// POS | WEB | DELIVEROO | UBER_EATS | KIOSK
+  channel               String?
+  trackingToken         String?     @unique
+  stripePaymentIntentId String?     @unique
+  deliveryAddress       String?
+  deliveryPostalCode    String?
+  deliveryCity          String?
+  deliveryLat           Float?
+  deliveryLng           Float?
+  /// Ordre dans la tournée livreur (1 = prochaine livraison)
+  deliveryRouteOrder    Int?
+  /// OUT_FOR_DELIVERY | DELIVERED — suivi livraison
+  scheduledAt           DateTime?
+  driverLat             Float?
+  driverLng             Float?
+  driverLocationAt      DateTime?
+  /// Historique positions GPS livreur [{ lat, lng, at }]
+  driverTrail           Json?
+  /// Code 4 chiffres — client le communique au livreur pour confirmer la livraison
+  deliveryHandoverCode  String?
+  deliveryIssueReason   String?
+  deliveryIssueNote     String?
+  deliveryIssueAt       DateTime?
+  deliveryRating        Int?
+  deliveryFeedback      String?
+  cancelledAt           DateTime?
+  /// CLIENT_REFUSED | OUT_OF_STOCK | MISSING_INGREDIENT | INCIDENT | OTHER
+  cancelReason          String?
+  cancelNote            String?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  items                 OrderItem[]
+  printJobs             PrintJob[]
+  invoices              Invoice[]
+  fiscalTickets         FiscalTicket[]
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
 }
 
 model OrderItem {
   id                String   @id @default(uuid())
   orderId           String
-  order             Order    @relation(fields: [orderId], references: [id])
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItemId        String
   menuItem          MenuItem @relation(fields: [menuItemId], references: [id])
   quantity          Int      @default(1)
-  price             Float
+  /// Prix unitaire figé en centimes EUR
+  price             Int
   notes             String?
-  selectedModifiers Json?    // JSON of selected modifiers
-  status            String   @default("PENDING") // PENDING, PREPARING, READY, DELIVERED
+  selectedModifiers Json?
+  status            String   @default("PENDING")
   sortOrder         Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
 
+model DeliveryZone {
+  id            String   @id @default(uuid())
+  businessId    String
+  business      Business @relation(fields: [businessId], references: [id])
+  postalCode    String
+  city          String?
+  feeCents      Int      @default(0)
+  minOrderCents Int      @default(0)
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([businessId, postalCode, city])
+}
+
+model StockItem {
+  id         String          @id @default(uuid())
+  businessId String
+  business   Business        @relation(fields: [businessId], references: [id])
+  name       String
+  /// Fromages, Boissons, Emballage…
+  category   String          @default("Divers")
+  unit       String          @default("unité")
+  quantity   Float           @default(0)
+  reorderAt  Float?
+  costCents  Int             @default(0)
+  menuItemId String?
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  movements  StockMovement[]
+  recipes    MenuItemRecipe[]
+
+  @@index([businessId, isActive])
+  @@index([businessId, category])
+}
+
+/// Recette (BOM) : quantité d'ingrédient consommée par unité vendue (ex. 0.05 kg fromage)
+model MenuItemRecipe {
+  id          String    @id @default(uuid())
+  menuItemId  String
+  menuItem    MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  stockItemId String
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  quantity    Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([menuItemId, stockItemId])
+  @@index([menuItemId])
+  @@index([stockItemId])
+}
+
+model StockMovement {
+  id          String    @id @default(uuid())
+  stockItemId String
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  orderId     String?
+  type        String
+  quantity    Float
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  @@index([stockItemId, createdAt])
+  @@index([orderId])
+}
+
+model TimeSlot {
+  id         String   @id @default(uuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  capacity   Int      @default(10)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId, dayOfWeek])
+}
+
+model PrintJob {
+  id         String    @id @default(uuid())
+  businessId String
+  business   Business  @relation(fields: [businessId], references: [id])
+  orderId    String?
+  order      Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  type       String
+  status     String    @default("PENDING")
+  payload    Json?
+  error      String?
+  createdAt  DateTime  @default(now())
+  printedAt  DateTime?
+
+  @@index([businessId, status])
+}
+
 model WifiQrCode {
-  id          String        @id @default(uuid())
-  businessId  String
-  business    Business      @relation(fields: [businessId], references: [id])
-  code        String        @unique
-  label       String?
-  durationMinutes Int       @default(120)
-  maxSessions Int           @default(50)
-  isActive    Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  sessions    WifiSession[]
+  id              String        @id @default(uuid())
+  businessId      String
+  business        Business      @relation(fields: [businessId], references: [id])
+  code            String        @unique
+  label           String?
+  durationMinutes Int           @default(120)
+  maxSessions     Int           @default(50)
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  sessions        WifiSession[]
 }
 
 model WifiSession {
@@ -188,44 +381,91 @@ model WifiSession {
   ipAddress       String?
   phoneNumber     String?
   durationMinutes Int        @default(120)
-  status          String     @default("ACTIVE") // ACTIVE, EXPIRED, DISCONNECTED
+  status          String     @default("ACTIVE")
   startTime       DateTime   @default(now())
   endTime         DateTime
   createdAt       DateTime   @default(now())
 }
 
 model Shift {
-  id        String   @id @default(uuid())
-  businessId String
-  business  Business @relation(fields: [businessId], references: [id])
-  name      String
-  nameAr    String?
-  startTime String
-  endTime   String
-  days      Int      @default(127) // bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  /// Identifiant métier stable : cuisine | caisse | livraison
+  slug        String?
+  name        String
+  nameAr      String?
+  startTime   String
+  endTime     String
+  /// Bitmask jours actifs (127 = lun–dim)
+  days        Int      @default(127)
+  /// Rôles staff concernés — ex. ["CHEF","MANAGER"]
+  targetRoles Json?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users             User[]
+  scheduleEntries   EmployeeScheduleEntry[]
+  attendanceRecords Attendance[]
+
+  @@unique([businessId, slug])
+  @@index([businessId, isActive])
 }
 
+/// Affectation journalière (planning semaine) — complète le shift récurrent
+model EmployeeScheduleEntry {
+  id         String   @id @default(uuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shiftId    String?
+  shift      Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  /// YYYY-MM-DD
+  date       String
+  startTime  String?
+  endTime    String?
+  /// Poste du jour (pizzaïolo, livreur…)
+  roleLabel  String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([businessId, date])
+}
+
+/// Pointage journalier — entrée / sortie, heures comptabilisées
 model Attendance {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  businessId  String
-  date        String   // YYYY-MM-DD
-  clockIn     DateTime
-  clockOut    DateTime?
-  createdAt   DateTime @default(now())
+  id            String    @id @default(uuid())
+  businessId    String
+  business      Business  @relation(fields: [businessId], references: [id])
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  /// YYYY-MM-DD (fuseau serveur / Europe-Paris côté API)
+  date          String
+  clockIn       DateTime
+  clockOut      DateTime?
+  /// Durée travaillée en minutes (calculée au pointage sortie)
+  minutesWorked Int?
+  /// KITCHEN | POS | ADMIN | SELF
+  source        String    @default("KITCHEN")
+  shiftId       String?
+  shift         Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, date])
+  @@index([businessId, date])
 }
 
 model Expense {
   id          String   @id @default(uuid())
   businessId  String
   description String
-  amount      Float
-  category    String   @default("أخرى")
+  amount      Int
+  category    String   @default("Divers")
   date        DateTime @default(now())
   notes       String?
   createdAt   DateTime @default(now())
@@ -233,25 +473,25 @@ model Expense {
 }
 
 model Reservation {
-  id           String   @id @default(uuid())
-  businessId   String
-  tableId      String?
-  table        Table?   @relation(fields: [tableId], references: [id])
-  customerName String
+  id            String   @id @default(uuid())
+  businessId    String
+  tableId       String?
+  table         Table?   @relation(fields: [tableId], references: [id])
+  customerName  String
   customerPhone String
-  guests       Int
-  dateTime     DateTime
-  status       String   @default("PENDING") // PENDING, CONFIRMED, SEATED, CANCELLED, NO_SHOW
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  guests        Int
+  dateTime      DateTime
+  status        String   @default("PENDING")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model License {
   id          String   @id @default(uuid())
   key         String   @unique
   businessId  String   @unique
-  plan        String   @default("STANDARD") // STANDARD, PROFESSIONAL, ENTERPRISE
+  plan        String   @default("STANDARD")
   maxUsers    Int      @default(10)
   maxBranches Int      @default(1)
   validFrom   DateTime @default(now())
@@ -262,64 +502,263 @@ model License {
 }
 
 model BackupLog {
-  id          String   @id @default(uuid())
-  businessId  String?
-  fileName    String
-  fileSize    Int
-  status      String   @default("SUCCESS") // SUCCESS, FAILED
-  notes       String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  businessId String?
+  fileName   String
+  fileSize   Int
+  status     String   @default("SUCCESS")
+  notes      String?
+  createdAt  DateTime @default(now())
 }
 
 model LoyaltyProgram {
-  id                String   @id @default(uuid())
-  businessId        String
-  name              String   @default("برنامج الولاء")
-  pointsPerDinar    Float    @default(1.0) // points earned per 1 DZD spent
-  dinarPerPoint     Float    @default(10.0) // DZD value per point for redemption
-  minPointsRedeem   Int      @default(100)
-  enabled           Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  customers         LoyaltyCustomer[]
+  id                 String            @id @default(uuid())
+  businessId         String
+  name               String            @default("Fidélité")
+  /// Points gagnés par euro dépensé (ex. 1 = 1 pt / €)
+  pointsPerDinar     Float             @default(1.0)
+  /// @deprecated — récompense en pizza, pas en € (conservé migration)
+  dinarPerPoint      Float             @default(0)
+  /// Points requis pour 1 pizza offerte
+  pointsForFreePizza Int               @default(100)
+  minPointsRedeem    Int               @default(100)
+  enabled            Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  customers          LoyaltyCustomer[]
 }
 
 model LoyaltyCustomer {
-  id              String         @id @default(uuid())
-  businessId      String
-  programId       String
-  program         LoyaltyProgram @relation(fields: [programId], references: [id])
-  phone           String
-  name            String?
-  totalPoints     Int            @default(0)
-  totalSpent      Float          @default(0)
-  visitCount      Int            @default(0)
-  lastVisit       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  transactions    LoyaltyTransaction[]
+  id           String               @id @default(uuid())
+  businessId   String
+  programId    String
+  program      LoyaltyProgram       @relation(fields: [programId], references: [id])
+  phone        String
+  name         String?
+  totalPoints  Int                  @default(0)
+  totalSpent   Int                  @default(0)
+  visitCount   Int                  @default(0)
+  lastVisit    DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  transactions LoyaltyTransaction[]
 }
 
 model LoyaltyTransaction {
-  id              String         @id @default(uuid())
-  customerId      String
-  customer        LoyaltyCustomer @relation(fields: [customerId], references: [id])
-  type            String         // EARN, REDEEM
-  points          Int
-  referenceType   String?        // ORDER, MANUAL
-  referenceId     String?        // order ID if from order
-  description     String?
-  createdAt       DateTime       @default(now())
+  id            String          @id @default(uuid())
+  customerId    String
+  customer      LoyaltyCustomer @relation(fields: [customerId], references: [id])
+  type          String
+  points        Int
+  referenceType String?
+  referenceId   String?
+  description   String?
+  createdAt     DateTime        @default(now())
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  businessId  String?
-  userId      String?
-  action      String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, PAYMENT
-  entity      String   // ORDER, MENU_ITEM, USER, SETTINGS, etc.
-  entityId    String?
-  details     String?  // JSON string with extra info
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  businessId String?
+  userId     String?
+  action     String
+  entity     String
+  entityId   String?
+  details    String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+/// Facture CRM (à la demande client, B2B, reprise commande)
+model Invoice {
+  id              String        @id @default(uuid())
+  businessId      String
+  business        Business      @relation(fields: [businessId], references: [id])
+  invoiceNumber   Int
+  /// DRAFT | ISSUED | SENT | PAID | CANCELLED
+  status          String        @default("DRAFT")
+  /// ON_DEMAND | B2B | B2C | FROM_ORDER
+  type            String        @default("ON_DEMAND")
+  orderId         String?
+  order           Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  clientName      String
+  clientEmail     String?
+  clientPhone     String?
+  clientSiret     String?
+  clientVatNumber String?
+  clientAddress   String?
+  issueDate       DateTime      @default(now())
+  dueDate         DateTime?
+  subtotalCents   Int           @default(0)
+  taxCents        Int           @default(0)
+  totalCents      Int           @default(0)
+  notes           String?
+  /// Préparation facturation électronique (PDP / Factur-X)
+  eInvoiceFormat  String?
+  pdpReference    String?
+  sentAt          DateTime?
+  paidAt          DateTime?
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  lines           InvoiceLine[]
+
+  @@unique([businessId, invoiceNumber])
+  @@index([businessId, status])
+  @@index([businessId, issueDate])
+}
+
+model InvoiceLine {
+  id             String  @id @default(uuid())
+  invoiceId      String
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description    String
+  quantity       Float   @default(1)
+  unitPriceCents Int
+  taxRate        Float   @default(10)
+  sortOrder      Int     @default(0)
+}
+
+model EmailLog {
+  id         String   @id @default(uuid())
+  businessId String?
+  template   String
+  toAddress  String
+  subject    String
+  status     String   @default("SENT")
+  error      String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, template])
+  @@index([createdAt])
+}
+
+// --- Conformité article 286 CGI (ISCA) — tickets figés, chaînage HMAC, JET ---
+
+model FiscalSequence {
+  businessId        String   @id
+  business          Business @relation(fields: [businessId], references: [id])
+  nextTicketNo      Int      @default(1)
+  grandTotalCents   BigInt   @default(0)
+  lastTicketHash    String?
+  lastEventHash     String?
+  lastClosureHash   String?
+  softwareVersion   String   @default("1.0.0")
+  commissionedAt    DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// Ticket fiscal immuable — émis à l'encaissement (SALE) ou compensation (VOID).
+model FiscalTicket {
+  id              String   @id @default(uuid())
+  businessId      String
+  business        Business @relation(fields: [businessId], references: [id])
+  serialNumber    Int
+  orderId         String?
+  order           Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  /// SALE | VOID | TRAINING
+  kind            String   @default("SALE")
+  issuedAt        DateTime @default(now())
+  /// B5 mode dégradé : heure locale de vente
+  offlineSoldAt   DateTime?
+  offlineRef      String?
+  operatorId      String?
+  paymentMethod   String?
+  subtotalCents   Int
+  taxByRate       Json
+  discountCents   Int      @default(0)
+  totalCents      Int
+  payload         Json
+  previousHash    String
+  recordHash      String
+  reprintCount    Int      @default(0)
+  voidOfId        String?
+  voidReason      String?
+  createdAt       DateTime @default(now())
+
+  @@unique([businessId, serialNumber])
+  @@index([businessId, issuedAt])
+  @@index([businessId, orderId])
+  @@index([businessId, kind])
+}
+
+/// Clôture Z / M / Y — totaux figés et chaînés.
+model FiscalClosure {
+  id              String   @id @default(uuid())
+  businessId      String
+  business        Business @relation(fields: [businessId], references: [id])
+  /// DAILY | MONTHLY | YEARLY
+  periodType      String
+  /// 2026-07-09 | 2026-07 | 2026
+  periodKey       String
+  totals          Json
+  grandTotalCents BigInt
+  ticketCount     Int      @default(0)
+  previousHash    String
+  recordHash      String
+  closedAt        DateTime @default(now())
+  closedById      String?
+  /// Snapshot pré-clôture + rapprochement (figé à la clôture)
+  reconciliation  Json?
+
+  @@unique([businessId, periodType, periodKey])
+  @@index([businessId, closedAt])
+}
+
+/// Pré-clôture journalière — contrôles obligatoires avant clôture Z définitive (ISCA).
+model FiscalDayPreclose {
+  id               String    @id @default(uuid())
+  businessId       String
+  business         Business  @relation(fields: [businessId], references: [id])
+  /// Journée civile Europe/Paris YYYY-MM-DD
+  dayKey           String
+  snapshot         Json
+  checks           Json
+  canClose         Boolean
+  blockerCount     Int       @default(0)
+  warningCount     Int       @default(0)
+  managerNotes     String?
+  /// Encaisse espèces comptée (centimes) — rapprochement optionnel
+  cashCountedCents Int?
+  acknowledgedAt   DateTime  @default(now())
+  acknowledgedById String?
+  /// Lié à la clôture Z définitive une fois émise
+  closureId        String?   @unique
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+
+  @@index([businessId, dayKey])
+  @@index([businessId, acknowledgedAt])
+}
+
+/// Journal des événements techniques (JET) — chaîné.
+model FiscalEvent {
+  id           String   @id @default(uuid())
+  businessId   String
+  business     Business @relation(fields: [businessId], references: [id])
+  eventType    String
+  operatorId   String?
+  entityType   String?
+  entityId     String?
+  payload      Json?
+  previousHash String
+  recordHash   String
+  createdAt    DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([businessId, eventType])
+}
+
+/// Archive fiscale figée par exercice (empreinte + chemin stockage).
+model FiscalArchive {
+  id           String   @id @default(uuid())
+  businessId   String
+  business     Business @relation(fields: [businessId], references: [id])
+  fiscalYear   Int
+  storagePath  String
+  contentHash  String
+  exportedAt   DateTime @default(now())
+  exportedById String?
+
+  @@unique([businessId, fiscalYear])
 }

@@ -51,4 +51,71 @@ PaymentProvider
 
 ## P1–P5
 
-Découpe `orders.ts`, domaine delivery, stock polish, Option B — inchangés.
+| Phase     | Contenu (skill URY)                                                                   | Statut                                           |
+| --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **P1**    | Découpe `orders.ts` + domaine delivery (logique hors monolithe, **URLs API stables**) | ✅ Clos                                          |
+| **A**     | Permissions orders (audit 1.4 restant)                                                | ✅ Clos — `ORDERS_*` + routes gated              |
+| **B**     | Module DRIVER API (audit 1.7)                                                         | ✅ Clos — `lib/driver-actions` + `/api/driver/*` |
+| **C**     | Permissions settings + devices (audit 1.4)                                            | ✅ Clos — `SETTINGS_*` + `DEVICES_*`             |
+| **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | Plus tard                                        |
+| **P3**    | Option B multi-entry frontend                                                         | Plus tard                                        |
+| **P4–P5** | Selon skill (legacy client, Android)                                                  | Plus tard                                        |
+
+### Mini-spec P1 — **CLOS**
+
+**Objectif :** réduire `routes/orders.ts` en extrayant la logique métier vers `lib/order-*.ts` (et delivery), sans changer les chemins `/api/orders/...`.
+
+**Livré :**
+
+- `order-assign-driver`, `order-cancel`, `order-encash`, `order-pos-settle`, `order-payment-update`, `order-payment-meta`
+- `order-update-status`, `order-create`, `order-split`
+- Routes = thin wrappers ; URLs stables
+- `orders.ts` ~766 lignes (was ~1355)
+
+**Preuve :** `npm run typecheck` OK ; jest P1/orders **38** passed (2026-08-24).
+
+**Hors-scope respecté :** Option B, stock polish, URY.
+
+### Mini-spec A — **CLOS** (permissions orders)
+
+**Objectif :** finir audit 1.4 sur `orders.ts` — plus de routes staff sensibles sans auth ; WAITER sans paiement / PII / reports.
+
+**Livré :**
+
+- `PERMISSION.ORDERS_READ|WRITE|PAYMENT|CANCEL|ASSIGN_DRIVER|CUSTOMER_PII`
+- Routes staff gated ; `/active`, `/customer/:phone`, `POST /:id/items` auth + tenant JWT
+- Routes publiques stables avant `/:id` : track-token, track, call-waiter
+- Split validation `splits` (400 si vide)
+
+**Preuve :** `permissions.test.ts` + `orders.test.ts` + typecheck
+
+**Hors-scope :** settings/devices full table, FE Next.js (migration `/api/driver/*`)
+
+### Mini-spec B — **CLOS** (DRIVER API)
+
+**Objectif :** logique livreur hors monolithe + scoping serveur (un livreur n’agit que sur ses livraisons).
+
+**Livré :**
+
+- `lib/driver-actions.ts` — accept / location / confirm / issue + `assertDriverMayAct`
+- `routes/driver.ts` — `POST /api/driver/orders/:id/{accept,location,confirm,issue}` (identité obligatoire)
+- Routes publiques track-token → wrappers sur les mêmes libs (`requireIdentity: false` = compat FE actuel)
+
+**Preuve :** `driver-actions.test.ts` + typecheck
+
+**Hors-scope :** migration FE vers `/api/driver/*` (Claude / Next)
+
+### Mini-spec C — **CLOS** (permissions settings/devices)
+
+**Objectif :** finir audit 1.4 sur `settings.ts` + `devices.ts` — plus de lecture paramètres / jumelage staff sans rôle.
+
+**Livré :**
+
+- `SETTINGS_READ|WRITE`, `DEVICES_READ|WRITE|ONBOARDING|PRINT`
+- `GET /settings`, `/schedule` → ADMIN/MANAGER ; `PUT` → ADMIN
+- `POST /devices/pair` (staff) → ADMIN/MANAGER (était `authenticate` seul)
+- Routes CRM devices → `requirePermission` centralisé
+
+**Preuve :** `permissions.test.ts` étendu + typecheck
+
+**Hors-scope :** `licenses.ts`, `employees.ts` tableau complet

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
+import { logAction } from '../middleware/auditLog';
 import { AuthRequest } from '../types';
 import {
   loyaltyFreePizzasAvailable,
@@ -286,6 +287,35 @@ router.get('/customers', ...loyaltyAdjust, async (req: AuthRequest, res: Respons
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+/**
+ * DELETE /api/loyalty/customers/:id
+ * Effacement définitif d'un client fidélité (droit à l'effacement RGPD).
+ * Purge les transactions liées avant suppression (pas de cascade en base).
+ */
+router.delete(
+  '/customers/:id',
+  ...loyaltyAdjust,
+  logAction('DELETE', 'LOYALTY_CUSTOMER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const customer = await prisma.loyaltyCustomer.findFirst({
+        where: { id: req.params.id, businessId: req.user!.businessId },
+      });
+      if (!customer) return res.status(404).json({ error: 'Client introuvable' });
+
+      await prisma.$transaction([
+        prisma.loyaltyTransaction.deleteMany({ where: { customerId: customer.id } }),
+        prisma.loyaltyCustomer.delete({ where: { id: customer.id } }),
+      ]);
+
+      res.json({ success: true, id: customer.id });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
 
 /** Aperçu points pour un montant (POS / checkout). */
 router.get('/preview', ...loyaltyRead, async (req: AuthRequest, res: Response) => {

@@ -13,6 +13,12 @@ import { computeAvailableTimeSlots } from '../lib/time-slots';
 import { getFormulesFromSettings } from '../lib/sync-menu-formules';
 import { enqueueConfirmedOrderPrints } from '../lib/enqueue-order-prints';
 import { allocateOrderNumber } from '../lib/order-number';
+import {
+  confirmDeliveryHandover,
+  reportDeliveryIssue,
+  updateDriverLocation,
+} from '../lib/driver-actions';
+import { resolveDriverUserId } from '../lib/driver-access';
 import { randomBytes } from 'crypto';
 
 const router = Router();
@@ -368,69 +374,20 @@ router.post(
       const io: SocketIOServer = req.app.get('io');
       const businessId = getBusinessId();
       const { lat, lng } = req.body as { lat?: number; lng?: number };
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return res.status(400).json({ success: false, error: 'lat/lng invalides' });
-      }
-
-      const existing = await prisma.order.findFirst({
-        where: {
-          trackingToken: req.params.token,
-          businessId,
-          type: 'DELIVERY',
-          status: { in: ['READY', 'OUT_FOR_DELIVERY'] },
-        },
-      });
-      if (!existing) {
-        return res.status(404).json({ success: false, error: 'Livraison introuvable ou clôturée' });
-      }
-
-      const { resolveDriverUserId } = await import('../lib/driver-access');
-      const { appendDriverTrail } = await import('../lib/driver-trail');
       const driverUserId = await resolveDriverUserId(req, prisma, businessId);
 
-      if (existing.driverId && driverUserId && existing.driverId !== driverUserId) {
-        return res.status(409).json({
-          success: false,
-          error: 'Cette livraison est déjà prise en charge par un autre livreur',
-        });
+      const result = await updateDriverLocation(prisma, io, {
+        businessId,
+        trackingToken: req.params.token,
+        driverUserId,
+        lat: Number(lat),
+        lng: Number(lng),
+        requireIdentity: false,
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ success: false, error: result.error });
       }
-
-      const now = new Date();
-      const trail = appendDriverTrail(existing.driverTrail, lat!, lng!, now);
-
-      const order = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          driverLat: lat,
-          driverLng: lng,
-          driverLocationAt: now,
-          driverTrail: trail,
-          ...(driverUserId && !existing.driverId ? { driverId: driverUserId } : {}),
-          ...(existing.status === 'READY' ? { status: 'OUT_FOR_DELIVERY' } : {}),
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-          driver: { select: { id: true, name: true } },
-        },
-      });
-
-      io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-      const { emitOrderTrackUpdate } = await import('../lib/order-track-events');
-      emitOrderTrackUpdate(io, order);
-
-      return res.json({
-        success: true,
-        order: {
-          orderNumber: order.orderNumber,
-          status: order.status,
-          driverLat: order.driverLat,
-          driverLng: order.driverLng,
-          driverLocationAt: order.driverLocationAt,
-          driverId: order.driverId,
-          driverName: order.driver?.name ?? null,
-        },
-      });
+      return res.json({ success: true, order: result.order });
     } catch (error) {
       console.error('[public/driver-location]', error);
       return res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -480,60 +437,21 @@ router.post(
     try {
       const prisma: PrismaClient = req.app.get('prisma');
       const io: SocketIOServer = req.app.get('io');
+      const businessId = getBusinessId();
       const { code } = req.body as { code?: string };
-      if (!code?.trim()) {
-        return res.status(400).json({ success: false, error: 'Code requis' });
-      }
+      const driverUserId = await resolveDriverUserId(req, prisma, businessId);
 
-      const { isValidHandoverCode } = await import('../lib/delivery-handover');
-      const { resolveDriverUserId } = await import('../lib/driver-access');
-      const existing = await prisma.order.findFirst({
-        where: {
-          trackingToken: req.params.token,
-          businessId: getBusinessId(),
-          type: 'DELIVERY',
-          status: 'OUT_FOR_DELIVERY',
-        },
+      const result = await confirmDeliveryHandover(prisma, io, {
+        businessId,
+        trackingToken: req.params.token,
+        driverUserId,
+        code: code ?? '',
+        requireIdentity: false,
       });
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ success: false, error: 'Livraison introuvable ou déjà clôturée' });
+      if (!result.ok) {
+        return res.status(result.status).json({ success: false, error: result.error });
       }
-      if (!isValidHandoverCode(code, existing.deliveryHandoverCode)) {
-        return res
-          .status(400)
-          .json({ success: false, error: 'Code incorrect — demandez le code au client' });
-      }
-
-      const driverUserId = await resolveDriverUserId(req, prisma, getBusinessId());
-
-      const order = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          status: 'DELIVERED',
-          ...(driverUserId && !existing.driverId ? { driverId: driverUserId } : {}),
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-          driver: { select: { id: true, name: true } },
-        },
-      });
-
-      const { notifyOrderStatusChange } = await import('../lib/notifications');
-      void notifyOrderStatusChange(order).catch(err =>
-        console.error('[notifications] delivered:', err)
-      );
-
-      io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-      const { emitOrderTrackUpdate } = await import('../lib/order-track-events');
-      emitOrderTrackUpdate(io, order);
-
-      return res.json({
-        success: true,
-        order: { orderNumber: order.orderNumber, status: order.status },
-      });
+      return res.json({ success: true, order: result.order });
     } catch (error) {
       console.error('[public/driver-confirm]', error);
       return res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -546,52 +464,22 @@ router.post('/orders/track-token/:token/driver-issue', async (req: AuthRequest, 
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const io: SocketIOServer = req.app.get('io');
+    const businessId = getBusinessId();
     const { reason, note } = req.body as { reason?: string; note?: string };
-    const { DELIVERY_ISSUE_REASONS } = await import('../lib/delivery-handover');
-    const validReasons = DELIVERY_ISSUE_REASONS.map(r => r.value);
-    if (!reason || !validReasons.includes(reason as (typeof validReasons)[number])) {
-      return res.status(400).json({ success: false, error: 'Motif requis' });
+    const driverUserId = await resolveDriverUserId(req, prisma, businessId);
+
+    const result = await reportDeliveryIssue(prisma, io, {
+      businessId,
+      trackingToken: req.params.token,
+      driverUserId,
+      reason: reason ?? '',
+      note,
+      requireIdentity: false,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, error: result.error });
     }
-
-    const existing = await prisma.order.findFirst({
-      where: {
-        trackingToken: req.params.token,
-        businessId: getBusinessId(),
-        type: 'DELIVERY',
-        status: 'OUT_FOR_DELIVERY',
-      },
-    });
-    if (!existing) {
-      return res
-        .status(404)
-        .json({ success: false, error: 'Livraison introuvable ou déjà clôturée' });
-    }
-
-    const order = await prisma.order.update({
-      where: { id: existing.id },
-      data: {
-        status: 'DELIVERY_ISSUE',
-        deliveryIssueReason: reason,
-        deliveryIssueNote: note?.trim() || null,
-        deliveryIssueAt: new Date(),
-        driverLat: null,
-        driverLng: null,
-        driverLocationAt: null,
-      },
-      include: {
-        items: { include: { menuItem: true } },
-        table: true,
-      },
-    });
-
-    io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-    const { emitOrderTrackUpdate } = await import('../lib/order-track-events');
-    emitOrderTrackUpdate(io, order);
-
-    return res.json({
-      success: true,
-      order: { orderNumber: order.orderNumber, status: order.status },
-    });
+    return res.json({ success: true, order: result.order });
   } catch (error) {
     console.error('[public/driver-issue]', error);
     return res.status(500).json({ success: false, error: 'Erreur serveur' });

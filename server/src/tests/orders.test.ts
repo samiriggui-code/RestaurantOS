@@ -61,15 +61,6 @@ jest.mock('../middleware/auth', () => ({
     }
     next();
   }),
-  requireRole: jest.fn((...roles: string[]) => {
-    return (req: AuthRequest, res: Response, next: NextFunction): void => {
-      if (!req.user || !roles.includes(req.user.role)) {
-        res.status(403).json({ error: 'Insufficient permissions' });
-        return;
-      }
-      next();
-    };
-  }),
 }));
 
 const prisma = mockDeep<PrismaClient>();
@@ -544,24 +535,29 @@ describe('Order Routes', () => {
   });
 
   describe('GET /api/orders/active', () => {
-    it('should return active order for a table', async () => {
+    it('should return active order for a table (tenant from JWT)', async () => {
       (prisma.order.findFirst as jest.Mock).mockResolvedValue(mockOrder);
 
-      const res = await request(app).get('/api/orders/active?tableId=table-1&businessId=biz-1');
+      const res = await request(app).get('/api/orders/active?tableId=table-1');
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('id', 'order-1');
+      expect(prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tableId: 'table-1', businessId: 'biz-1' }),
+        })
+      );
     });
 
-    it('should return 404 when tableId or businessId is missing (catches /:id first)', async () => {
+    it('should return 400 when tableId is missing', async () => {
       const res = await request(app).get('/api/orders/active');
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(400);
     });
   });
 
   describe('POST /api/orders/:id/items', () => {
     it('should add items to an existing order', async () => {
-      (prisma.order.findUnique as jest.Mock).mockResolvedValueOnce({
+      (prisma.order.findFirst as jest.Mock).mockResolvedValueOnce({
         ...mockOrder,
         table: null,
       });
@@ -582,7 +578,7 @@ describe('Order Routes', () => {
     });
 
     it('should return 404 when order is not found', async () => {
-      (prisma.order.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.order.findFirst as jest.Mock).mockResolvedValue(null);
 
       const res = await request(app)
         .post('/api/orders/nonexistent/items')
@@ -592,7 +588,7 @@ describe('Order Routes', () => {
     });
 
     it('should return 400 when adding items to delivered order', async () => {
-      (prisma.order.findUnique as jest.Mock).mockResolvedValue({
+      (prisma.order.findFirst as jest.Mock).mockResolvedValue({
         ...mockOrder,
         status: 'DELIVERED',
         table: null,
@@ -607,13 +603,18 @@ describe('Order Routes', () => {
   });
 
   describe('GET /api/orders/customer/:phone', () => {
-    it('should return orders for a customer phone', async () => {
+    it('should return orders for a customer phone (tenant from JWT)', async () => {
       (prisma.order.findMany as jest.Mock).mockResolvedValue([mockOrder]);
 
-      const res = await request(app).get('/api/orders/customer/+966500000000?businessId=biz-1');
+      const res = await request(app).get('/api/orders/customer/%2B966500000000');
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ businessId: 'biz-1' }),
+        })
+      );
     });
   });
 

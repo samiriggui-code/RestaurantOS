@@ -1,9 +1,10 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { Server as SocketIOServer } from 'socket.io';
-import { authenticate, requireRole } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { logAction } from '../middleware/auditLog';
 import { AuthRequest } from '../types';
+import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseBusinessSettings } from '../lib/business-settings';
 import { getBusinessId } from '../lib/business';
 import {
@@ -41,6 +42,11 @@ import {
 } from '../lib/device-diagnostics';
 
 const router = Router();
+
+const devicesRead = [authenticate, requirePermission(PERMISSION.DEVICES_READ)] as const;
+const devicesWrite = [authenticate, requirePermission(PERMISSION.DEVICES_WRITE)] as const;
+const devicesOnboarding = [authenticate, requirePermission(PERMISSION.DEVICES_ONBOARDING)] as const;
+const devicesPrint = [authenticate, requirePermission(PERMISSION.DEVICES_PRINT)] as const;
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- retour = payload Prisma Business dont la forme dépend du `select` passé par l'appelant.
 async function loadTenantBusiness(
@@ -239,59 +245,53 @@ router.get('/public/printers', async (req: AuthRequest, res: Response) => {
 });
 
 /** GET /api/devices — état onboarding (admin) */
-router.get(
-  '/',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      let devices = await loadDevices(prisma, req.user!.businessId);
-      const sanitized = stripPrivateWanIps(devices);
-      if (sanitized !== devices) {
-        devices = await saveDevices(prisma, req.user!.businessId, sanitized);
-        syncTraefikShopIp(devices.allowedWanIps ?? []);
-      }
-      const clientIp = getClientIp(req);
-      const gateSkipped = shouldSkipDeviceGate(req);
-      const access = getDevicesAccessStatus(devices, clientIp, gateSkipped);
-
-      const business = await prisma.business.findUnique({
-        where: { id: req.user!.businessId },
-        select: { name: true },
-      });
-
-      res.json({
-        devices: {
-          ...devices,
-          pairingCodes: pruneExpiredPairingCodes(devices.pairingCodes),
-        },
-        access,
-        sumupOnlineConfigured: isSumupOnlineConfigured(),
-        slotCapacity: getSlotCapacitySummary(devices),
-        storeInventory: [
-          {
-            businessId: req.user!.businessId,
-            businessName: business?.name ?? 'Magasin',
-            wanIp: devices.allowedWanIps?.[0] ?? null,
-            pairedCount: devices.pairedDevices?.length ?? 0,
-            slots: getSlotCapacitySummary(devices),
-            printers: devices.printers ?? {},
-          },
-        ],
-      });
-    } catch (error) {
-      console.error('Devices GET error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+router.get('/', ...devicesRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    let devices = await loadDevices(prisma, req.user!.businessId);
+    const sanitized = stripPrivateWanIps(devices);
+    if (sanitized !== devices) {
+      devices = await saveDevices(prisma, req.user!.businessId, sanitized);
+      syncTraefikShopIp(devices.allowedWanIps ?? []);
     }
+    const clientIp = getClientIp(req);
+    const gateSkipped = shouldSkipDeviceGate(req);
+    const access = getDevicesAccessStatus(devices, clientIp, gateSkipped);
+
+    const business = await prisma.business.findUnique({
+      where: { id: req.user!.businessId },
+      select: { name: true },
+    });
+
+    res.json({
+      devices: {
+        ...devices,
+        pairingCodes: pruneExpiredPairingCodes(devices.pairingCodes),
+      },
+      access,
+      sumupOnlineConfigured: isSumupOnlineConfigured(),
+      slotCapacity: getSlotCapacitySummary(devices),
+      storeInventory: [
+        {
+          businessId: req.user!.businessId,
+          businessName: business?.name ?? 'Magasin',
+          wanIp: devices.allowedWanIps?.[0] ?? null,
+          pairedCount: devices.pairedDevices?.length ?? 0,
+          slots: getSlotCapacitySummary(devices),
+          printers: devices.printers ?? {},
+        },
+      ],
+    });
+  } catch (error) {
+    console.error('Devices GET error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
+});
 
 /** POST /api/devices/pairing-code — génère un code 6 chiffres */
 router.post(
   '/pairing-code',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   logAction('CREATE', 'DEVICE_PAIRING'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -329,7 +329,7 @@ router.post(
 /** POST /api/devices/pair — jumeler depuis l'appareil (staff auth) */
 router.post(
   '/pair',
-  authenticate,
+  ...devicesWrite,
   logAction('UPDATE', 'DEVICE_PAIR'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -356,8 +356,7 @@ router.post(
 /** POST /api/devices/capture-wan-ip — IP publique du réseau actuel */
 router.post(
   '/capture-wan-ip',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   logAction('UPDATE', 'DEVICE_WAN_IP'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -417,8 +416,7 @@ router.post(
 /** PUT /api/devices/printers — IP LAN Epson */
 router.put(
   '/printers',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   logAction('UPDATE', 'DEVICE_PRINTERS'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -441,36 +439,30 @@ router.put(
 );
 
 /** GET /api/devices/paired/:id/online — terminal connecté au socket temps réel */
-router.get(
-  '/paired/:id/online',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const devices = await loadDevices(prisma, req.user!.businessId);
-      const paired = (devices.pairedDevices ?? []).find(d => d.id === req.params.id);
-      if (!paired) return res.status(404).json({ error: 'Appareil introuvable' });
+router.get('/paired/:id/online', ...devicesRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const io: SocketIOServer = req.app.get('io');
+    const devices = await loadDevices(prisma, req.user!.businessId);
+    const paired = (devices.pairedDevices ?? []).find(d => d.id === req.params.id);
+    if (!paired) return res.status(404).json({ error: 'Appareil introuvable' });
 
-      const sockets = await io.in(`device:${paired.id}`).fetchSockets();
-      res.json({
-        online: sockets.length > 0,
-        connections: sockets.length,
-        lastSeenAt: paired.lastSeenAt ?? null,
-      });
-    } catch (error) {
-      console.error('Device online check error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
+    const sockets = await io.in(`device:${paired.id}`).fetchSockets();
+    res.json({
+      online: sockets.length > 0,
+      connections: sockets.length,
+      lastSeenAt: paired.lastSeenAt ?? null,
+    });
+  } catch (error) {
+    console.error('Device online check error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
+});
 
 /** POST /api/devices/paired/:id/run-diagnostic — envoie un test au terminal jumelé */
 router.post(
   '/paired/:id/run-diagnostic',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -550,49 +542,43 @@ router.post(
 );
 
 /** POST /api/devices/print-lan — test impression Epson (API sur LAN shop ou dev local) */
-router.post(
-  '/print-lan',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER', 'CHEF', 'CASHIER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const { ip, content, bold, type } = req.body as {
-        ip?: string;
-        content?: string;
-        bold?: boolean;
-        type?: 'KITCHEN' | 'RECEIPT' | 'BAG_LABEL';
-      };
+router.post('/print-lan', ...devicesPrint, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { ip, content, bold, type } = req.body as {
+      ip?: string;
+      content?: string;
+      bold?: boolean;
+      type?: 'KITCHEN' | 'RECEIPT' | 'BAG_LABEL';
+    };
 
-      const devices = await loadDevices(prisma, req.user!.businessId);
-      const resolvedIp =
-        ip?.trim() ||
-        (type === 'RECEIPT' ? devices.printers?.counterLanIp : devices.printers?.kitchenLanIp);
+    const devices = await loadDevices(prisma, req.user!.businessId);
+    const resolvedIp =
+      ip?.trim() ||
+      (type === 'RECEIPT' ? devices.printers?.counterLanIp : devices.printers?.kitchenLanIp);
 
-      if (!resolvedIp) {
-        return res.status(400).json({ error: 'IP imprimante non configurée' });
-      }
-      if (!content?.trim()) {
-        return res.status(400).json({ error: 'contenu vide' });
-      }
-
-      const result = await sendEscPosToLanPrinter(resolvedIp, content, {
-        bold: bold ?? type === 'KITCHEN',
-      });
-      if (!result.ok) return res.status(502).json({ error: result.error });
-      res.json({ ok: true, ip: resolvedIp });
-    } catch (error) {
-      console.error('Print LAN error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    if (!resolvedIp) {
+      return res.status(400).json({ error: 'IP imprimante non configurée' });
     }
+    if (!content?.trim()) {
+      return res.status(400).json({ error: 'contenu vide' });
+    }
+
+    const result = await sendEscPosToLanPrinter(resolvedIp, content, {
+      bold: bold ?? type === 'KITCHEN',
+    });
+    if (!result.ok) return res.status(502).json({ error: result.error });
+    res.json({ ok: true, ip: resolvedIp });
+  } catch (error) {
+    console.error('Print LAN error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
+});
 
 /** POST /api/devices/complete-recipe */
 router.post(
   '/complete-recipe',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   logAction('UPDATE', 'DEVICE_RECIPE'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -612,8 +598,7 @@ router.post(
 /** POST /api/devices/complete-onboarding — débloque POS/KDS */
 router.post(
   '/complete-onboarding',
-  authenticate,
-  requireRole('ADMIN'),
+  ...devicesOnboarding,
   logAction('UPDATE', 'DEVICE_ONBOARDING'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -645,8 +630,7 @@ router.post(
 /** POST /api/devices/reset-onboarding — labo → client */
 router.post(
   '/reset-onboarding',
-  authenticate,
-  requireRole('ADMIN'),
+  ...devicesOnboarding,
   logAction('UPDATE', 'DEVICE_RESET'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -666,8 +650,7 @@ router.post(
 /** DELETE /api/devices/paired/:id — dissocier */
 router.delete(
   '/paired/:id',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  ...devicesWrite,
   logAction('DELETE', 'DEVICE_PAIR'),
   async (req: AuthRequest, res: Response) => {
     try {

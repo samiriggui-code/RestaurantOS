@@ -1,8 +1,9 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, requireRole } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { logAction } from '../middleware/auditLog';
 import { AuthRequest } from '../types';
+import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseBusinessSettings, type BusinessSettingsJson } from '../lib/business-settings';
 import { logFiscalEvent } from '../lib/fiscal/events';
 import { getIntegrationsStatus } from '../lib/marketplace-integrations';
@@ -11,7 +12,10 @@ import { sumupWebhookUrl } from '../lib/sumup-online-config';
 
 const router = Router();
 
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+const settingsRead = [authenticate, requirePermission(PERMISSION.SETTINGS_READ)] as const;
+const settingsWrite = [authenticate, requirePermission(PERMISSION.SETTINGS_WRITE)] as const;
+
+router.get('/', ...settingsRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const settings = await prisma.business.findUnique({
@@ -59,8 +63,7 @@ router.get('/public/:id', async (req: AuthRequest, res: Response) => {
 
 router.put(
   '/',
-  authenticate,
-  requireRole('ADMIN'),
+  ...settingsWrite,
   logAction('UPDATE', 'BUSINESS'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -135,7 +138,7 @@ router.put(
 );
 
 /** GET /api/settings/schedule — horaires + fermetures (admin) */
-router.get('/schedule', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/schedule', ...settingsRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const business = await prisma.business.findUnique({
@@ -161,8 +164,7 @@ router.get('/schedule', authenticate, async (req: AuthRequest, res: Response) =>
 /** PUT /api/settings/schedule — horaires + fermetures + créneaux BDD (admin) */
 router.put(
   '/schedule',
-  authenticate,
-  requireRole('ADMIN'),
+  ...settingsWrite,
   logAction('UPDATE', 'SCHEDULE'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -252,24 +254,19 @@ router.put(
 );
 
 /** GET /api/settings/integrations — statut marketplaces + SumUp en ligne (admin intégrations) */
-router.get(
-  '/integrations',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const status = await getIntegrationsStatus(prisma, req.user!.businessId);
-      res.json({
-        ...status,
-        sumupOnlineConfigured: isSumupOnlineConfigured(),
-        sumupWebhookUrl: sumupWebhookUrl(),
-      });
-    } catch (error) {
-      console.error('[settings/integrations]', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
+router.get('/integrations', ...settingsRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const status = await getIntegrationsStatus(prisma, req.user!.businessId);
+    res.json({
+      ...status,
+      sumupOnlineConfigured: isSumupOnlineConfigured(),
+      sumupWebhookUrl: sumupWebhookUrl(),
+    });
+  } catch (error) {
+    console.error('[settings/integrations]', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
+});
 
 export default router;

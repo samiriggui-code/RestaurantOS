@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFeedbackState } from '@/lib/use-feedback-state'
-import { Gift, Loader2, Medal, Pizza, Save, Search, TrendingUp, Users } from 'lucide-react'
+import { Gift, Loader2, Medal, Pizza, Save, Search, Trash2, TrendingUp, Users } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
+import { useAppFeedback } from '@/components/feedback/AppFeedbackProvider'
 import { AdminPageHeader, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { ADMIN_STAT_GRID, AdminStatCard } from '@/components/admin/AdminStatCard'
 import { formatEUR } from '@/lib/money'
@@ -55,6 +56,7 @@ export function AdminLoyaltyView() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const { error, setError, message, setMessage } = useFeedbackState()
+  const { confirm } = useAppFeedback()
   const [searchPhone, setSearchPhone] = useState('')
   const [searchResult, setSearchResult] = useState<LoyaltyCustomer | null | undefined>(undefined)
   const [manualPoints, setManualPoints] = useState(10)
@@ -178,6 +180,33 @@ export function AdminLoyaltyView() {
       if (searchResult?.id === customerId) await searchCustomer()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Échange impossible')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function deleteCustomer(customer: LoyaltyCustomer) {
+    const session = getStaffSession('crm')
+    if (!session) return
+    const ok = await confirm({
+      title: 'Effacer ce client',
+      message: `Supprimer définitivement ${customer.name ?? customer.phone} et son historique de points (${customer.totalPoints} pts) ? Action irréversible (droit à l'effacement RGPD).`,
+      confirmLabel: 'Effacer',
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy(`delete-${customer.id}`)
+    try {
+      await staffFetch(`/loyalty/customers/${customer.id}`, {
+        method: 'DELETE',
+        token: session.token,
+        scope: 'crm',
+      })
+      setCustomers((prev) => prev.filter((c) => c.id !== customer.id))
+      if (searchResult?.id === customer.id) setSearchResult(null)
+      setMessage('Client fidélité effacé.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression impossible')
     } finally {
       setBusy(null)
     }
@@ -352,6 +381,7 @@ export function AdminLoyaltyView() {
                   <th className="px-4 py-3 hidden sm:table-cell">🍕 dispo</th>
                   <th className="px-4 py-3 hidden md:table-cell">Dépenses</th>
                   <th className="px-4 py-3 hidden lg:table-cell">Visites</th>
+                  <th className="px-4 py-3 text-right">RGPD</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
@@ -369,6 +399,17 @@ export function AdminLoyaltyView() {
                       {formatEUR(c.totalSpent)}
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-cream/50">{c.visitCount}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        title="Effacer ce client (RGPD)"
+                        disabled={busy === `delete-${c.id}`}
+                        onClick={() => void deleteCustomer(c)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -466,6 +507,15 @@ export function AdminLoyaltyView() {
                     Offrir 1 pizza
                   </button>
                 )}
+                <button
+                  type="button"
+                  disabled={busy === `delete-${searchResult.id}`}
+                  onClick={() => void deleteCustomer(searchResult)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-lg border border-red-500/25 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Effacer (RGPD)
+                </button>
               </div>
 
               {searchResult.transactions && searchResult.transactions.length > 0 && (

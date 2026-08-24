@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
-import { randomBytes } from 'crypto';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { Server as SocketIOServer } from 'socket.io';
-import { authenticate, optionalAuthenticate, requireRole } from '../middleware/auth';
+import { authenticate, optionalAuthenticate } from '../middleware/auth';
+import { PERMISSION, requirePermission } from '../lib/permissions';
 import { logAction } from '../middleware/auditLog';
 import { AuthRequest } from '../types';
-import { resolveBusinessId } from '../lib/business';
 import {
   computeOrderTotalsFromLines,
   defaultVatBpsFromTaxRate,
@@ -14,79 +13,35 @@ import {
 import { orderPriceMode } from '../lib/invoice-vat';
 import { type PrintTicketType, generateReceiptData } from '../services/printer';
 import { enqueuePrintJob } from '../lib/enqueue-print-job';
-import { enqueueConfirmedOrderPrints } from '../lib/enqueue-order-prints';
-import { emitOrderTrackUpdate } from '../lib/order-track-events';
-import { notifyOrderStatusChange } from '../lib/notifications';
-import { deductStockWithAlerts } from '../lib/stock-deduct-alerts';
-import { restoreStockForOrder } from '../lib/order-stock';
-import { ensureInvoiceForPaidOrder } from '../lib/invoice-from-order';
-import { resolveOrderChannel } from '../lib/order-channel';
-import { ensureLoyaltyCreditForPaidOrder } from '../lib/loyalty-order';
-import { requireFiscalTicketForPaidOrder } from '../lib/fiscal/hook-paid-order';
 import { assertOrderFiscallyMutable } from '../lib/fiscal/guards';
-import { voidFiscalTicketForCancelledOrder } from '../lib/fiscal/auto-void';
-import { assertManualCardPaymentMeta } from '../lib/fiscal/payment-validation';
 import { fiscalMetaForReceipt, FiscalReprintWindowError } from '../lib/fiscal/receipt-meta';
-import { mergePaymentMeta, type OrderPaymentMeta } from '../lib/payment-meta';
-import { emitAdminLive } from '../lib/admin-live-events';
+import { type OrderPaymentMeta } from '../lib/payment-meta';
 import { shouldExcludeUnpaidOrders, UNPAID_PENDING_ORDER_FILTER } from '../lib/order-list-filters';
-import { refundSumupPaymentForOrder } from '../lib/sumup-refund';
-import { allocateOrderNumber } from '../lib/order-number';
-import {
-  assertOrderStatusTransition,
-  assertPaymentStatusTransition,
-  InvalidOrderTransitionError,
-  InvalidPaymentTransitionError,
-  transitionOrderStatus,
-} from '../lib/order-status';
+import { ORDER_CANCEL_REASONS, type OrderCancelReason, cancelOrder } from '../lib/order-cancel';
+import { assignDriverToOrder } from '../lib/order-assign-driver';
+import { encashOrder } from '../lib/order-encash';
+import { posSettleOrder } from '../lib/order-pos-settle';
+import { updateOrderPayment } from '../lib/order-payment-update';
+import { updateOrderStatus } from '../lib/order-update-status';
+import { createOrder } from '../lib/order-create';
+import { splitOrder } from '../lib/order-split';
+
+export { ORDER_CANCEL_REASONS, type OrderCancelReason };
 
 const router = Router();
 
-export const ORDER_CANCEL_REASONS = [
-  'CLIENT_REFUSED',
-  'OUT_OF_STOCK',
-  'MISSING_INGREDIENT',
-  'INCIDENT',
-  'OTHER',
+const ordersRead = [authenticate, requirePermission(PERMISSION.ORDERS_READ)] as const;
+const ordersWrite = [authenticate, requirePermission(PERMISSION.ORDERS_WRITE)] as const;
+const ordersPayment = [authenticate, requirePermission(PERMISSION.ORDERS_PAYMENT)] as const;
+const ordersCancel = [authenticate, requirePermission(PERMISSION.ORDERS_CANCEL)] as const;
+const ordersAssignDriver = [
+  authenticate,
+  requirePermission(PERMISSION.ORDERS_ASSIGN_DRIVER),
 ] as const;
-
-export type OrderCancelReason = (typeof ORDER_CANCEL_REASONS)[number];
-
-const CANCEL_REASON_LABEL: Record<OrderCancelReason, string> = {
-  CLIENT_REFUSED: 'Client refuse la commande',
-  OUT_OF_STOCK: 'Stock épuisé',
-  MISSING_INGREDIENT: 'Ingrédient manquant',
-  INCIDENT: 'Incident cuisine',
-  OTHER: 'Autre motif',
-};
-
-function applyPaymentMeta(
-  body: { paymentMeta?: OrderPaymentMeta; paymentMethod?: string },
-  totalCents: number
-): { paymentMeta?: object; paymentCapturedAt?: Date } {
-  if (!body.paymentMethod || !['CASH', 'CARD'].includes(body.paymentMethod)) return {};
-  const meta = mergePaymentMeta(body.paymentMeta ?? null, {
-    amountCents: totalCents,
-    capturedAt: body.paymentMeta?.capturedAt ?? new Date().toISOString(),
-    provider: body.paymentMeta?.provider ?? (body.paymentMethod === 'CASH' ? 'MANUAL' : 'MANUAL'),
-    captureMode: body.paymentMeta?.captureMode ?? 'manual',
-  });
-  return {
-    paymentMeta: meta as object,
-    paymentCapturedAt: new Date(meta.capturedAt ?? new Date().toISOString()),
-  };
-}
-
-function generateTrackingToken(): string {
-  return randomBytes(6).toString('hex');
-}
-
-/** Commande internet invité vs comptoir staff (isOnlineOrder: false). */
-function isOnlineCheckout(isOnlineOrder: unknown, hasStaffUser: boolean): boolean {
-  if (isOnlineOrder === false) return false;
-  if (isOnlineOrder === true) return true;
-  return !hasStaffUser;
-}
+const ordersCustomerPii = [
+  authenticate,
+  requirePermission(PERMISSION.ORDERS_CUSTOMER_PII),
+] as const;
 
 /**
  * POST /api/orders
@@ -100,161 +55,15 @@ router.post('/', optionalAuthenticate, async (req: AuthRequest, res: Response) =
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const io: SocketIOServer = req.app.get('io');
-    const {
-      items,
-      tableId,
-      customerName,
-      customerPhone,
-      customerEmail,
-      type,
-      notes,
-      isOnlineOrder,
-    } = req.body;
-
-    const businessId = req.user?.businessId || resolveBusinessId(req.body.businessId);
-    if (!businessId) return res.status(400).json({ error: 'businessId required' });
-
-    let subtotal = 0;
-    const orderItemsData: Prisma.OrderItemUncheckedCreateWithoutOrderInput[] = [];
-    const vatLines: OrderVatLine[] = [];
-
-    for (const item of items) {
-      const menuItem = await prisma.menuItem.findUnique({ where: { id: item.menuItemId } });
-      if (!menuItem || !menuItem.isAvailable || !menuItem.isActive) {
-        return res.status(400).json({ error: `Item ${item.menuItemId} not available` });
-      }
-      let itemPrice = menuItem.discountPrice ?? menuItem.price;
-      if (
-        req.user &&
-        typeof item.price === 'number' &&
-        Number.isInteger(item.price) &&
-        item.price >= 0
-      ) {
-        itemPrice = item.price;
-      }
-      subtotal += itemPrice * item.quantity;
-      vatLines.push({
-        quantity: item.quantity,
-        unitPriceCents: itemPrice,
-        vatRateBps: menuItem.vatRateBps,
-      });
-      orderItemsData.push({
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        price: itemPrice,
-        notes: item.notes || null,
-        selectedModifiers: item.selectedModifiers || {},
-        sortOrder: item.sortOrder || 0,
-      });
-    }
-
-    const settings = await prisma.business.findUnique({ where: { id: businessId } });
-    const defaultVatBps = defaultVatBpsFromTaxRate(settings?.taxRate ?? 10);
-    const vatLinesResolved = vatLines.map(l => ({
-      ...l,
-      vatRateBps: l.vatRateBps ?? defaultVatBps,
-    }));
-    const serviceRate = settings?.serviceChargeRate ?? 0;
-    const orderType = type || 'DINE_IN';
-    const online = isOnlineCheckout(isOnlineOrder, Boolean(req.user));
-    const channel = resolveOrderChannel({
-      channel: req.body.channel,
-      isOnlineOrder: online,
-      source: req.body.source,
+    const result = await createOrder(prisma, io, {
+      body: req.body,
+      userId: req.user?.userId,
+      userBusinessId: req.user?.businessId,
     });
-    const { tax, serviceCharge, total } = computeOrderTotalsFromLines(vatLinesResolved, {
-      priceMode: online ? 'TTC' : 'HT',
-      serviceRatePercent: serviceRate,
-      orderType,
-    });
-    const initialStatus = online ? 'PENDING_PAYMENT' : 'CONFIRMED';
-
-    const order = await prisma.$transaction(async tx => {
-      const orderNumber = await allocateOrderNumber(tx, businessId);
-      return tx.order.create({
-        data: {
-          businessId,
-          orderNumber,
-          tableId: tableId || null,
-          customerName: customerName || null,
-          customerPhone: customerPhone || null,
-          customerEmail: customerEmail || null,
-          type: orderType,
-          status: initialStatus,
-          paymentStatus: online ? 'UNPAID' : req.body.paymentStatus || 'UNPAID',
-          paymentMethod: req.body.paymentMethod || null,
-          subtotal,
-          tax,
-          serviceCharge,
-          total,
-          notes: notes || null,
-          isOnlineOrder: online,
-          channel,
-          trackingToken: generateTrackingToken(),
-          deliveryAddress: req.body.deliveryAddress || null,
-          deliveryPostalCode: req.body.deliveryPostalCode || null,
-          deliveryCity: req.body.deliveryCity || null,
-          scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : null,
-          cashierId: req.user?.userId || null,
-          ...applyPaymentMeta(req.body, total),
-          items: { create: orderItemsData },
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-        },
-      });
-    });
-
-    // Update table status if dine-in
-    if (tableId) {
-      await prisma.table.update({
-        where: { id: tableId },
-        data: { status: 'OCCUPIED' },
-      });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-
-    if (initialStatus === 'CONFIRMED') {
-      void deductStockWithAlerts(
-        prisma,
-        businessId,
-        order.id,
-        order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-      ).catch(err => console.error('Stock deduct on create:', err));
-    }
-
-    if (order.paymentStatus === 'PAID') {
-      try {
-        assertManualCardPaymentMeta(order.paymentMethod, req.body.paymentMeta);
-        await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, req.user?.userId, {
-          paymentMethod: order.paymentMethod,
-        });
-      } catch (fiscalErr) {
-        try {
-          await prisma.order.delete({ where: { id: order.id } });
-        } catch {
-          /* ignore rollback delete */
-        }
-        const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
-        return res.status(500).json({ error: msg });
-      }
-      void ensureInvoiceForPaidOrder(prisma, businessId, order.id, req.user?.userId).catch(err =>
-        console.error('Auto invoice on create:', err)
-      );
-      void ensureLoyaltyCreditForPaidOrder(prisma, businessId, order.id);
-    }
-
-    // Cuisine / KDS : uniquement commandes confirmées (CDC — pas de PENDING_PAYMENT)
-    if (initialStatus === 'CONFIRMED') {
-      io.to(`business:${businessId}`).emit('order:new', order);
-      if (!online) {
-        void Promise.resolve(enqueueConfirmedOrderPrints(prisma, io, businessId, order.id)).catch(
-          () => {}
-        );
-      }
-    }
-
-    res.status(201).json(order);
+    res.status(201).json(result.order);
   } catch (error) {
     console.error('Create order error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -267,7 +76,7 @@ router.post('/', optionalAuthenticate, async (req: AuthRequest, res: Response) =
  * @query {status?, type?, dateFrom?, dateTo?, limit?}
  * @returns {Order[]}
  */
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/', ...ordersRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const {
@@ -343,651 +152,6 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-/**
- * GET /api/orders/:id
- * Get a single order by ID.
- * @returns {Order}
- * @throws 404 if order not found
- */
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const order = await prisma.order.findFirst({
-      where: { id: req.params.id, businessId: req.user!.businessId },
-      include: {
-        items: { include: { menuItem: true } },
-        table: true,
-        cashier: { select: { id: true, name: true } },
-        driver: { select: { id: true, name: true } },
-      },
-    });
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    res.json(order);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * PATCH /api/orders/:id/status
- * Update order status. Frees the table when delivered if no active orders remain.
- * Emits socket event 'order:statusUpdate'.
- * @body {status: OrderStatus}
- * @returns {Order}
- */
-router.patch(
-  '/:id/status',
-  authenticate,
-  logAction('UPDATE', 'ORDER_STATUS'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { status } = req.body;
-
-      const existing = await prisma.order.findFirst({
-        where: { id: req.params.id, businessId: req.user!.businessId },
-      });
-      if (!existing) {
-        return res.status(404).json({ error: 'Order not found' });
-      }
-
-      if (status === 'DELIVERED' && existing.type === 'DELIVERY') {
-        return res.status(403).json({
-          error: 'Livraison confirmée par le livreur uniquement (code client requis)',
-        });
-      }
-
-      let nextStatus;
-      try {
-        nextStatus = transitionOrderStatus(existing.status, status).status;
-      } catch (err) {
-        if (err instanceof InvalidOrderTransitionError) {
-          return res.status(400).json({ error: err.message });
-        }
-        throw err;
-      }
-
-      const order = await prisma.order.update({
-        where: { id: req.params.id },
-        data: { status: nextStatus },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-          driver: { select: { id: true, name: true } },
-        },
-      });
-
-      // Libérer la table quand la commande est terminée ou livrée
-      const terminalStatuses = ['COMPLETED', 'DELIVERED'];
-      if (terminalStatuses.includes(nextStatus) && order.tableId) {
-        const activeOrders = await prisma.order.count({
-          where: {
-            tableId: order.tableId,
-            status: { notIn: ['COMPLETED', 'DELIVERED', 'CANCELLED'] },
-          },
-        });
-        if (activeOrders === 0) {
-          await prisma.table.update({
-            where: { id: order.tableId },
-            data: { status: 'AVAILABLE' },
-          });
-        }
-      }
-
-      if (
-        nextStatus === 'READY' ||
-        nextStatus === 'OUT_FOR_DELIVERY' ||
-        nextStatus === 'DELIVERED'
-      ) {
-        void notifyOrderStatusChange(order).catch(err =>
-          console.error('[notifications] status:', err)
-        );
-      } else if (nextStatus === 'PREPARING' || nextStatus === 'CONFIRMED') {
-        void notifyOrderStatusChange(order).catch(() => {});
-      }
-
-      io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-      emitOrderTrackUpdate(io, order);
-      res.json(order);
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:id/assign-driver
- * Attribue un livreur à une livraison prête (KDS / admin).
- * @body { driverId: string }
- */
-router.patch(
-  '/:id/assign-driver',
-  authenticate,
-  logAction('UPDATE', 'ORDER_DRIVER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { driverId } = req.body as { driverId?: string };
-
-      if (!driverId?.trim()) {
-        return res.status(400).json({ error: 'Livreur requis' });
-      }
-
-      const existing = await prisma.order.findFirst({
-        where: { id: req.params.id, businessId: req.user!.businessId },
-      });
-      if (!existing) {
-        return res.status(404).json({ error: 'Order not found' });
-      }
-      if (existing.type !== 'DELIVERY') {
-        return res.status(400).json({ error: 'Réservé aux commandes livraison' });
-      }
-      if (!['READY', 'OUT_FOR_DELIVERY'].includes(existing.status)) {
-        return res.status(400).json({ error: 'Commande non prête pour attribution livreur' });
-      }
-
-      const driver = await prisma.user.findFirst({
-        where: {
-          id: driverId.trim(),
-          businessId: req.user!.businessId,
-          role: 'DRIVER',
-          isActive: true,
-        },
-        select: { id: true, name: true },
-      });
-      if (!driver) {
-        return res.status(400).json({ error: 'Livreur invalide ou inactif' });
-      }
-
-      const order = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          driverId: driver.id,
-          ...(existing.status === 'READY'
-            ? { status: assertOrderStatusTransition(existing.status, 'OUT_FOR_DELIVERY') }
-            : {}),
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-          driver: { select: { id: true, name: true } },
-        },
-      });
-
-      io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-      emitOrderTrackUpdate(io, order);
-      res.json(order);
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:id/encash
- * Encaissement comptoir d'une commande en ligne non payée (POS / SUNMI).
- */
-router.patch(
-  '/:id/encash',
-  authenticate,
-  logAction('UPDATE', 'ORDER_PAYMENT'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { paymentMethod, paymentMeta } = req.body as {
-        paymentMethod?: string;
-        paymentMeta?: OrderPaymentMeta;
-      };
-
-      if (!paymentMethod || !['CASH', 'CARD'].includes(paymentMethod)) {
-        return res.status(400).json({ error: 'paymentMethod must be CASH or CARD' });
-      }
-
-      const existing = await prisma.order.findFirst({
-        where: {
-          id: req.params.id,
-          businessId: req.user!.businessId,
-          isOnlineOrder: true,
-          status: 'PENDING_PAYMENT',
-          paymentStatus: 'UNPAID',
-          paymentMethod: 'COUNTER',
-        },
-      });
-      if (!existing) {
-        return res.status(404).json({ error: 'Commande non trouvée ou déjà encaissée' });
-      }
-
-      const order = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          paymentStatus: assertPaymentStatusTransition(existing.paymentStatus, 'PAID'),
-          paymentMethod,
-          status: assertOrderStatusTransition(existing.status, 'CONFIRMED'),
-          ...applyPaymentMeta({ paymentMethod, paymentMeta }, existing.total),
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-        },
-      });
-
-      io.to(`business:${order.businessId}`).emit('order:new', order);
-      io.to(`business:${order.businessId}`).emit('order:paymentUpdate', order);
-      emitOrderTrackUpdate(io, order);
-
-      void deductStockWithAlerts(
-        prisma,
-        order.businessId,
-        order.id,
-        order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-      ).catch(err => console.error('Stock deduct on encash:', err));
-
-      void enqueueConfirmedOrderPrints(prisma, io, order.businessId, order.id);
-
-      void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, req.user!.userId).catch(
-        err => console.error('Auto invoice on encash:', err)
-      );
-      void ensureLoyaltyCreditForPaidOrder(prisma, order.businessId, order.id);
-
-      try {
-        assertManualCardPaymentMeta(paymentMethod, paymentMeta);
-        await requireFiscalTicketForPaidOrder(
-          prisma,
-          order.businessId,
-          order.id,
-          req.user!.userId,
-          {
-            paymentMethod: order.paymentMethod,
-          }
-        );
-      } catch (fiscalErr) {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: {
-            paymentStatus: 'UNPAID',
-            status: 'PENDING_PAYMENT',
-          },
-        });
-        const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
-        return res.status(500).json({ error: msg });
-      }
-
-      res.json(order);
-    } catch (error) {
-      console.error('Encash order error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:id/pos-settle
- * Finalisation caisse SUNMI : encaissement (UNPAID → PAID) ou remise client (PAID → COMPLETED).
- * La cuisine reste sur READY jusqu'à cette action — pas d'archivage depuis le KDS pour le comptoir.
- */
-router.patch(
-  '/:id/pos-settle',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER', 'CASHIER'),
-  logAction('UPDATE', 'ORDER_POS_SETTLE'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { action, paymentMethod } = req.body as { action?: string; paymentMethod?: string };
-
-      if (!action || !['pay', 'handover'].includes(action)) {
-        return res.status(400).json({ error: 'action must be pay or handover' });
-      }
-
-      const existing = await prisma.order.findFirst({
-        where: {
-          id: req.params.id,
-          businessId: req.user!.businessId,
-          status: 'READY',
-        },
-      });
-      if (!existing) {
-        return res.status(404).json({ error: 'Commande introuvable ou pas encore prête' });
-      }
-
-      if (action === 'pay') {
-        if (existing.paymentStatus !== 'UNPAID') {
-          return res.status(400).json({ error: 'Commande déjà payée' });
-        }
-        if (!paymentMethod || !['CASH', 'CARD'].includes(paymentMethod)) {
-          return res.status(400).json({ error: 'paymentMethod must be CASH or CARD' });
-        }
-      } else {
-        if (existing.paymentStatus !== 'PAID') {
-          return res.status(400).json({ error: 'Encaissement requis avant remise' });
-        }
-        if (existing.type === 'DELIVERY') {
-          return res.status(400).json({ error: 'Livraison gérée depuis le KDS' });
-        }
-      }
-
-      const order = await prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          status: 'COMPLETED',
-          ...(action === 'pay' ? { paymentStatus: 'PAID', paymentMethod } : {}),
-        },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-        },
-      });
-
-      io.to(`business:${order.businessId}`).emit('order:statusUpdate', order);
-      emitOrderTrackUpdate(io, order);
-
-      if (action === 'pay') {
-        void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, req.user!.userId).catch(
-          err => console.error('Auto invoice on pos-settle:', err)
-        );
-        void ensureLoyaltyCreditForPaidOrder(prisma, order.businessId, order.id);
-        try {
-          await requireFiscalTicketForPaidOrder(
-            prisma,
-            order.businessId,
-            order.id,
-            req.user!.userId,
-            {
-              paymentMethod: order.paymentMethod,
-            }
-          );
-        } catch (fiscalErr) {
-          await prisma.order.update({
-            where: { id: order.id },
-            data: { paymentStatus: 'UNPAID', status: 'READY' },
-          });
-          const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
-          return res.status(500).json({ error: msg });
-        }
-      }
-
-      res.json(order);
-    } catch (error) {
-      console.error('POS settle error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:orderId/items/:itemId/status
- * Update status of an individual item within an order (used by kitchen display).
- * Emits socket event 'order:itemStatusUpdate'.
- * @body {status: OrderStatus}
- * @returns {OrderItem}
- */
-router.patch(
-  '/:orderId/items/:itemId/status',
-  authenticate,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { status } = req.body;
-
-      const item = await prisma.orderItem.update({
-        where: { id: req.params.itemId },
-        data: { status },
-        include: { menuItem: true },
-      });
-
-      const order = await prisma.order.findUnique({
-        where: { id: req.params.orderId },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-        },
-      });
-
-      if (order) {
-        io.to(`business:${order.businessId}`).emit('order:itemStatusUpdate', {
-          orderId: order.id,
-          item,
-          order,
-        });
-      }
-
-      res.json(item);
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:id/payment
- * Update payment status and method for an order.
- * Frees the table when paid if no active orders remain.
- * Emits socket event 'order:paymentUpdate'.
- * @body {paymentStatus: PaymentStatus, paymentMethod?: PaymentMethod}
- * @returns {Order}
- */
-router.patch(
-  '/:id/payment',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER', 'CASHIER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { paymentStatus, paymentMethod } = req.body;
-
-      const existing = await prisma.order.findFirst({
-        where: { id: req.params.id, businessId: req.user!.businessId },
-      });
-      if (!existing) return res.status(404).json({ error: 'Order not found' });
-
-      if (existing.paymentStatus === 'PAID' && paymentStatus && paymentStatus !== 'PAID') {
-        await assertOrderFiscallyMutable(prisma, existing.id, existing.businessId);
-      }
-
-      let nextPaymentStatus = existing.paymentStatus;
-      if (paymentStatus) {
-        try {
-          nextPaymentStatus = assertPaymentStatusTransition(existing.paymentStatus, paymentStatus);
-        } catch (err) {
-          if (err instanceof InvalidPaymentTransitionError) {
-            return res.status(400).json({ error: err.message });
-          }
-          throw err;
-        }
-      }
-
-      const order = await prisma.order.update({
-        where: { id: req.params.id },
-        data: { paymentStatus: nextPaymentStatus, paymentMethod },
-        include: {
-          items: { include: { menuItem: true } },
-          table: true,
-        },
-      });
-
-      // Free table when paid
-      if (nextPaymentStatus === 'PAID' && order.tableId) {
-        const activeOrders = await prisma.order.count({
-          where: { tableId: order.tableId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
-        });
-        if (activeOrders === 0) {
-          await prisma.table.update({
-            where: { id: order.tableId! },
-            data: { status: 'AVAILABLE' },
-          });
-        }
-      }
-
-      io.to(`business:${order.businessId}`).emit('order:paymentUpdate', order);
-
-      if (nextPaymentStatus === 'PAID') {
-        if (existing.paymentStatus !== 'PAID' && order.status === 'CONFIRMED') {
-          void deductStockWithAlerts(
-            prisma,
-            order.businessId,
-            order.id,
-            order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-          ).catch(err => console.error('Stock deduct on payment:', err));
-        }
-        void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, req.user!.userId).catch(
-          err => console.error('Auto invoice on payment:', err)
-        );
-        void ensureLoyaltyCreditForPaidOrder(prisma, order.businessId, order.id);
-        try {
-          await requireFiscalTicketForPaidOrder(
-            prisma,
-            order.businessId,
-            order.id,
-            req.user!.userId,
-            {
-              paymentMethod: order.paymentMethod,
-            }
-          );
-        } catch (fiscalErr) {
-          const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
-          return res.status(500).json({ error: msg });
-        }
-      }
-
-      res.json(order);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Internal server error';
-      if (msg.includes('figée fiscalement')) {
-        return res.status(409).json({ error: msg });
-      }
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * PATCH /api/orders/:id/cancel
- * Annulation cuisine / caisse — motif, remise stock, sync POS & admin.
- * Emits socket events 'order:cancelled' and 'order:statusUpdate'.
- * @body { reason: OrderCancelReason, note?: string, source?: 'KITCHEN' | 'POS' | 'ADMIN' }
- * @returns {Order}
- */
-router.patch(
-  '/:id/cancel',
-  authenticate,
-  logAction('UPDATE', 'ORDER_CANCEL'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer = req.app.get('io');
-      const { reason, note, source, refund } = req.body as {
-        reason?: string;
-        note?: string;
-        source?: string;
-        /** false = annuler sans remboursement SumUp (défaut : true si checkout SumUp) */
-        refund?: boolean;
-      };
-
-      if (!reason || !ORDER_CANCEL_REASONS.includes(reason as OrderCancelReason)) {
-        return res.status(400).json({
-          error: `reason required (${ORDER_CANCEL_REASONS.join(', ')})`,
-        });
-      }
-
-      const existing = await prisma.order.findFirst({
-        where: { id: req.params.id, businessId: req.user!.businessId },
-        include: { items: { include: { menuItem: true } }, table: true },
-      });
-      if (!existing) return res.status(404).json({ error: 'Commande introuvable' });
-
-      if (['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(existing.status)) {
-        return res.status(400).json({ error: 'Commande déjà clôturée ou annulée' });
-      }
-
-      const reasonLabel = CANCEL_REASON_LABEL[reason as OrderCancelReason];
-      const sourceLabel = source === 'KITCHEN' ? 'cuisine' : source === 'POS' ? 'caisse' : 'staff';
-      const cancelNoteText = note?.trim() || null;
-      const auditLine = `[Annulation ${sourceLabel}] ${reasonLabel}${cancelNoteText ? ` — ${cancelNoteText}` : ''}`;
-
-      if (existing.paymentStatus === 'PAID' && existing.sumupCheckoutId) {
-        const refundResult = await refundSumupPaymentForOrder(prisma, existing, {
-          refund: refund !== false,
-        });
-        if (!refundResult.ok) {
-          return res.status(400).json({ error: refundResult.error });
-        }
-      }
-
-      if (existing.paymentStatus === 'PAID') {
-        try {
-          await voidFiscalTicketForCancelledOrder(
-            prisma,
-            existing.businessId,
-            existing.id,
-            req.user!.userId,
-            auditLine
-          );
-        } catch (voidErr) {
-          const msg = voidErr instanceof Error ? voidErr.message : 'Avoir fiscal impossible';
-          return res.status(400).json({ error: msg });
-        }
-      }
-
-      const order = await prisma.$transaction(async tx => {
-        assertOrderStatusTransition(existing.status, 'CANCELLED');
-        const updated = await tx.order.update({
-          where: { id: existing.id },
-          data: {
-            status: 'CANCELLED',
-            cancelledAt: new Date(),
-            cancelReason: reason,
-            cancelNote: cancelNoteText,
-            notes: existing.notes ? `${existing.notes}\n${auditLine}` : auditLine,
-            ...(existing.paymentStatus === 'PAID'
-              ? { paymentStatus: assertPaymentStatusTransition(existing.paymentStatus, 'REFUNDED') }
-              : {}),
-          },
-          include: { items: { include: { menuItem: true } }, table: true },
-        });
-
-        await restoreStockForOrder(
-          tx,
-          existing.businessId,
-          existing.id,
-          existing.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
-          reasonLabel
-        );
-
-        if (existing.tableId) {
-          await tx.table.update({
-            where: { id: existing.tableId },
-            data: { status: 'AVAILABLE' },
-          });
-        }
-
-        return updated;
-      });
-
-      const room = `business:${order.businessId}`;
-      io.to(room).emit('order:cancelled', order);
-      io.to(room).emit('order:statusUpdate', order);
-      emitOrderTrackUpdate(io, order);
-      emitAdminLive(io, order.businessId, {
-        domain: 'orders',
-        action: 'cancel',
-        label: 'Commande annulée',
-        detail: `#${order.orderNumber} — ${reasonLabel}`,
-      });
-
-      res.json(order);
-    } catch (error) {
-      console.error('Cancel order error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
 
 /**
  * GET /api/orders/track-token/:token
@@ -1077,21 +241,22 @@ router.post('/call-waiter', async (req: AuthRequest, res: Response) => {
  * Get the active (non-delivered/non-cancelled) order for a table.
  * @query {tableId: string, businessId: string}
  * @returns {Order | null}
- * @throws 400 if tableId or businessId missing
+ * @throws 400 if tableId missing
  */
-router.get('/active', async (req: AuthRequest, res: Response) => {
+router.get('/active', ...ordersRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
-    const { tableId, businessId } = req.query;
+    const { tableId } = req.query;
+    const businessId = req.user!.businessId;
 
-    if (!tableId || !businessId) {
-      return res.status(400).json({ error: 'tableId and businessId required' });
+    if (!tableId) {
+      return res.status(400).json({ error: 'tableId required' });
     }
 
     const order = await prisma.order.findFirst({
       where: {
         tableId: tableId as string,
-        businessId: businessId as string,
+        businessId,
         status: { notIn: ['DELIVERED', 'CANCELLED'] },
       },
       include: {
@@ -1109,6 +274,316 @@ router.get('/active', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * GET /api/orders/customer/:phone
+ * Staff lookup of recent orders by customer phone (PII — ORDERS_CUSTOMER_PII).
+ * businessId = JWT tenant
+ * @returns {Order[]} last 10 orders
+ */
+router.get('/customer/:phone', ...ordersCustomerPii, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { phone } = req.params;
+    const businessId = req.user!.businessId;
+
+    const orders = await prisma.order.findMany({
+      where: { customerPhone: phone, businessId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        items: { include: { menuItem: true } },
+        table: true,
+      },
+    });
+
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/orders/:id
+ * Get a single order by ID.
+ * @returns {Order}
+ * @throws 404 if order not found
+ */
+router.get('/:id', ...ordersRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+      include: {
+        items: { include: { menuItem: true } },
+        table: true,
+        cashier: { select: { id: true, name: true } },
+        driver: { select: { id: true, name: true } },
+      },
+    });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/orders/:id/status
+ * Update order status. Frees the table when delivered if no active orders remain.
+ * Emits socket event 'order:statusUpdate'.
+ * @body {status: OrderStatus}
+ * @returns {Order}
+ */
+router.patch(
+  '/:id/status',
+  ...ordersWrite,
+  logAction('UPDATE', 'ORDER_STATUS'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { status } = req.body;
+
+      const result = await updateOrderStatus(prisma, io, {
+        orderId: req.params.id,
+        businessId: req.user!.businessId,
+        status,
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.order);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/orders/:id/assign-driver
+ * Attribue un livreur à une livraison prête (KDS / admin).
+ * @body { driverId: string }
+ */
+router.patch(
+  '/:id/assign-driver',
+  ...ordersAssignDriver,
+  logAction('UPDATE', 'ORDER_DRIVER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { driverId } = req.body as { driverId?: string };
+
+      const result = await assignDriverToOrder(prisma, io, {
+        orderId: req.params.id,
+        businessId: req.user!.businessId,
+        driverId: driverId ?? '',
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.order);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/orders/:id/encash
+ * Encaissement comptoir d'une commande en ligne non payée (POS / SUNMI).
+ */
+router.patch(
+  '/:id/encash',
+  ...ordersPayment,
+  logAction('UPDATE', 'ORDER_PAYMENT'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { paymentMethod, paymentMeta } = req.body as {
+        paymentMethod?: string;
+        paymentMeta?: OrderPaymentMeta;
+      };
+
+      const result = await encashOrder(prisma, io, {
+        orderId: req.params.id,
+        businessId: req.user!.businessId,
+        userId: req.user!.userId,
+        paymentMethod: paymentMethod ?? '',
+        paymentMeta,
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.order);
+    } catch (error) {
+      console.error('Encash order error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/orders/:id/pos-settle
+ * Finalisation caisse SUNMI : encaissement (UNPAID → PAID) ou remise client (PAID → COMPLETED).
+ * La cuisine reste sur READY jusqu'à cette action — pas d'archivage depuis le KDS pour le comptoir.
+ */
+router.patch(
+  '/:id/pos-settle',
+  ...ordersPayment,
+  logAction('UPDATE', 'ORDER_POS_SETTLE'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { action, paymentMethod } = req.body as { action?: string; paymentMethod?: string };
+
+      const result = await posSettleOrder(prisma, io, {
+        orderId: req.params.id,
+        businessId: req.user!.businessId,
+        userId: req.user!.userId,
+        action: action ?? '',
+        paymentMethod,
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.order);
+    } catch (error) {
+      console.error('POS settle error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/orders/:orderId/items/:itemId/status
+ * Update status of an individual item within an order (used by kitchen display).
+ * Emits socket event 'order:itemStatusUpdate'.
+ * @body {status: OrderStatus}
+ * @returns {OrderItem}
+ */
+router.patch(
+  '/:orderId/items/:itemId/status',
+  ...ordersWrite,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { status } = req.body;
+
+      const item = await prisma.orderItem.update({
+        where: { id: req.params.itemId },
+        data: { status },
+        include: { menuItem: true },
+      });
+
+      const order = await prisma.order.findUnique({
+        where: { id: req.params.orderId },
+        include: {
+          items: { include: { menuItem: true } },
+          table: true,
+        },
+      });
+
+      if (order) {
+        io.to(`business:${order.businessId}`).emit('order:itemStatusUpdate', {
+          orderId: order.id,
+          item,
+          order,
+        });
+      }
+
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/orders/:id/payment
+ * Update payment status and method for an order.
+ * Frees the table when paid if no active orders remain.
+ * Emits socket event 'order:paymentUpdate'.
+ * @body {paymentStatus: PaymentStatus, paymentMethod?: PaymentMethod}
+ * @returns {Order}
+ */
+router.patch('/:id/payment', ...ordersPayment, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const io: SocketIOServer = req.app.get('io');
+    const { paymentStatus, paymentMethod } = req.body;
+
+    const result = await updateOrderPayment(prisma, io, {
+      orderId: req.params.id,
+      businessId: req.user!.businessId,
+      userId: req.user!.userId,
+      paymentStatus,
+      paymentMethod,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.json(result.order);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    if (msg.includes('figée fiscalement')) {
+      return res.status(409).json({ error: msg });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/orders/:id/cancel
+ * Annulation cuisine / caisse — motif, remise stock, sync POS & admin.
+ * Emits socket events 'order:cancelled' and 'order:statusUpdate'.
+ * @body { reason: OrderCancelReason, note?: string, source?: 'KITCHEN' | 'POS' | 'ADMIN' }
+ * @returns {Order}
+ */
+router.patch(
+  '/:id/cancel',
+  ...ordersCancel,
+  logAction('UPDATE', 'ORDER_CANCEL'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const io: SocketIOServer = req.app.get('io');
+      const { reason, note, source, refund } = req.body as {
+        reason?: string;
+        note?: string;
+        source?: string;
+        refund?: boolean;
+      };
+
+      if (!reason || !ORDER_CANCEL_REASONS.includes(reason as OrderCancelReason)) {
+        return res.status(400).json({
+          error: `reason required (${ORDER_CANCEL_REASONS.join(', ')})`,
+        });
+      }
+
+      const result = await cancelOrder(prisma, io, {
+        orderId: req.params.id,
+        businessId: req.user!.businessId,
+        userId: req.user!.userId,
+        reason: reason as OrderCancelReason,
+        note,
+        source,
+        refund,
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.order);
+    } catch (error) {
+      console.error('Cancel order error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
  * POST /api/orders/:id/items
  * Add items to an existing order (continue ordering).
  * Emits socket events 'order:statusUpdate' and 'kitchen:itemsAdded'.
@@ -1117,15 +592,15 @@ router.get('/active', async (req: AuthRequest, res: Response) => {
  * @throws 400 if order is delivered/cancelled or item unavailable
  * @throws 404 if order not found
  */
-router.post('/:id/items', async (req: AuthRequest, res: Response) => {
+router.post('/:id/items', ...ordersWrite, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const io: SocketIOServer = req.app.get('io');
     const { items } = req.body;
     const orderId = req.params.id;
 
-    const existingOrder = await prisma.order.findUnique({
-      where: { id: orderId },
+    const existingOrder = await prisma.order.findFirst({
+      where: { id: orderId, businessId: req.user!.businessId },
       include: { table: true },
     });
     if (!existingOrder) return res.status(404).json({ error: 'Order not found' });
@@ -1227,7 +702,7 @@ router.post('/:id/items', async (req: AuthRequest, res: Response) => {
  */
 router.post(
   '/:id/print',
-  authenticate,
+  ...ordersWrite,
   logAction('CREATE', 'PRINT_JOB'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -1297,7 +772,7 @@ router.post(
  * @returns {receiptData} formatted receipt object
  * @throws 404 if order not found
  */
-router.get('/:id/receipt', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/:id/receipt', ...ordersRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
 
@@ -1333,160 +808,26 @@ router.get('/:id/receipt', authenticate, async (req: AuthRequest, res: Response)
  * @throws 400 if order is already paid
  * @throws 404 if original order not found
  */
-router.post(
-  '/:id/split',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER', 'CASHIER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const io: SocketIOServer | undefined = req.app.get('io');
-      const { splits } = req.body; // [{ items: string[] }] - array of item ID groups
-
-      const originalOrder = await prisma.order.findFirst({
-        where: { id: req.params.id, businessId: req.user!.businessId },
-        include: { items: { include: { menuItem: true } }, table: true },
-      });
-
-      if (!originalOrder) return res.status(404).json({ error: 'Order not found' });
-      if (originalOrder.paymentStatus === 'PAID')
-        return res.status(400).json({ error: 'Cannot split a paid order' });
-
-      const newOrders = [];
-      const movedItemIds: string[] = [];
-
-      for (const split of splits) {
-        const itemIds = split.items as string[];
-        if (!itemIds.length) continue;
-
-        const splitItems = originalOrder.items.filter(i => itemIds.includes(i.id));
-        if (!splitItems.length) continue;
-
-        const settings = await prisma.business.findUnique({ where: { id: req.user!.businessId } });
-        const defaultVatBps = defaultVatBpsFromTaxRate(settings?.taxRate ?? 10);
-        const vatLines: OrderVatLine[] = splitItems.map(item => ({
-          quantity: item.quantity,
-          unitPriceCents: item.price,
-          vatRateBps: item.menuItem.vatRateBps ?? defaultVatBps,
-        }));
-        const {
-          subtotal: splitSubtotal,
-          tax,
-          serviceCharge,
-          total,
-        } = computeOrderTotalsFromLines(vatLines, {
-          priceMode: orderPriceMode(originalOrder),
-          serviceRatePercent: settings?.serviceChargeRate ?? 0,
-          orderType: originalOrder.type,
-        });
-
-        const newOrder = await prisma.$transaction(async tx => {
-          const orderNumber = await allocateOrderNumber(tx, originalOrder.businessId);
-          return tx.order.create({
-            data: {
-              businessId: originalOrder.businessId,
-              orderNumber,
-              tableId: originalOrder.tableId,
-              customerName: originalOrder.customerName,
-              type: originalOrder.type,
-              subtotal: splitSubtotal,
-              tax,
-              serviceCharge,
-              total,
-              status: 'CONFIRMED',
-              isOnlineOrder: false,
-            },
-          });
-        });
-
-        // Move items to new order
-        await prisma.orderItem.updateMany({
-          where: { id: { in: itemIds } },
-          data: { orderId: newOrder.id },
-        });
-
-        movedItemIds.push(...itemIds);
-
-        const fullOrder = await prisma.order.findUnique({
-          where: { id: newOrder.id },
-          include: { items: { include: { menuItem: true } }, table: true },
-        });
-
-        newOrders.push(fullOrder);
-        io?.to(`business:${originalOrder.businessId}`).emit('order:new', fullOrder);
-      }
-
-      // Remove moved items from original order totals
-      const remainingItems = originalOrder.items.filter(i => !movedItemIds.includes(i.id));
-      if (remainingItems.length > 0) {
-        const settings = await prisma.business.findUnique({ where: { id: req.user!.businessId } });
-        const defaultVatBps = defaultVatBpsFromTaxRate(settings?.taxRate ?? 10);
-        const vatLines: OrderVatLine[] = remainingItems.map(item => ({
-          quantity: item.quantity,
-          unitPriceCents: item.price,
-          vatRateBps: item.menuItem.vatRateBps ?? defaultVatBps,
-        }));
-        const {
-          subtotal: remainingSubtotal,
-          tax,
-          serviceCharge,
-          total,
-        } = computeOrderTotalsFromLines(vatLines, {
-          priceMode: orderPriceMode(originalOrder),
-          serviceRatePercent: settings?.serviceChargeRate ?? 0,
-          orderType: originalOrder.type,
-        });
-
-        await prisma.order.update({
-          where: { id: originalOrder.id },
-          data: {
-            subtotal: remainingSubtotal,
-            tax,
-            serviceCharge,
-            total,
-          },
-        });
-      }
-
-      const updatedOriginal = await prisma.order.findUnique({
-        where: { id: originalOrder.id },
-        include: { items: { include: { menuItem: true } }, table: true },
-      });
-
-      io?.to(`business:${originalOrder.businessId}`).emit('order:statusUpdate', updatedOriginal);
-
-      res.json({ original: updatedOriginal, splits: newOrders });
-    } catch (error) {
-      console.error('Split bill error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * GET /api/orders/customer/:phone
- * Public endpoint to get recent orders by customer phone number.
- * @query {businessId: string}
- * @returns {Order[]} last 10 orders
- */
-router.get('/customer/:phone', async (req: AuthRequest, res: Response) => {
+router.post('/:id/split', ...ordersPayment, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
-    const { phone } = req.params;
-    const businessId = req.query.businessId as string;
+    const io: SocketIOServer | undefined = req.app.get('io');
+    const { splits } = req.body as { splits?: Array<{ items: string[] }> };
+    if (!Array.isArray(splits) || splits.length === 0) {
+      return res.status(400).json({ error: 'splits requis (Array<{items: string[]}>)' });
+    }
 
-    const orders = await prisma.order.findMany({
-      where: { customerPhone: phone, businessId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      include: {
-        items: { include: { menuItem: true } },
-        table: true,
-      },
+    const result = await splitOrder(prisma, io, {
+      orderId: req.params.id,
+      businessId: req.user!.businessId,
+      splits,
     });
-
-    res.json(orders);
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.json({ original: result.original, splits: result.splits });
   } catch (error) {
+    console.error('Split bill error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

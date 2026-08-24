@@ -31,14 +31,18 @@ import {
   completeRecipe,
   DEVICE_SLOT_LABELS,
   fetchDevicesAdmin,
+  fetchSumupReaderStatus,
   generatePairingCode,
   isPrivateOrReservedIp,
+  pairSumupReaderAdmin,
   resetOnboarding,
   savePrinterIps,
   unpairDevice,
+  unpairSumupReaderAdmin,
   type DeviceSlot,
   type DevicesAdminState,
   type PairedDevice,
+  type SumupReaderStatus,
 } from '@/lib/device-onboarding'
 import { cn } from '@/lib/cn'
 import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider'
@@ -65,24 +69,17 @@ function formatDeviceError(err: unknown): string {
   return msg
 }
 
-function stripeBadge(mode: DevicesAdminState['stripeMode']) {
-  if (mode === 'live') {
+function sumupOnlineBadge(configured: DevicesAdminState['sumupOnlineConfigured']) {
+  if (configured) {
     return (
       <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-xs text-emerald-300">
-        Stripe LIVE
-      </span>
-    )
-  }
-  if (mode === 'test') {
-    return (
-      <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs text-amber-300">
-        Stripe TEST
+        SumUp en ligne configuré
       </span>
     )
   }
   return (
     <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-cream/50">
-      Stripe non configuré
+      SumUp en ligne non configuré
     </span>
   )
 }
@@ -369,7 +366,7 @@ export function AdminDevicesView({ embedded = false }: { embedded?: boolean }) {
         description="POS, KDS, applis livreur — jumelage et isolation par point de vente."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {state && stripeBadge(state.stripeMode)}
+            {state && sumupOnlineBadge(state.sumupOnlineConfigured)}
             <button
               type="button"
               onClick={() => setRegisterOpen(true)}
@@ -663,10 +660,10 @@ function SetupPanel({
           }
         />
         <StatusPill ok={pairedCount > 0} label={`${pairedCount} / 3 terminaux`} />
-        {state?.stripeMode === 'test' && process.env.NODE_ENV === 'production' && (
+        {state && !state.sumupOnlineConfigured && process.env.NODE_ENV === 'production' && (
           <span className="flex items-center gap-1 text-xs text-amber-400">
             <AlertTriangle className="h-3.5 w-3.5" />
-            Stripe TEST en prod
+            Paiement en ligne SumUp non configuré en prod
           </span>
         )}
       </div>
@@ -911,6 +908,142 @@ function NetworkPanel({
           Enregistrer imprimantes
         </button>
       </section>
+
+      <section className="space-y-3 border-t border-white/10 pt-4">
+        <SumupReaderPanel onMessage={onMessage} />
+      </section>
+    </div>
+  )
+}
+
+function SumupReaderPanel({ onMessage }: { onMessage: (msg: string) => void }) {
+  const [status, setStatus] = useState<SumupReaderStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [pairingCode, setPairingCode] = useState('')
+  const [readerName, setReaderName] = useState('Lecteur comptoir')
+
+  const reload = useCallback(async () => {
+    const session = getStaffSession('crm')
+    if (!session) return
+    setLoading(true)
+    setError(null)
+    try {
+      setStatus(await fetchSumupReaderStatus(session.token))
+    } catch (err) {
+      setError(formatDeviceError(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  async function handlePair() {
+    const session = getStaffSession('crm')
+    if (!session || !pairingCode.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await pairSumupReaderAdmin(session.token, pairingCode.trim(), readerName.trim() || 'Lecteur comptoir')
+      setPairingCode('')
+      onMessage('Lecteur SumUp appairé.')
+      await reload()
+    } catch (err) {
+      setError(formatDeviceError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleUnpair() {
+    const session = getStaffSession('crm')
+    if (!session) return
+    setBusy(true)
+    setError(null)
+    try {
+      await unpairSumupReaderAdmin(session.token)
+      onMessage('Lecteur SumUp dissocié.')
+      await reload()
+    } catch (err) {
+      setError(formatDeviceError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <h2 className="font-medium text-cream">Lecteur SumUp Solo (paiement carte)</h2>
+      <p className="text-xs text-cream/50">
+        Encaissement carte comptoir via SumUp Cloud API — en complément du pont TPE natif (SUNMI/Ingenico).
+        Le code d&apos;appairage (8-9 caractères) s&apos;affiche sur le lecteur au démarrage.
+      </p>
+
+      {error && <p className="text-xs text-red-300">{error}</p>}
+
+      {loading ? (
+        <Loader2 className="h-5 w-5 animate-spin text-cream/40" />
+      ) : status?.configured && status.reader ? (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-cream">{status.reader.name}</p>
+              <p className="text-xs text-cream/40">
+                Jumelé le {new Date(status.reader.pairedAt).toLocaleString('fr-FR')}
+              </p>
+            </div>
+            <StatusPill
+              ok={status.status?.status === 'ONLINE'}
+              label={
+                status.status?.status === 'ONLINE'
+                  ? `En ligne${status.status.battery_level != null ? ` · ${status.status.battery_level}%` : ''}`
+                  : (status.status?.status ?? 'Hors ligne')
+              }
+            />
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void handleUnpair()}
+            className="mt-3 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            Dissocier
+          </button>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm">
+            <span className="text-cream/60">Code d&apos;appairage</span>
+            <input
+              value={pairingCode}
+              onChange={(e) => setPairingCode(e.target.value)}
+              placeholder="4WLFDSBF"
+              className="mt-1 w-full rounded-xl border border-white/15 bg-charcoal px-3 py-2 text-sm uppercase"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-cream/60">Libellé</span>
+            <input
+              value={readerName}
+              onChange={(e) => setReaderName(e.target.value)}
+              placeholder="Lecteur comptoir"
+              className="mt-1 w-full rounded-xl border border-white/15 bg-charcoal px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || !pairingCode.trim()}
+            onClick={() => void handlePair()}
+            className="rounded-xl bg-tomato px-4 py-2 text-sm font-medium text-white hover:bg-tomato-light disabled:opacity-50 sm:col-span-2 sm:w-fit"
+          >
+            {busy ? <Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> : null} Appairer
+          </button>
+        </div>
+      )}
     </div>
   )
 }

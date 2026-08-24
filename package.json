@@ -44,8 +44,6 @@
     "db:reset": "npm run prisma:reset --prefix server",
     "db:backup": "bash scripts/backup-db.sh",
     "db:backup:win": "powershell -File scripts/backup-db.ps1",
-    "stripe:listen": "node scripts/stripe-dev.mjs",
-    "stripe:dev": "node scripts/stripe-dev.mjs",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
@@ -59,11 +57,18 @@
     "test:e2e": "echo \"No app.pizzeria.fr e2e suite configured yet\""
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
     "concurrently": "^9.1.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "husky": "^9.1.0",
     "lint-staged": "^15.2.0",
-    "@commitlint/config-conventional": "^19.0.0",
-    "@commitlint/cli": "^19.0.0"
+    "prettier": "^3.9.6"
   },
   "lint-staged": {
     "client/**/*.{ts,tsx}": [

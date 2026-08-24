@@ -32,6 +32,12 @@ export type DeviceAuditEntry = {
   note?: string
 }
 
+export type SumupReaderConfig = {
+  id: string
+  name: string
+  pairedAt: string
+}
+
 export type DevicesSettings = {
   onboardingComplete?: boolean
   allowedWanIps?: string[]
@@ -40,6 +46,7 @@ export type DevicesSettings = {
     kitchenLanIp?: string
     counterLanIp?: string
   }
+  sumupReader?: SumupReaderConfig
   recipeCompletedAt?: string
   lastWanIpCapture?: { ip: string; at: string }
   deviceAuditLog?: DeviceAuditEntry[]
@@ -65,7 +72,7 @@ export type StoreInventoryRow = {
 export type DevicesAdminState = {
   devices: DevicesSettings
   access: DevicesAccessStatus
-  stripeMode: 'test' | 'live' | 'unset'
+  sumupOnlineConfigured: boolean
   slotCapacity?: SlotCapacityRow[]
   storeInventory?: StoreInventoryRow[]
 }
@@ -194,4 +201,31 @@ export async function resetOnboarding(token: string) {
 
 export async function unpairDevice(token: string, deviceId: string) {
   return staffFetch(`/devices/paired/${deviceId}`, { method: 'DELETE', token })
+}
+
+export type SumupReaderStatus = {
+  configured: boolean
+  reader?: SumupReaderConfig
+  status?: {
+    status: string
+    state?: string
+    battery_level?: number
+    connection_type?: string
+  }
+}
+
+export async function fetchSumupReaderStatus(token: string): Promise<SumupReaderStatus> {
+  return staffFetch<SumupReaderStatus>('/payments/sumup/reader/status', { token })
+}
+
+export async function pairSumupReaderAdmin(token: string, pairingCode: string, name: string) {
+  return staffFetch<{ sumupReader: SumupReaderConfig }>('/payments/sumup/pair', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ pairingCode, name }),
+  })
+}
+
+export async function unpairSumupReaderAdmin(token: string) {
+  return staffFetch('/payments/sumup/reader', { method: 'DELETE', token })
 }

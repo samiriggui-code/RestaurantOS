@@ -366,7 +366,7 @@ export function AdminLoyaltyView() {
                       {c.freePizzasAvailable ?? 0}
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell text-cream/50">
-                      {formatEUR(c.totalSpent / 100)}
+                      {formatEUR(c.totalSpent)}
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-cream/50">{c.visitCount}</td>
                   </tr>

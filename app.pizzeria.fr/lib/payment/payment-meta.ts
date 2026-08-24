@@ -6,6 +6,7 @@ export type PaymentTerminalProvider =
   | 'SUNMI_PAY'
   | 'INGENICO_BT'
   | 'INGENICO_USB'
+  | 'SUMUP'
   | 'MANUAL'
 
 export type PaymentCaptureMode = 'native' | 'manual'

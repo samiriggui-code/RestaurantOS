@@ -70,4 +70,4 @@ $localSh = Join-Path $env:TEMP "pizzeria-vps-remote.sh"
 scp $localSh "${VpsHost}:/tmp/pizzeria-remote.sh"
 ssh $VpsHost "sed -i 's/\r$//' /tmp/pizzeria-remote.sh; bash /tmp/pizzeria-remote.sh"
 
-Write-Host ">>> Termine. Si premiere passe : nano /opt/pizzeria/.env (SMTP + Stripe) puis relancer vps-install.sh"
+Write-Host ">>> Termine. Si premiere passe : nano /opt/pizzeria/.env (SMTP + SumUp) puis relancer vps-install.sh"

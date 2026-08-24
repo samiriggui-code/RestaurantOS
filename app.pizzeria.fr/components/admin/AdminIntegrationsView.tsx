@@ -29,7 +29,8 @@ type MarketplaceRow = {
 }
 
 type IntegrationsPayload = {
-  stripeMode?: 'test' | 'live' | 'off'
+  sumupOnlineConfigured?: boolean
+  sumupWebhookUrl?: string | null
   marketplaces?: MarketplaceRow[]
 }
 
@@ -78,7 +79,8 @@ function marketplaceMeta(row: MarketplaceRow | undefined): string {
 }
 
 export function AdminIntegrationsView() {
-  const [stripeMode, setStripeMode] = useState<'test' | 'live' | 'off'>('off')
+  const [sumupOnlineConfigured, setSumupOnlineConfigured] = useState(false)
+  const [sumupWebhookUrl, setSumupWebhookUrl] = useState<string | null>(null)
   const [marketplaces, setMarketplaces] = useState<MarketplaceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)
@@ -89,11 +91,12 @@ export function AdminIntegrationsView() {
     setLoading(true)
     try {
       const data = await staffFetch<IntegrationsPayload>('/settings/integrations', { token: session.token })
-      const mode = data.stripeMode
-      setStripeMode(mode === 'live' ? 'live' : mode === 'test' ? 'test' : 'off')
+      setSumupOnlineConfigured(Boolean(data.sumupOnlineConfigured))
+      setSumupWebhookUrl(data.sumupWebhookUrl ?? null)
       setMarketplaces(data.marketplaces ?? [])
     } catch {
-      setStripeMode('off')
+      setSumupOnlineConfigured(false)
+      setSumupWebhookUrl(null)
       setMarketplaces([])
     } finally {
       setLoading(false)
@@ -129,12 +132,13 @@ export function AdminIntegrationsView() {
       meta: marketplaceMeta(ubereats),
     },
     {
-      id: 'stripe',
-      name: 'Stripe (paiement en ligne)',
+      id: 'sumup-online',
+      name: 'SumUp (paiement en ligne)',
       category: 'Paiement',
-      status: stripeMode === 'live' ? 'connected' : stripeMode === 'test' ? 'connected' : 'action',
-      desc: 'Payment Element site public + webhooks commandes confirmées.',
-      meta: stripeMode === 'live' ? 'Mode LIVE actif' : stripeMode === 'test' ? 'Mode TEST actif' : 'Clés non configurées',
+      status: sumupOnlineConfigured ? 'connected' : 'action',
+      desc: 'Widget carte site public + webhook checkout SumUp.',
+      webhook: sumupOnlineConfigured ? (sumupWebhookUrl ?? undefined) : undefined,
+      meta: sumupOnlineConfigured ? 'Configuré' : 'Clés ou API_PUBLIC_BASE_URL manquants',
       settingsHref: '/admin/settings',
     },
     {

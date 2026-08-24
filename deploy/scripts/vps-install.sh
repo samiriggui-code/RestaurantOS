@@ -28,7 +28,7 @@ if [[ ! -f .env ]]; then
   sed -i "s|JWT_SECRET=CHANGE_ME_openssl_rand_base64_32|JWT_SECRET=${JWT}|" .env
   sed -i "s|REFRESH_SECRET=CHANGE_ME_openssl_rand_base64_32|REFRESH_SECRET=${REF}|" .env
   sed -i "s|FISCAL_HMAC_SECRET=CHANGE_ME_openssl_rand_base64_32|FISCAL_HMAC_SECRET=${FISCAL}|" .env
-  echo ">>> .env créé — édite EMAIL_SERVER_PASSWORD et STRIPE_* puis relance ce script"
+  echo ">>> .env créé — édite EMAIL_SERVER_PASSWORD et SUMUP_* puis relance ce script"
   exit 0
 fi
 

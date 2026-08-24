@@ -13,6 +13,7 @@ import {
   getMarketplaceIntegrationState,
 } from './marketplace-integrations';
 import { parseBusinessSettings } from './business-settings';
+import { allocateOrderNumber } from './order-number';
 
 export type MarketplaceOrderLine = {
   name: string;
@@ -128,8 +129,6 @@ export async function ingestMarketplaceOrder(
     return { error: err, status: 400 as const };
   }
 
-  const orderNumber =
-    parseInt(Date.now().toString().slice(-6), 10) + Math.floor(Math.random() * 100);
   const trackingToken = randomUUID().replace(/-/g, '').slice(0, 12);
   const orderType =
     input.type === 'DELIVERY' ? 'DELIVERY' : input.type === 'DINE_IN' ? 'DINE_IN' : 'TAKEAWAY';
@@ -140,37 +139,40 @@ export async function ingestMarketplaceOrder(
     `Canal: ${provider}`,
   ].filter(Boolean);
 
-  const order = await prisma.order.create({
-    data: {
-      businessId,
-      orderNumber,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone?.trim() || null,
-      type: orderType,
-      status: 'CONFIRMED',
-      paymentStatus: 'PAID',
-      paymentMethod: 'THIRD_PARTY',
-      isOnlineOrder: true,
-      channel,
-      trackingToken,
-      subtotal: itemsSubtotalCents,
-      tax: 0,
-      serviceCharge: deliveryCents,
-      total: computedTotal,
-      notes: noteParts.join('\n') || null,
-      deliveryAddress: orderType === 'DELIVERY' ? input.addressLine?.trim() : null,
-      deliveryPostalCode: orderType === 'DELIVERY' ? input.postalCode?.trim() : null,
-      deliveryCity: orderType === 'DELIVERY' ? input.city?.trim() : null,
-      deliveryHandoverCode: orderType === 'DELIVERY' ? generateDeliveryHandoverCode() : null,
-      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
-      items: { create: orderItemsData },
-    },
-    include: {
-      items: { include: { menuItem: true } },
-      table: true,
-      cashier: { select: { id: true, name: true } },
-      driver: { select: { id: true, name: true } },
-    },
+  const order = await prisma.$transaction(async tx => {
+    const orderNumber = await allocateOrderNumber(tx, businessId);
+    return tx.order.create({
+      data: {
+        businessId,
+        orderNumber,
+        customerName: input.customerName.trim(),
+        customerPhone: input.customerPhone?.trim() || null,
+        type: orderType,
+        status: 'CONFIRMED',
+        paymentStatus: 'PAID',
+        paymentMethod: 'THIRD_PARTY',
+        isOnlineOrder: true,
+        channel,
+        trackingToken,
+        subtotal: itemsSubtotalCents,
+        tax: 0,
+        serviceCharge: deliveryCents,
+        total: computedTotal,
+        notes: noteParts.join('\n') || null,
+        deliveryAddress: orderType === 'DELIVERY' ? input.addressLine?.trim() : null,
+        deliveryPostalCode: orderType === 'DELIVERY' ? input.postalCode?.trim() : null,
+        deliveryCity: orderType === 'DELIVERY' ? input.city?.trim() : null,
+        deliveryHandoverCode: orderType === 'DELIVERY' ? generateDeliveryHandoverCode() : null,
+        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+        items: { create: orderItemsData },
+      },
+      include: {
+        items: { include: { menuItem: true } },
+        table: true,
+        cashier: { select: { id: true, name: true } },
+        driver: { select: { id: true, name: true } },
+      },
+    });
   });
 
   if (orderType === 'DELIVERY') {

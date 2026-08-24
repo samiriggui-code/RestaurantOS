@@ -2,7 +2,7 @@
 
 Stack cible : **PostgreSQL 16 + Express (API) + Next.js (UI)** derrière **Traefik** (Let's Encrypt).
 
-**Guide complet** : [`docs/VPS-DEPLOIEMENT.md`](../docs/VPS-DEPLOIEMENT.md) (labo → client, Stripe, SMTP, Sentry, WhatsApp, devices).
+**Guide complet** : [`docs/VPS-DEPLOIEMENT.md`](../docs/VPS-DEPLOIEMENT.md) (labo → client, SumUp, SMTP, Sentry, WhatsApp, devices).
 
 **Cohabitation gsms-school** (même VPS, `gsms-security.com`) : [`deploy/COHABITATION-GSMS.md`](COHABITATION-GSMS.md) + template [`deploy/.env.gsms-security.example`](.env.gsms-security.example).
 
@@ -21,7 +21,7 @@ Stack cible : **PostgreSQL 16 + Express (API) + Next.js (UI)** derrière **Traef
 git clone <repo> /opt/pizzeria
 cd /opt/pizzeria
 cp deploy/.env.production.example .env
-# Éditer .env : DB_PASSWORD, JWT_SECRET, STRIPE_*, BUSINESS_ID
+# Éditer .env : DB_PASSWORD, JWT_SECRET, SUMUP_*, BUSINESS_ID
 docker compose pull
 docker compose build
 docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
@@ -30,16 +30,17 @@ docker compose exec server npx prisma migrate deploy
 
 ## Variables essentielles
 
-| Variable | Exemple |
-|----------|---------|
-| `DB_PASSWORD` | mot de passe fort PostgreSQL |
-| `JWT_SECRET` / `REFRESH_SECRET` | `openssl rand -base64 32` |
-| `NEXT_PUBLIC_API_URL` | `https://api.pizzeria.fr/api` |
-| `PUBLIC_SITE_URL` | `https://pizzeria.fr` (QR reçus) |
-| `FRONTEND_URL` | `https://pizzeria.fr,https://app.pizzeria.fr` |
-| `STRIPE_*` | clés live Stripe |
-| `BUSINESS_ID` | UUID du seed Prisma |
-| `RESTAURANT_ALLOWED_IPS` | *(déprécié)* — préférer sync CRM → `deploy/traefik/dynamic/` |
+| Variable                                | Exemple                                                      |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `DB_PASSWORD`                           | mot de passe fort PostgreSQL                                 |
+| `JWT_SECRET` / `REFRESH_SECRET`         | `openssl rand -base64 32`                                    |
+| `NEXT_PUBLIC_API_URL`                   | `https://api.pizzeria.fr/api`                                |
+| `PUBLIC_SITE_URL`                       | `https://pizzeria.fr` (QR reçus)                             |
+| `FRONTEND_URL`                          | `https://pizzeria.fr,https://app.pizzeria.fr`                |
+| `SUMUP_API_KEY` / `SUMUP_MERCHANT_CODE` | clés SumUp (comptoir + paiement en ligne)                    |
+| `API_PUBLIC_BASE_URL`                   | URL publique de l'API (callback checkout SumUp)              |
+| `BUSINESS_ID`                           | UUID du seed Prisma                                          |
+| `RESTAURANT_ALLOWED_IPS`                | _(déprécié)_ — préférer sync CRM → `deploy/traefik/dynamic/` |
 
 ## Filtrage IP — POS / KDS (restaurant uniquement)
 

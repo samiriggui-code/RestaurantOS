@@ -167,7 +167,7 @@ export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOp
       )}
 
       <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-100/85">
-        Consommation automatique : à chaque vente encaissée (caisse, Stripe, sync POS), les quantités ci-dessous sont sorties du stock selon ces recettes.
+        Consommation automatique : à chaque vente encaissée (caisse, paiement en ligne, sync POS), les quantités ci-dessous sont sorties du stock selon ces recettes.
       </p>
 
       {error && (

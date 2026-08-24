@@ -131,7 +131,7 @@ function PosOverviewPanel() {
           <AdminStatCard
             label="En ligne à encaisser"
             value={online.length}
-            sub="Paiement Stripe validé, attente comptoir"
+            sub="Paiement en ligne validé, attente comptoir"
             icon={CreditCard}
             tone="text-amber-300"
           />
@@ -162,7 +162,7 @@ function PosOverviewPanel() {
         <InfoCard
           icon={Smartphone}
           title="Terminal boutique (/pos)"
-          body="SUNMI ou tablette : PIN staff, prise de commande comptoir, encaissement Stripe Terminal / espèces, impression ticket."
+          body="SUNMI ou tablette : PIN staff, prise de commande comptoir, encaissement TPE / espèces, impression ticket."
           href="/admin/devices"
           linkLabel="Jumeler un appareil"
         />

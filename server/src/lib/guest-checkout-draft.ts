@@ -1,42 +1,40 @@
-import type { PrismaClient } from '@prisma/client'
-import type { Server as SocketIOServer } from 'socket.io'
-import { getBusinessId } from './business'
-import {
-  createOnlineOrder,
-  validateOnlineOrderBody,
-  type OnlineOrderBody,
-} from './online-order'
-import { eurosToCents } from './money'
-import { runOnlineCardPaymentHooks } from './stripe-online-finalize'
-import { getStripeMode, stripeSecretKey } from './stripe-config'
+import type { PrismaClient } from '@prisma/client';
+import type { Server as SocketIOServer } from 'socket.io';
+import { getBusinessId } from './business';
+import { createOnlineOrder, validateOnlineOrderBody, type OnlineOrderBody } from './online-order';
+import { eurosToCents } from './money';
+import { runOnlineCardPaymentHooks } from './online-payment-finalize';
+import { getPaymentProvider, assertPaymentConfigured } from './payment-provider';
+import { sumupWebhookUrl } from './sumup-online-config';
 
-const DRAFT_TTL_MS = 2 * 60 * 60 * 1000
+const DRAFT_TTL_MS = 2 * 60 * 60 * 1000;
 
-function getStripeClient() {
-  const Stripe = require('stripe')
-  const key = stripeSecretKey()
-  if (!key) return null
-  return new Stripe(key)
-}
-
-export async function createGuestCheckoutDraft(prisma: PrismaClient, body: OnlineOrderBody) {
-  const businessId = getBusinessId()
-  const validationError = validateOnlineOrderBody(body)
+export async function createGuestCheckoutDraft(
+  prisma: PrismaClient,
+  body: OnlineOrderBody
+): Promise<{ error: string; status: 400 } | { draftId: string; checkoutId: string }> {
+  const businessId = getBusinessId();
+  const validationError = validateOnlineOrderBody(body);
   if (validationError) {
-    return { error: validationError, status: 400 as const }
+    return { error: validationError, status: 400 as const };
   }
 
-  const stripe = getStripeClient()
-  if (!stripe) {
-    return { error: 'Stripe non configuré', status: 400 as const }
+  try {
+    assertPaymentConfigured();
+  } catch {
+    return { error: 'SumUp non configuré', status: 400 as const };
+  }
+  const returnUrl = sumupWebhookUrl();
+  if (!returnUrl) {
+    return { error: 'SumUp non configuré (API_PUBLIC_BASE_URL manquant)', status: 400 as const };
   }
 
-  const totalCents = eurosToCents(body.total)
+  const totalCents = eurosToCents(body.total);
   if (totalCents < 50) {
-    return { error: 'Montant minimum 0,50 €', status: 400 as const }
+    return { error: 'Montant minimum 0,50 €', status: 400 as const };
   }
 
-  const expiresAt = new Date(Date.now() + DRAFT_TTL_MS)
+  const expiresAt = new Date(Date.now() + DRAFT_TTL_MS);
   const draft = await prisma.guestCheckoutDraft.create({
     data: {
       businessId,
@@ -44,156 +42,151 @@ export async function createGuestCheckoutDraft(prisma: PrismaClient, body: Onlin
       totalCents,
       expiresAt,
     },
-  })
+  });
 
-  const intent = await stripe.paymentIntents.create({
-    amount: totalCents,
-    currency: 'eur',
-    ...(getStripeMode() === 'test'
-      ? { payment_method_types: ['card'] as const }
-      : { automatic_payment_methods: { enabled: true } }),
-    metadata: {
-      checkoutDraftId: draft.id,
-      businessId,
-      app: 'pizzeria',
-      productId: process.env.STRIPE_PIZZERIA_PRODUCT_ID ?? '',
-    },
-  })
+  const provider = getPaymentProvider();
+  const checkout = await provider.createOnlineCheckout({
+    amountCents: totalCents,
+    currency: 'EUR',
+    checkoutReference: draft.id,
+    description: 'Commande en ligne',
+    returnUrl,
+  });
 
   await prisma.guestCheckoutDraft.update({
     where: { id: draft.id },
-    data: { stripePaymentIntentId: intent.id },
-  })
+    data: { sumupCheckoutId: checkout.checkoutId },
+  });
 
   return {
     draftId: draft.id,
-    clientSecret: intent.client_secret as string,
-    paymentIntentId: intent.id,
-  }
+    checkoutId: checkout.checkoutId,
+  };
 }
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- une dizaine de branches d'erreur à statuts distincts + succès ; l'union exacte doit rester dérivée du code, pas dupliquée à la main sur un chemin de paiement.
 export async function completeGuestCheckout(
   prisma: PrismaClient,
   io: SocketIOServer | null,
   draftId: string,
-  paymentIntentId?: string
+  checkoutId?: string
 ) {
-  const businessId = getBusinessId()
-  const stripe = getStripeClient()
-  if (!stripe) {
-    return { error: 'Stripe non configuré', status: 400 as const }
-  }
+  const businessId = getBusinessId();
 
   const draft = await prisma.guestCheckoutDraft.findFirst({
     where: { id: draftId, businessId },
-  })
+  });
   if (!draft) {
-    return { error: 'Session de paiement introuvable', status: 404 as const }
+    return { error: 'Session de paiement introuvable', status: 404 as const };
   }
   if (draft.consumedAt) {
-    const existing = draft.stripePaymentIntentId
+    const existing = draft.sumupCheckoutId
       ? await prisma.order.findFirst({
-          where: { stripePaymentIntentId: draft.stripePaymentIntentId, businessId },
+          where: { sumupCheckoutId: draft.sumupCheckoutId, businessId },
         })
-      : null
+      : null;
     if (existing?.trackingToken) {
       return {
         token: existing.trackingToken,
         orderNumber: existing.orderNumber,
         orderId: existing.id,
-      }
+      };
     }
-    return { error: 'Session déjà utilisée', status: 409 as const }
+    return { error: 'Session déjà utilisée', status: 409 as const };
   }
   if (draft.expiresAt < new Date()) {
-    return { error: 'Session expirée — recommencez votre commande', status: 410 as const }
+    return { error: 'Session expirée — recommencez votre commande', status: 410 as const };
   }
 
-  const piId = paymentIntentId ?? draft.stripePaymentIntentId
-  if (!piId) {
-    return { error: 'Paiement introuvable', status: 400 as const }
+  const id = checkoutId ?? draft.sumupCheckoutId;
+  if (!id) {
+    return { error: 'Paiement introuvable', status: 400 as const };
   }
 
-  const paymentIntent = await stripe.paymentIntents.retrieve(piId)
-  if (paymentIntent.status !== 'succeeded') {
-    return { error: 'Paiement non confirmé', status: 402 as const, pending: true as const }
+  const checkout = await getPaymentProvider().getCheckoutStatus(id);
+  if (!checkout.paid) {
+    return { error: 'Paiement non confirmé', status: 402 as const, pending: true as const };
   }
-  if (paymentIntent.amount !== draft.totalCents) {
-    return { error: 'Montant incohérent', status: 400 as const }
+  if (checkout.amountCents != null && checkout.amountCents !== draft.totalCents) {
+    return { error: 'Montant incohérent', status: 400 as const };
   }
 
   const existingOrder = await prisma.order.findFirst({
-    where: { stripePaymentIntentId: piId, businessId },
-  })
+    where: { sumupCheckoutId: id, businessId },
+  });
   if (existingOrder?.trackingToken) {
     await prisma.guestCheckoutDraft.update({
       where: { id: draft.id },
-      data: { consumedAt: new Date(), stripePaymentIntentId: piId },
-    })
+      data: { consumedAt: new Date(), sumupCheckoutId: id },
+    });
     return {
       token: existingOrder.trackingToken,
       orderNumber: existingOrder.orderNumber,
       orderId: existingOrder.id,
-    }
+    };
   }
 
-  const body = draft.payload as OnlineOrderBody
+  const body = draft.payload as OnlineOrderBody;
   const created = await createOnlineOrder(prisma, body, {
-    cardPaid: { stripePaymentIntentId: piId },
-  })
+    cardPaid: { sumupCheckoutId: id },
+  });
   if ('error' in created && created.error) {
-    return { error: created.error, status: created.status ?? 400 }
+    return { error: created.error, status: created.status ?? 400 };
   }
-  const { order, trackingToken, orderNumber } = created
+  const { order, trackingToken, orderNumber } = created;
   if (!order || !trackingToken) {
-    return { error: 'Commande non créée', status: 500 as const }
+    return { error: 'Commande non créée', status: 500 as const };
   }
 
   await prisma.guestCheckoutDraft.update({
     where: { id: draft.id },
-    data: { consumedAt: new Date(), stripePaymentIntentId: piId },
-  })
+    data: { consumedAt: new Date(), sumupCheckoutId: id },
+  });
 
   if (io) {
-    await runOnlineCardPaymentHooks(prisma, io, businessId, order.id)
+    await runOnlineCardPaymentHooks(prisma, io, businessId, order.id);
   }
 
-  return { token: trackingToken, orderNumber, orderId: order.id }
+  return { token: trackingToken, orderNumber, orderId: order.id };
 }
 
-/** Webhook Stripe — finalise un brouillon payé (idempotent). */
-export async function finalizeGuestCheckoutFromWebhook(
+/** Webhook SumUp (non signé — re-vérifie toujours le statut via l'API). Idempotent. */
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- retour = payload Prisma Order (via completeGuestCheckout) ou null selon plusieurs branches d'idempotence webhook.
+export async function reconcileGuestCheckoutFromWebhook(
   prisma: PrismaClient,
   io: SocketIOServer,
-  businessId: string,
-  checkoutDraftId: string,
-  paymentIntentId: string
+  checkoutId: string
 ) {
-  const draft = await prisma.guestCheckoutDraft.findFirst({
-    where: { id: checkoutDraftId, businessId },
-  })
-  if (!draft) return null
+  const provider = getPaymentProvider();
+  const checkout = await provider.getCheckoutStatus(checkoutId);
+  if (!checkout.paid) return null;
+
+  const draftId = checkout.checkoutReference;
+  if (!draftId) return null;
+
+  const draft = await prisma.guestCheckoutDraft.findUnique({ where: { id: draftId } });
+  if (!draft) return null;
 
   const existing = await prisma.order.findFirst({
-    where: { stripePaymentIntentId: paymentIntentId, businessId },
-  })
+    where: { sumupCheckoutId: checkoutId, businessId: draft.businessId },
+  });
   if (existing) {
     if (!draft.consumedAt) {
       await prisma.guestCheckoutDraft.update({
         where: { id: draft.id },
-        data: { consumedAt: new Date(), stripePaymentIntentId: paymentIntentId },
-      })
+        data: { consumedAt: new Date(), sumupCheckoutId: checkoutId },
+      });
     }
-    return existing
+    return existing;
   }
 
-  const result = await completeGuestCheckout(prisma, io, checkoutDraftId, paymentIntentId)
+  const result = await completeGuestCheckout(prisma, io, draftId, checkoutId);
   if ('error' in result && result.error) {
-    console.error('[webhook] guest checkout finalize failed:', checkoutDraftId, result.error)
-    return null
+    console.error('[webhook] guest checkout finalize failed:', draftId, result.error);
+    return null;
   }
   if ('orderId' in result) {
-    return prisma.order.findFirst({ where: { id: result.orderId, businessId } })
+    return prisma.order.findFirst({ where: { id: result.orderId, businessId: draft.businessId } });
   }
-  return null
+  return null;
 }

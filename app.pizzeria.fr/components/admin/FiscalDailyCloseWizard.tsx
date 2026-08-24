@@ -26,7 +26,8 @@ import {
 const PAYMENT_LABEL: Record<string, string> = {
   CASH: 'Espèces',
   CARD: 'Carte',
-  STRIPE: 'Stripe',
+  STRIPE: 'Stripe (historique)',
+  SUMUP: 'SumUp',
   TERMINAL: 'TPE',
   UNKNOWN: 'Non renseigné',
 }
@@ -246,7 +247,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
                         </p>
                         <p className="text-xs text-cream/45">
                           {d.dayKey}
-                          {d.hasActivity ? ` · CA tickets ${formatEUR(d.revenueCents / 100)}` : ' · pas d’activité'}
+                          {d.hasActivity ? ` · CA tickets ${formatEUR(d.revenueCents)}` : ' · pas d’activité'}
                         </p>
                       </div>
                       {d.closed ? (
@@ -277,7 +278,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
                 <Stat label="Avoirs" value={String(preview.fiscal.voidCount)} />
                 <Stat
                   label="CA tickets TTC"
-                  value={formatEUR(preview.fiscal.revenueCents / 100)}
+                  value={formatEUR(preview.fiscal.revenueCents)}
                 />
               </div>
 
@@ -319,7 +320,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
                       >
                         <span className="text-cream/60">{CHANNEL_LABEL[ch] ?? ch}</span>
                         <span className="float-right font-medium text-cream">
-                          {v.count} · {formatEUR(v.totalCents / 100)}
+                          {v.count} · {formatEUR(v.totalCents)}
                         </span>
                       </div>
                     ) : null,
@@ -335,7 +336,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
                       key={pm}
                       className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-cream/80"
                     >
-                      {PAYMENT_LABEL[pm] ?? pm} : {formatEUR(cents / 100)}
+                      {PAYMENT_LABEL[pm] ?? pm} : {formatEUR(cents)}
                     </span>
                   ))}
                 </div>
@@ -347,7 +348,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
                   <ul className="mt-2 space-y-1 text-xs text-amber-200/80">
                     {preview.orders.thirdParty.map((o) => (
                       <li key={o.orderNumber}>
-                        #{o.orderNumber} — {formatEUR(o.total / 100)}
+                        #{o.orderNumber} — {formatEUR(o.total)}
                         {o.customerName ? ` · ${o.customerName}` : ''}
                       </li>
                     ))}
@@ -395,7 +396,7 @@ export function FiscalDailyCloseWizard({ open, initialDayKey, onClose, onClosed 
               </div>
 
               <p className="text-xs text-cream/40">
-                Grand total perpétuel : {formatEUR(Number(preview.grandTotalPerpetualCents) / 100)} ·
+                Grand total perpétuel : {formatEUR(Number(preview.grandTotalPerpetualCents))} ·
                 Validité pré-clôture : 4 h après validation.
               </p>
             </div>

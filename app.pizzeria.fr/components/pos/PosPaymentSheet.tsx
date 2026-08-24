@@ -22,6 +22,7 @@ import {
   type TerminalPaymentState,
   type TerminalStatusPayload,
 } from '@/lib/payment/payment-terminal'
+import { isSumupReaderAvailable, runSumupReaderPayment } from '@/lib/payment/sumup-terminal'
 import { buildPaymentMeta, manualCardMeta, type PaymentMeta } from '@/lib/payment/payment-meta'
 import { useAppFeedback } from '@/components/feedback/AppFeedbackProvider'
 
@@ -35,6 +36,8 @@ type Props = {
   subtitle?: string
   amountCents: number
   reference: string
+  /** Requis pour le paiement via lecteur SumUp Solo (Cloud API, appels authentifiés). */
+  token?: string
   lines?: PosPaymentLine[]
   busy?: boolean
   onClose: () => void
@@ -48,6 +51,7 @@ export function PosPaymentSheet({
   subtitle,
   amountCents,
   reference,
+  token,
   lines = [],
   busy = false,
   onClose,
@@ -55,7 +59,17 @@ export function PosPaymentSheet({
 }: Props) {
   const terminalMode = getPaymentTerminalMode()
   const [manualFallback, setManualFallback] = useState(false)
-  const effectiveManual = terminalMode === 'manual' || manualFallback
+  const [sumupCheck, setSumupCheck] = useState<'checking' | 'available' | 'unavailable'>('checking')
+  const cardProvider: 'native' | 'sumup' | 'manual' | 'checking' =
+    terminalMode === 'native'
+      ? 'native'
+      : sumupCheck === 'checking'
+        ? 'checking'
+        : sumupCheck === 'available'
+          ? 'sumup'
+          : 'manual'
+  const effectiveManual = cardProvider === 'manual' || manualFallback
+  const cardPaymentPending = cardProvider === 'checking'
   const { notifyError } = useAppFeedback()
   const [step, setStep] = useState<SheetStep>('choose')
   const [terminalState, setTerminalState] = useState<TerminalPaymentState>('idle')
@@ -64,6 +78,21 @@ export function PosPaymentSheet({
   const [manualTpeRef, setManualTpeRef] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!open || terminalMode === 'native' || !token) {
+      setSumupCheck('unavailable')
+      return
+    }
+    let cancelled = false
+    setSumupCheck('checking')
+    void isSumupReaderAvailable(token).then((available) => {
+      if (!cancelled) setSumupCheck(available ? 'available' : 'unavailable')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, terminalMode, token])
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
@@ -136,12 +165,10 @@ export function PosPaymentSheet({
     const ac = new AbortController()
     abortRef.current = ac
 
-    const result = await runNativeTerminalPayment(
-      amountCents,
-      reference,
-      onTerminalStatus,
-      ac.signal,
-    )
+    const result =
+      cardProvider === 'sumup' && token
+        ? await runSumupReaderPayment(amountCents, reference, token, onTerminalStatus, ac.signal)
+        : await runNativeTerminalPayment(amountCents, reference, onTerminalStatus, ac.signal)
 
     if (!result.ok && (result.reason === 'unavailable' || result.reason === 'error')) {
       setManualFallback(true)
@@ -228,19 +255,27 @@ export function PosPaymentSheet({
                 </button>
                 <button
                   type="button"
-                  disabled={submitting || busy}
+                  disabled={submitting || busy || cardPaymentPending}
                   onClick={() => void startCardPayment()}
                   className="flex flex-col items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 py-4 text-sm font-semibold text-blue-100 hover:bg-blue-500/20 disabled:opacity-50"
                 >
-                  <CreditCard className="h-7 w-7" />
+                  {cardPaymentPending ? (
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                  ) : (
+                    <CreditCard className="h-7 w-7" />
+                  )}
                   Carte / TPE
                 </button>
               </div>
               <p className="text-center text-[11px] text-cream/35">
                 TPE :{' '}
-                {effectiveManual
-                  ? 'mode manuel — validez après le terminal'
-                  : `${nativeProviderLabel()} connecté`}
+                {cardPaymentPending
+                  ? 'vérification du lecteur…'
+                  : effectiveManual
+                    ? 'mode manuel — validez après le terminal'
+                    : cardProvider === 'sumup'
+                      ? 'SumUp Solo connecté'
+                      : `${nativeProviderLabel()} connecté`}
               </p>
             </>
           )}

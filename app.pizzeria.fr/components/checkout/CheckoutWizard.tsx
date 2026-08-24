@@ -666,7 +666,7 @@ export function CheckoutWizard() {
                     )}
                   >
                     <strong className="block">Payer en ligne</strong>
-                    <span className="text-xs opacity-80">Carte bancaire (Stripe)</span>
+                    <span className="text-xs opacity-80">Carte bancaire</span>
                   </button>
                   <button
                     type="button"

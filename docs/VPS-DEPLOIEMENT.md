@@ -3,6 +3,7 @@
 Guide de référence : **développement sur ton VPS labo** → **livraison chez le client** (même stack, autre `.env`, autres devices).
 
 Références infra existantes :
+
 - Projet **gsms-school** : `c:\laragon\www\gsms-school\deploy\gsms\.env` (Traefik externe Hostinger, SMTP Hostinger)
 - Projet **RestaurantOS** : `deploy/docker-compose.prod.yml`, `deploy/.env.production.example`
 - CDC : `cahier-des-charges-pizzeria-v2.md`
@@ -13,14 +14,14 @@ Références infra existantes :
 
 ### Architecture produit
 
-| Couche | Rôle |
-|--------|------|
-| **VPS cloud** | PostgreSQL + API Express + Next.js (cerveau unique) |
-| **Site public** | `pizzeria.fr` — menu, panier, Stripe, suivi |
-| **CRM admin** | `app.pizzeria.fr/admin` — accessible Internet (login staff) |
-| **POS / KDS** | `app.pizzeria.fr/pos`, `/kitchen` — **bloqués** jusqu’au paramétrage CRM, puis **IP boutique** uniquement |
-| **Livreur** | `pizzeria.fr/livreur` — Internet (APK WebView sur téléphone perso) |
-| **Android** | APK WebView (SUNMI, tablette POS, KDS, livreur) — ponts natifs impression/TPE sur SUNMI |
+| Couche          | Rôle                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| **VPS cloud**   | PostgreSQL + API Express + Next.js (cerveau unique)                                                       |
+| **Site public** | `pizzeria.fr` — menu, panier, paiement en ligne SumUp, suivi                                              |
+| **CRM admin**   | `app.pizzeria.fr/admin` — accessible Internet (login staff)                                               |
+| **POS / KDS**   | `app.pizzeria.fr/pos`, `/kitchen` — **bloqués** jusqu’au paramétrage CRM, puis **IP boutique** uniquement |
+| **Livreur**     | `pizzeria.fr/livreur` — Internet (APK WebView sur téléphone perso)                                        |
+| **Android**     | APK WebView (SUNMI, tablette POS, KDS, livreur) — ponts natifs impression/TPE sur SUNMI                   |
 
 ### Modèle commercial (type Tabesto, pas SaaS multi-tenant)
 
@@ -34,7 +35,7 @@ Références infra existantes :
 PHASE DEV (chez toi)                 PHASE LIVRAISON (chez le client)
 ────────────────────                 ─────────────────────────────────
 Ton VPS + tes devices                Son VPS (ou le même migré) + SES devices
-Stripe TEST (sk_test)                Stripe LIVE (son compte)
+SumUp sandbox (ton compte)           SumUp live (son compte)
 Mailpit / SMTP test                  SMTP prod (Hostinger ou client)
 Jumelage tes SUNMI/tablettes         Reset jumelage → jumeler son matériel
 Recette + commande test              Recette sur place + mise en service
@@ -51,11 +52,11 @@ Recette + commande test              Recette sur place + mise en service
 
 ### Impression
 
-| Device | Imprimante primaire | Secours |
-|--------|---------------------|---------|
-| POS SUNMI | Intégrée (`window.SunmiPrinter`) | Epson comptoir (IP LAN) |
-| POS tablette | Epson comptoir | — |
-| KDS | Epson cuisine | — |
+| Device       | Imprimante primaire              | Secours                 |
+| ------------ | -------------------------------- | ----------------------- |
+| POS SUNMI    | Intégrée (`window.SunmiPrinter`) | Epson comptoir (IP LAN) |
+| POS tablette | Epson comptoir                   | —                       |
+| KDS          | Epson cuisine                    | —                       |
 
 Impression = **locale** (tablette → imprimante LAN). Le VPS envoie les `PrintJob` via Socket.
 
@@ -63,7 +64,7 @@ Impression = **locale** (tablette → imprimante LAN). Le VPS envoie les `PrintJ
 
 ```
 Web / POS / (futur Deliveroo-Uber) → API → KDS temps réel
-Stripe webhook → CONFIRMED → order:new + PrintJob
+Checkout SumUp (re-vérifié via API) → CONFIRMED → order:new + PrintJob
 KDS : PREPARING → READY → (étiquette sac) → OUT_FOR_DELIVERY → livreur APK
 ```
 
@@ -78,21 +79,21 @@ KDS : PREPARING → READY → (étiquette sac) → OUT_FOR_DELIVERY → livreur 
 
 ### CDC La Z Pizza (cible client final)
 
-| Host | Usage |
-|------|--------|
-| `pizzeria.fr` | Site public |
+| Host              | Usage                     |
+| ----------------- | ------------------------- |
+| `pizzeria.fr`     | Site public               |
 | `app.pizzeria.fr` | OPS : admin, pos, kitchen |
-| `api.pizzeria.fr` | API Express |
+| `api.pizzeria.fr` | API Express               |
 
 ### Ton VPS gsms-school (référence infra)
 
 D’après `gsms-school/deploy/gsms/.env` :
 
-| Paramètre | Valeur gsms |
-|-----------|-------------|
-| `DOMAIN` / `CRM_HOST` | `hosting-global-it-ss.com` |
-| SMTP | `smtp.hostinger.com:465` (SSL) |
-| Traefik | `EXTERNAL_TRAEFIK=true` (même modèle que `deploy/docker-compose.prod.yml`) |
+| Paramètre             | Valeur gsms                                                                |
+| --------------------- | -------------------------------------------------------------------------- |
+| `DOMAIN` / `CRM_HOST` | `hosting-global-it-ss.com`                                                 |
+| SMTP                  | `smtp.hostinger.com:465` (SSL)                                             |
+| Traefik               | `EXTERNAL_TRAEFIK=true` (même modèle que `deploy/docker-compose.prod.yml`) |
 
 Tu peux héberger La Z Pizza sur **le même VPS** que gsms avec d’**autres hostnames** Traefik (`pizzeria.fr`, etc.) ou un VPS dédié client — la procédure est identique.
 
@@ -109,62 +110,65 @@ api.pizzeria.fr      A    → IP_VPS
 ## 3. Variables d’environnement — dev vs prod client
 
 **Ne jamais committer les secrets.** Fichiers :
+
 - Dev : `server/.env`, `app.pizzeria.fr/.env.local`
 - Prod : `.env` à la racine Docker (voir `deploy/.env.production.example`)
 
 ### Domaines & URLs
 
-| Variable | Dev (ton labo) | Prod client |
-|----------|----------------|-------------|
-| `PUBLIC_HOST` | `pizzeria.test` / localhost | `pizzeria.fr` |
-| `OPS_HOST` | `app.pizzeria.test` | `app.pizzeria.fr` |
-| `API_HOST` | `api.pizzeria.test` | `api.pizzeria.fr` |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | `https://api.pizzeria.fr/api` |
-| `PUBLIC_SITE_URL` | `http://pizzeria.test` | `https://pizzeria.fr` |
-| `FRONTEND_URL` | localhost, `.test` | `https://pizzeria.fr,https://app.pizzeria.fr` |
+| Variable              | Dev (ton labo)              | Prod client                                   |
+| --------------------- | --------------------------- | --------------------------------------------- |
+| `PUBLIC_HOST`         | `pizzeria.test` / localhost | `pizzeria.fr`                                 |
+| `OPS_HOST`            | `app.pizzeria.test`         | `app.pizzeria.fr`                             |
+| `API_HOST`            | `api.pizzeria.test`         | `api.pizzeria.fr`                             |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001`     | `https://api.pizzeria.fr/api`                 |
+| `PUBLIC_SITE_URL`     | `http://pizzeria.test`      | `https://pizzeria.fr`                         |
+| `FRONTEND_URL`        | localhost, `.test`          | `https://pizzeria.fr,https://app.pizzeria.fr` |
 
-### Stripe
+### SumUp (comptoir + paiement en ligne)
 
-| Variable | Dev | Prod client |
-|----------|-----|-------------|
-| `STRIPE_SECRET_KEY` | `sk_test_…` (ton compte) | `sk_live_…` (son compte) |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_…` | `pk_live_…` |
-| `STRIPE_WEBHOOK_SECRET` | `stripe listen` (CLI) | Dashboard Stripe **live** → `https://api.<domaine>/api/payments/webhook` |
-| `STRIPE_PIZZERIA_PRODUCT_ID` | produit test | produit live (optionnel) |
+| Variable              | Dev                          | Prod client             |
+| --------------------- | ---------------------------- | ----------------------- |
+| `SUMUP_API_KEY`       | clé sandbox (ton compte)     | clé live (son compte)   |
+| `SUMUP_MERCHANT_CODE` | code marchand sandbox        | code marchand live      |
+| `API_PUBLIC_BASE_URL` | tunnel/URL locale accessible | `https://api.<domaine>` |
 
-**Dev** : `npm run stripe:listen` → copier `whsec_…` dans `server/.env`.
+Pas de webhook à configurer côté dashboard SumUp — le checkout envoie son statut au
+`return_url` fourni à la création (`{API_PUBLIC_BASE_URL}/api/payments/sumup-checkout/webhook`),
+et ce callback n'est de toute façon qu'un signal : le serveur re-vérifie toujours le statut réel
+via `GET /v0.1/checkouts/{id}` avant de confirmer une commande.
 
 ### Email (SMTP)
 
 RestaurantOS utilise `EMAIL_*` (server). Équivalent gsms → pizzeria :
 
-| RestaurantOS | gsms-school | Exemple prod |
-|--------------|-------------|--------------|
-| `EMAIL_SERVER_HOST` | `SMTP_HOST` | `smtp.hostinger.com` |
-| `EMAIL_SERVER_PORT` | `SMTP_PORT` | `465` |
-| `EMAIL_SERVER_USER` | `SMTP_USER` | `commandes@pizzeria.fr` |
-| `EMAIL_SERVER_PASSWORD` | `SMTP_PASS` | *(secret)* |
-| `EMAIL_FROM` | `SMTP_FROM` | `commandes@pizzeria.fr` |
-| `PUBLIC_SITE_URL` | `NEXT_PUBLIC_SITE_URL` | `https://pizzeria.fr` |
-| `ADMIN_NOTIFICATION_EMAIL` | `CONTACT_TO_EMAIL` | email gérant |
+| RestaurantOS               | gsms-school            | Exemple prod            |
+| -------------------------- | ---------------------- | ----------------------- |
+| `EMAIL_SERVER_HOST`        | `SMTP_HOST`            | `smtp.hostinger.com`    |
+| `EMAIL_SERVER_PORT`        | `SMTP_PORT`            | `465`                   |
+| `EMAIL_SERVER_USER`        | `SMTP_USER`            | `commandes@pizzeria.fr` |
+| `EMAIL_SERVER_PASSWORD`    | `SMTP_PASS`            | _(secret)_              |
+| `EMAIL_FROM`               | `SMTP_FROM`            | `commandes@pizzeria.fr` |
+| `PUBLIC_SITE_URL`          | `NEXT_PUBLIC_SITE_URL` | `https://pizzeria.fr`   |
+| `ADMIN_NOTIFICATION_EMAIL` | `CONTACT_TO_EMAIL`     | email gérant            |
 
 **Dev** : Mailpit Laragon (`127.0.0.1:1025`) — voir `server/.env.example`.
 
 ### Auth & modules
 
-| Variable | Notes |
-|----------|--------|
-| `JWT_SECRET` / `REFRESH_SECRET` | **Nouveaux** en prod (`openssl rand -base64 32`) |
-| `BUSINESS_ID` | UUID seed Prisma du client |
-| `ENABLED_MODULES` | V1 La Z Pizza : `menu,pos,kitchen,orders,reports,users,settings` |
-| `DRIVER_ACCESS_PIN` | PIN livreur (ou `settings.driverAccessPin` en BDD) |
-| `NODE_ENV` | `production` |
+| Variable                        | Notes                                                            |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `JWT_SECRET` / `REFRESH_SECRET` | **Nouveaux** en prod (`openssl rand -base64 32`)                 |
+| `BUSINESS_ID`                   | UUID seed Prisma du client                                       |
+| `ENABLED_MODULES`               | V1 La Z Pizza : `menu,pos,kitchen,orders,reports,users,settings` |
+| `DRIVER_ACCESS_PIN`             | PIN livreur (ou `settings.driverAccessPin` en BDD)               |
+| `NODE_ENV`                      | `production`                                                     |
 
 ### APK Android (`android/app/build.gradle.kts`)
 
-| Build | `POS_URL` |
-|-------|-----------|
-| debug | LAN dev |
+| Build   | `POS_URL`                     |
+| ------- | ----------------------------- |
+| debug   | LAN dev                       |
 | release | `https://app.pizzeria.fr/pos` |
 
 ---
@@ -173,12 +177,13 @@ RestaurantOS utilise `EMAIL_*` (server). Équivalent gsms → pizzeria :
 
 Déjà intégré côté **API** : `server/src/sentry.ts` — variable `SENTRY_DSN`.
 
-| Variable | Où | Rôle |
-|----------|-----|------|
-| `SENTRY_DSN` | `server/.env` | Erreurs Express |
+| Variable                 | Où                              | Rôle                     |
+| ------------------------ | ------------------------------- | ------------------------ |
+| `SENTRY_DSN`             | `server/.env`                   | Erreurs Express          |
 | `NEXT_PUBLIC_SENTRY_DSN` | build Next (à ajouter si front) | Erreurs navigateur / POS |
 
 **À faire** :
+
 1. Créer un projet Sentry (org perso ou client).
 2. Copier le DSN dans `.env` prod.
 3. Optionnel : source maps Next en CI.
@@ -217,6 +222,7 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886   # sandbox puis numéro Business app
 ```
 
 **Prérequis Twilio WhatsApp** :
+
 1. Compte Twilio vérifié.
 2. **Sandbox** WhatsApp (dev) ou **WhatsApp Business** approuvé (prod).
 3. Templates de messages **pré-approuvés** par Meta pour les notifications proactives (statut commande).
@@ -234,6 +240,7 @@ WHATSAPP_BUSINESS_ACCOUNT_ID=...
 ```
 
 **Prérequis** :
+
 1. Meta Business Manager.
 2. Application WhatsApp Business.
 3. Numéro de téléphone vérifié.
@@ -242,11 +249,11 @@ WHATSAPP_BUSINESS_ACCOUNT_ID=...
 
 ### Recommandation
 
-| Phase | Canal |
-|-------|--------|
-| **V1 livraison** | Email (SMTP Hostinger) + SMS Twilio si budget |
-| **V1.1** | Twilio WhatsApp (sandbox dev → prod approuvé) |
-| **Plus tard** | Meta direct si volume élevé (moins de marge Twilio) |
+| Phase            | Canal                                               |
+| ---------------- | --------------------------------------------------- |
+| **V1 livraison** | Email (SMTP Hostinger) + SMS Twilio si budget       |
+| **V1.1**         | Twilio WhatsApp (sandbox dev → prod approuvé)       |
+| **Plus tard**    | Meta direct si volume élevé (moins de marge Twilio) |
 
 **Cas d’usage WhatsApp** : « Commande #42 en préparation », « En route », code livraison — mêmes textes que SMS dans `STATUS_SMS_LABEL`.
 
@@ -254,16 +261,16 @@ WHATSAPP_BUSINESS_ACCOUNT_ID=...
 
 ## 6. CRM `/admin/devices` (implémenté)
 
-| Fonction | Statut |
-|----------|--------|
-| Mode déploiement | POS/KDS bloqués si `onboardingComplete` false (prod) |
-| IP WAN boutique | Bouton « Utiliser l’IP de ce réseau » → `settings.devices.allowedWanIps` |
-| Jumelage devices | Code 6 chiffres + bouton « Jumeler » sur POS/KDS |
-| Dissocier | CRM → liste appareils |
-| Imprimantes Epson | IP LAN cuisine + comptoir |
-| Recette boutique | Panneau diagnostics + validation |
-| Mise en service | `onboardingComplete` — admin uniquement |
-| Reset onboarding | Passage labo → client |
+| Fonction          | Statut                                                                   |
+| ----------------- | ------------------------------------------------------------------------ |
+| Mode déploiement  | POS/KDS bloqués si `onboardingComplete` false (prod)                     |
+| IP WAN boutique   | Bouton « Utiliser l’IP de ce réseau » → `settings.devices.allowedWanIps` |
+| Jumelage devices  | Code 6 chiffres + bouton « Jumeler » sur POS/KDS                         |
+| Dissocier         | CRM → liste appareils                                                    |
+| Imprimantes Epson | IP LAN cuisine + comptoir                                                |
+| Recette boutique  | Panneau diagnostics + validation                                         |
+| Mise en service   | `onboardingComplete` — admin uniquement                                  |
+| Reset onboarding  | Passage labo → client                                                    |
 
 Stockage : `Business.settings.devices` (JSON Prisma).  
 API : `GET/POST /api/devices/*` — voir `server/src/routes/devices.ts`.
@@ -282,7 +289,7 @@ API : `GET/POST /api/devices/*` — voir `server/src/routes/devices.ts`.
 ### 7.2 Fichier `.env` labo
 
 - [ ] Copier `deploy/.env.production.example` → `.env`
-- [ ] `STRIPE_*` = **test** (clés déjà dans `server/.env` dev — ne pas committer)
+- [ ] `SUMUP_*` = **sandbox** (clés déjà dans `server/.env` dev — ne pas committer)
 - [ ] `EMAIL_*` = Mailpit ou SMTP Hostinger test
 - [ ] `JWT_SECRET` / `REFRESH_SECRET` générés
 - [ ] `ENABLED_MODULES` selon modules à tester
@@ -299,13 +306,12 @@ docker compose exec server npx prisma migrate deploy
 docker compose exec server npx tsx prisma/seed.ts
 ```
 
-### 7.4 Stripe dev
+### 7.4 SumUp dev
 
-```bash
-npm run stripe:listen   # sur PC dev, tunnel vers API
-```
+`API_PUBLIC_BASE_URL` doit pointer sur une URL accessible depuis Internet (tunnel type ngrok en
+local, ou directement l'URL du VPS labo) — c'est là que SumUp envoie le statut du checkout.
 
-Tester : commande web → paiement `4242…` → webhook → KDS + PrintJob.
+Tester : commande web → paiement carte test SumUp → checkout confirmé → KDS + PrintJob.
 
 ### 7.5 Devices labo
 
@@ -326,9 +332,8 @@ Tester : commande web → paiement `4242…` → webhook → KDS + PrintJob.
 ### 8.1 Avant la visite
 
 - [ ] VPS client prêt (ou migration DNS vers prod)
-- [ ] `.env` prod préparé **sans** IP boutique (Stripe **live**, SMTP client, secrets **neufs**)
-- [ ] Build Next avec `pk_live_*`
-- [ ] Webhook Stripe live pointant vers `https://api.<domaine>/api/payments/webhook`
+- [ ] `.env` prod préparé **sans** IP boutique (SumUp **live**, SMTP client, secrets **neufs**)
+- [ ] `API_PUBLIC_BASE_URL` = `https://api.<domaine>` (callback checkout SumUp)
 - [ ] BDD seedée (menu client) — **pas** les commandes test du labo
 
 ### 8.2 Sur place (ton portable au Wi‑Fi du shop)
@@ -346,7 +351,7 @@ Tester : commande web → paiement `4242…` → webhook → KDS + PrintJob.
 
 - [ ] Compte admin CRM
 - [ ] PIN caisse / cuisine / livreur
-- [ ] Pas de clés Stripe test restantes
+- [ ] Pas de clés SumUp sandbox restantes
 - [ ] Doc courte « coupure électricité / papier imprimante »
 
 ### 8.4 Changement matériel plus tard
@@ -357,41 +362,41 @@ Tester : commande web → paiement `4242…` → webhook → KDS + PrintJob.
 
 ## 9. Roadmap code (ordre suggéré)
 
-| # | Tâche | Priorité |
-|---|--------|----------|
-| 1 | `/admin/devices` + `settings.devices` + onboarding | ✅ fait |
-| 2 | Garde POS/KDS (`DeviceOnboardingGate` + API access-status) | ✅ fait |
-| 3 | Compléter `deploy/.env.production.example` (EMAIL, SENTRY, SMS, WA) | ✅ fait |
-| 4 | Badge CRM Stripe TEST/LIVE | ✅ (dans AdminDevicesView) |
-| 5 | Fallback impression Epson (`print-job-handler` + pont Android) | ✅ fait |
-| 6 | APK flavors (pos-sunmi, pos-tablet, kds, livreur) | ✅ fait |
-| 7 | Twilio WhatsApp + Meta WA | ✅ fait |
-| 8 | `NEXT_PUBLIC_SENTRY_DSN` front | ✅ fait |
-| 9 | Sync IP CRM → Traefik file provider | ✅ fait |
-| 10 | Nettoyage legacy `client/` + CI | P4 |
+| #   | Tâche                                                               | Priorité                   |
+| --- | ------------------------------------------------------------------- | -------------------------- |
+| 1   | `/admin/devices` + `settings.devices` + onboarding                  | ✅ fait                    |
+| 2   | Garde POS/KDS (`DeviceOnboardingGate` + API access-status)          | ✅ fait                    |
+| 3   | Compléter `deploy/.env.production.example` (EMAIL, SENTRY, SMS, WA) | ✅ fait                    |
+| 4   | Badge CRM SumUp configuré/non configuré                             | ✅ (dans AdminDevicesView) |
+| 5   | Fallback impression Epson (`print-job-handler` + pont Android)      | ✅ fait                    |
+| 6   | APK flavors (pos-sunmi, pos-tablet, kds, livreur)                   | ✅ fait                    |
+| 7   | Twilio WhatsApp + Meta WA                                           | ✅ fait                    |
+| 8   | `NEXT_PUBLIC_SENTRY_DSN` front                                      | ✅ fait                    |
+| 9   | Sync IP CRM → Traefik file provider                                 | ✅ fait                    |
+| 10  | Nettoyage legacy `client/` + CI                                     | P4                         |
 
 ---
 
 ## 10. Fichiers utiles du repo
 
-| Fichier | Rôle |
-|---------|------|
-| `deploy/docker-compose.prod.yml` | Labels Traefik |
-| `deploy/.env.production.example` | Template secrets prod |
-| `deploy/README.md` | Install rapide + filtre IP |
-| `docs/smoke-checklist-pizzeria-v1.md` | Recette fonctionnelle |
-| `docs/webview-sunmi-checklist.md` | Go/no-go SUNMI |
-| `MIGRATION-ROADMAP.md` | P0–P6 |
-| `android/README.md` | APK WebView |
-| `server/.env.example` | Toutes les variables API |
-| `gsms-school/deploy/gsms/.env.example` | Référence SMTP / Traefik |
+| Fichier                                | Rôle                       |
+| -------------------------------------- | -------------------------- |
+| `deploy/docker-compose.prod.yml`       | Labels Traefik             |
+| `deploy/.env.production.example`       | Template secrets prod      |
+| `deploy/README.md`                     | Install rapide + filtre IP |
+| `docs/smoke-checklist-pizzeria-v1.md`  | Recette fonctionnelle      |
+| `docs/webview-sunmi-checklist.md`      | Go/no-go SUNMI             |
+| `MIGRATION-ROADMAP.md`                 | P0–P6                      |
+| `android/README.md`                    | APK WebView                |
+| `server/.env.example`                  | Toutes les variables API   |
+| `gsms-school/deploy/gsms/.env.example` | Référence SMTP / Traefik   |
 
 ---
 
 ## 11. Checklist « prod client prête »
 
 - [ ] FQDN + SSL OK
-- [ ] Stripe **live** + webhook OK
+- [ ] SumUp **live** configuré (`SUMUP_API_KEY`, `SUMUP_MERCHANT_CODE`, `API_PUBLIC_BASE_URL`)
 - [ ] SMTP + email commande reçu
 - [ ] Sentry DSN prod (optionnel)
 - [ ] SMS/WhatsApp configuré ou désactivé sciemment
@@ -403,4 +408,4 @@ Tester : commande web → paiement `4242…` → webhook → KDS + PrintJob.
 
 ---
 
-*Dernière mise à jour : conversation architecture déploiement — labo gsms / livraison client La Z Pizza.*
+_Dernière mise à jour : conversation architecture déploiement — labo gsms / livraison client La Z Pizza._

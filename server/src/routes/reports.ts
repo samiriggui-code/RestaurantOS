@@ -1,48 +1,51 @@
-import { Router, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
-import { authenticate, requireRole } from '../middleware/auth'
-import { AuthRequest } from '../types'
-import { effectiveOrderChannel } from '../lib/order-channel'
-import { UNPAID_PENDING_ORDER_FILTER } from '../lib/order-list-filters'
-import { renderSalesReportHtml } from '../lib/report-document-service'
+import { Router, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
+import { authenticate } from '../middleware/auth';
+import { AuthRequest } from '../types';
+import { effectiveOrderChannel } from '../lib/order-channel';
+import { UNPAID_PENDING_ORDER_FILTER } from '../lib/order-list-filters';
+import { renderSalesReportHtml } from '../lib/report-document-service';
+import { PERMISSION, requirePermission } from '../lib/permissions';
 
-const router = Router()
+const router = Router();
+
+const reportsRead = [authenticate, requirePermission(PERMISSION.REPORTS_READ)] as const;
 
 /**
  * GET /api/reports/print — rapport ventes HTML (React Email, prêt PDF)
  */
-router.get('/print', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+router.get('/print', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const period = Math.min(parseInt(String(req.query.period ?? '7'), 10) || 7, 90)
-    const to = new Date()
-    const from = new Date()
-    from.setDate(from.getDate() - period)
-    const html = await renderSalesReportHtml(prisma, req.user!.businessId, from, to)
-    res.type('text/html; charset=utf-8').send(html)
+    const prisma: PrismaClient = req.app.get('prisma');
+    const period = Math.min(parseInt(String(req.query.period ?? '7'), 10) || 7, 90);
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - period);
+    const html = await renderSalesReportHtml(prisma, req.user!.businessId, from, to);
+    res.type('text/html; charset=utf-8').send(html);
   } catch (error) {
-    console.error('[reports/print]', error)
-    res.status(500).json({ error: 'Génération rapport impossible' })
+    console.error('[reports/print]', error);
+    res.status(500).json({ error: 'Génération rapport impossible' });
   }
-})
+});
 
 /**
  * GET /api/reports/dashboard
  * Get dashboard summary with today's stats (orders, revenue, pending, tables, items).
  * @returns {todayOrders, todayRevenue, pendingOrders, activeTables, totalItems, totalCategories, recentOrders, topSellingItems}
  */
-router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const todayEnd = new Date(today)
-    todayEnd.setHours(23, 59, 59, 999)
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
 
-    const weekStart = new Date(today)
-    weekStart.setDate(weekStart.getDate() - 6)
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - 6);
 
     const [
       todayOrdersCount,
@@ -64,7 +67,10 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
         _count: true,
       }),
       prisma.order.count({
-        where: { businessId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'CONFIRMED', 'PREPARING', 'READY'] } },
+        where: {
+          businessId,
+          status: { in: ['PENDING_PAYMENT', 'CONFIRMED', 'PREPARING', 'READY'] },
+        },
       }),
       prisma.table.count({
         where: { businessId, status: 'OCCUPIED' },
@@ -105,52 +111,52 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
         },
         select: { createdAt: true, total: true },
       }),
-    ])
+    ]);
 
-    const todayRevenue = todayRevenueAgg._sum.total || 0
-    const todayPaidCount = todayRevenueAgg._count || 0
-    const avgBasketToday = todayPaidCount > 0 ? Math.round(todayRevenue / todayPaidCount) : 0
+    const todayRevenue = todayRevenueAgg._sum.total || 0;
+    const todayPaidCount = todayRevenueAgg._count || 0;
+    const avgBasketToday = todayPaidCount > 0 ? Math.round(todayRevenue / todayPaidCount) : 0;
 
-    const hourlyToday: { hour: number; count: number; revenue: number }[] = []
+    const hourlyToday: { hour: number; count: number; revenue: number }[] = [];
     for (let h = 18; h <= 23; h++) {
-      hourlyToday.push({ hour: h, count: 0, revenue: 0 })
+      hourlyToday.push({ hour: h, count: 0, revenue: 0 });
     }
 
-    const orderTypes: Record<string, { count: number; revenue: number }> = {}
-    const paymentMethods: Record<string, { count: number; revenue: number }> = {}
-    const channelsToday: Record<string, { count: number; revenue: number }> = {}
-    const statusToday: Record<string, number> = {}
-    let onlineToday = 0
-    let counterToday = 0
+    const orderTypes: Record<string, { count: number; revenue: number }> = {};
+    const paymentMethods: Record<string, { count: number; revenue: number }> = {};
+    const channelsToday: Record<string, { count: number; revenue: number }> = {};
+    const statusToday: Record<string, number> = {};
+    let onlineToday = 0;
+    let counterToday = 0;
 
-    const itemQtyToday: Record<string, { name: string; quantity: number; revenue: number }> = {}
+    const itemQtyToday: Record<string, { name: string; quantity: number; revenue: number }> = {};
 
     for (const order of todayOrdersDetail) {
-      statusToday[order.status] = (statusToday[order.status] ?? 0) + 1
-      if (order.isOnlineOrder) onlineToday++
-      else counterToday++
+      statusToday[order.status] = (statusToday[order.status] ?? 0) + 1;
+      if (order.isOnlineOrder) onlineToday++;
+      else counterToday++;
 
       if (order.paymentStatus === 'PAID') {
-        const type = order.type || 'DINE_IN'
-        if (!orderTypes[type]) orderTypes[type] = { count: 0, revenue: 0 }
-        orderTypes[type].count++
-        orderTypes[type].revenue += order.total
+        const type = order.type || 'DINE_IN';
+        if (!orderTypes[type]) orderTypes[type] = { count: 0, revenue: 0 };
+        orderTypes[type].count++;
+        orderTypes[type].revenue += order.total;
 
-        const method = order.paymentMethod || (order.isOnlineOrder ? 'STRIPE' : 'CASH')
-        if (!paymentMethods[method]) paymentMethods[method] = { count: 0, revenue: 0 }
-        paymentMethods[method].count++
-        paymentMethods[method].revenue += order.total
+        const method = order.paymentMethod || (order.isOnlineOrder ? 'CARD' : 'CASH');
+        if (!paymentMethods[method]) paymentMethods[method] = { count: 0, revenue: 0 };
+        paymentMethods[method].count++;
+        paymentMethods[method].revenue += order.total;
 
-        const ch = effectiveOrderChannel(order)
-        if (!channelsToday[ch]) channelsToday[ch] = { count: 0, revenue: 0 }
-        channelsToday[ch].count++
-        channelsToday[ch].revenue += order.total
+        const ch = effectiveOrderChannel(order);
+        if (!channelsToday[ch]) channelsToday[ch] = { count: 0, revenue: 0 };
+        channelsToday[ch].count++;
+        channelsToday[ch].revenue += order.total;
 
-        const hour = new Date(order.createdAt).getHours()
-        const slot = hourlyToday.find((h) => h.hour === hour)
+        const hour = new Date(order.createdAt).getHours();
+        const slot = hourlyToday.find(h => h.hour === hour);
         if (slot) {
-          slot.count++
-          slot.revenue += order.total
+          slot.count++;
+          slot.revenue += order.total;
         }
       }
     }
@@ -158,40 +164,40 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
     const todayOrderIds = await prisma.order.findMany({
       where: { businessId, createdAt: { gte: today, lte: todayEnd }, paymentStatus: 'PAID' },
       select: { id: true },
-    })
+    });
     if (todayOrderIds.length > 0) {
       const todayItems = await prisma.orderItem.findMany({
-        where: { orderId: { in: todayOrderIds.map((o) => o.id) } },
+        where: { orderId: { in: todayOrderIds.map(o => o.id) } },
         include: { menuItem: { select: { id: true, name: true } } },
-      })
+      });
       for (const oi of todayItems) {
-        const id = oi.menuItemId
+        const id = oi.menuItemId;
         if (!itemQtyToday[id]) {
-          itemQtyToday[id] = { name: oi.menuItem.name, quantity: 0, revenue: 0 }
+          itemQtyToday[id] = { name: oi.menuItem.name, quantity: 0, revenue: 0 };
         }
-        itemQtyToday[id].quantity += oi.quantity
-        itemQtyToday[id].revenue += oi.price * oi.quantity
+        itemQtyToday[id].quantity += oi.quantity;
+        itemQtyToday[id].revenue += oi.price * oi.quantity;
       }
     }
 
     const topItemsToday = Object.entries(itemQtyToday)
       .map(([id, data]) => ({ id, ...data }))
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 8)
+      .slice(0, 8);
 
-    const salesByDay: { date: string; count: number; total: number }[] = []
+    const salesByDay: { date: string; count: number; total: number }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(d.getDate() - i)
-      const key = d.toISOString().slice(0, 10)
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
       const dayOrders = weekPaidOrders.filter(
-        (o) => new Date(o.createdAt).toISOString().slice(0, 10) === key
-      )
+        o => new Date(o.createdAt).toISOString().slice(0, 10) === key
+      );
       salesByDay.push({
         date: key,
         count: dayOrders.length,
         total: dayOrders.reduce((s, o) => s + o.total, 0),
-      })
+      });
     }
 
     res.json({
@@ -213,22 +219,22 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
       channelsToday,
       statusToday,
       salesByDay,
-    })
+    });
   } catch (error) {
-    console.error('Dashboard error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Dashboard error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/customers-summary — clients agrégés par téléphone (365 j)
  */
-router.get('/customers-summary', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+router.get('/customers-summary', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const since = new Date()
-    since.setDate(since.getDate() - 365)
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const since = new Date();
+    since.setDate(since.getDate() - 365);
 
     const orders = await prisma.order.findMany({
       where: {
@@ -246,26 +252,26 @@ router.get('/customers-summary', authenticate, requireRole('ADMIN', 'MANAGER'), 
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
-    })
+    });
 
     const byPhone = new Map<
       string,
       {
-        phone: string
-        name: string
-        email: string | null
-        orderCount: number
-        paidTotalCents: number
-        lastOrderAt: string
+        phone: string;
+        name: string;
+        email: string | null;
+        orderCount: number;
+        paidTotalCents: number;
+        lastOrderAt: string;
       }
-    >()
+    >();
 
     for (const o of orders) {
-      const phone = o.customerPhone?.trim()
-      if (!phone) continue
-      const key = phone.replace(/\s/g, '')
-      const existing = byPhone.get(key)
-      const paid = o.paymentStatus === 'PAID' ? o.total : 0
+      const phone = o.customerPhone?.trim();
+      if (!phone) continue;
+      const key = phone.replace(/\s/g, '');
+      const existing = byPhone.get(key);
+      const paid = o.paymentStatus === 'PAID' ? o.total : 0;
       if (!existing) {
         byPhone.set(key, {
           phone,
@@ -274,22 +280,22 @@ router.get('/customers-summary', authenticate, requireRole('ADMIN', 'MANAGER'), 
           orderCount: 1,
           paidTotalCents: paid,
           lastOrderAt: o.createdAt.toISOString(),
-        })
+        });
       } else {
-        existing.orderCount++
-        existing.paidTotalCents += paid
-        if (!existing.name && o.customerName) existing.name = o.customerName.trim()
-        if (!existing.email && o.customerEmail) existing.email = o.customerEmail
+        existing.orderCount++;
+        existing.paidTotalCents += paid;
+        if (!existing.name && o.customerName) existing.name = o.customerName.trim();
+        if (!existing.email && o.customerEmail) existing.email = o.customerEmail;
       }
     }
 
-    const customers = [...byPhone.values()].sort((a, b) => b.paidTotalCents - a.paidTotalCents)
-    res.json({ customers })
+    const customers = [...byPhone.values()].sort((a, b) => b.paidTotalCents - a.paidTotalCents);
+    res.json({ customers });
   } catch (error) {
-    console.error('[reports/customers-summary]', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('[reports/customers-summary]', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/sales
@@ -297,14 +303,16 @@ router.get('/customers-summary', authenticate, requireRole('ADMIN', 'MANAGER'), 
  * @query {from?: string, to?: string, groupBy?: 'day'|'week'|'month'}
  * @returns {Array<{date, count, total}>}
  */
-router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/sales', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to, groupBy } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to, groupBy } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30))
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from
+      ? new Date(from as string)
+      : new Date(new Date().setDate(new Date().getDate() - 30));
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const orders = await prisma.order.findMany({
       where: {
@@ -313,40 +321,42 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
         paymentStatus: 'PAID',
       },
       orderBy: { createdAt: 'asc' },
-    })
+    });
 
     // Group by day, week, or month
-    const grouped: Record<string, { count: number; total: number; orders: number[] }> = {}
+    const grouped: Record<string, { count: number; total: number; orders: number[] }> = {};
     for (const order of orders) {
-      let key: string
-      const d = new Date(order.createdAt)
+      let key: string;
+      const d = new Date(order.createdAt);
       if (groupBy === 'month') {
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       } else if (groupBy === 'week') {
-        const startOfWeek = new Date(d)
-        startOfWeek.setDate(d.getDate() - d.getDay())
-        key = startOfWeek.toISOString().slice(0, 10)
+        const startOfWeek = new Date(d);
+        startOfWeek.setDate(d.getDate() - d.getDay());
+        key = startOfWeek.toISOString().slice(0, 10);
       } else {
-        key = d.toISOString().slice(0, 10)
+        key = d.toISOString().slice(0, 10);
       }
 
-      if (!grouped[key]) grouped[key] = { count: 0, total: 0, orders: [] }
-      grouped[key].count++
-      grouped[key].total += order.total
-      grouped[key].orders.push(order.orderNumber)
+      if (!grouped[key]) grouped[key] = { count: 0, total: 0, orders: [] };
+      grouped[key].count++;
+      grouped[key].total += order.total;
+      grouped[key].orders.push(order.orderNumber);
     }
 
-    const salesData = Object.entries(grouped).map(([date, data]) => ({
-      date,
-      count: data.count,
-      total: data.total,
-    })).sort((a, b) => a.date.localeCompare(b.date))
+    const salesData = Object.entries(grouped)
+      .map(([date, data]) => ({
+        date,
+        count: data.count,
+        total: data.total,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-    res.json(salesData)
+    res.json(salesData);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/categories
@@ -354,14 +364,14 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, nameAr, totalSold, revenue}>}
  */
-router.get('/categories', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/categories', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(0)
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from ? new Date(from as string) : new Date(0);
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const categories = await prisma.menuCategory.findMany({
       where: { businessId, isActive: true },
@@ -379,29 +389,29 @@ router.get('/categories', authenticate, async (req: AuthRequest, res: Response) 
           },
         },
       },
-    })
+    });
 
     const categoryData = categories.map(cat => {
       const totalSold = cat.items.reduce((sum, item) => {
-        return sum + item.orderItems.reduce((s, oi) => s + oi.quantity, 0)
-      }, 0)
+        return sum + item.orderItems.reduce((s, oi) => s + oi.quantity, 0);
+      }, 0);
       const revenue = cat.items.reduce((sum, item) => {
-        return sum + item.orderItems.reduce((s, oi) => s + oi.price * oi.quantity, 0)
-      }, 0)
+        return sum + item.orderItems.reduce((s, oi) => s + oi.price * oi.quantity, 0);
+      }, 0);
       return {
         id: cat.id,
         name: cat.name,
         nameAr: cat.nameAr,
         totalSold,
         revenue,
-      }
-    })
+      };
+    });
 
-    res.json(categoryData)
+    res.json(categoryData);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/employees
@@ -409,14 +419,14 @@ router.get('/categories', authenticate, async (req: AuthRequest, res: Response) 
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, role, orderCount, totalSales}>}
  */
-router.get('/employees', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/employees', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(0)
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from ? new Date(from as string) : new Date(0);
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const employees = await prisma.user.findMany({
       where: { businessId, isActive: true, role: { not: 'ADMIN' } },
@@ -432,7 +442,7 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
           select: { id: true, total: true },
         },
       },
-    })
+    });
 
     const employeeData = employees.map(emp => ({
       id: emp.id,
@@ -440,26 +450,26 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
       role: emp.role,
       orderCount: emp.orders.length,
       totalSales: emp.orders.reduce((sum, o) => sum + o.total, 0),
-    }))
+    }));
 
-    res.json(employeeData)
+    res.json(employeeData);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/drivers
  * Performance livreurs (commandes livraison payées assignées).
  */
-router.get('/drivers', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/drivers', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(0)
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from ? new Date(from as string) : new Date(0);
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const drivers = await prisma.user.findMany({
       where: { businessId, isActive: true, role: 'DRIVER' },
@@ -476,21 +486,23 @@ router.get('/drivers', authenticate, async (req: AuthRequest, res: Response) => 
         },
       },
       orderBy: { name: 'asc' },
-    })
+    });
 
-    const driverData = drivers.map((d) => ({
+    const driverData = drivers.map(d => ({
       id: d.id,
       name: d.name,
       deliveryCount: d.driverOrders.length,
-      deliveredCount: d.driverOrders.filter((o) => o.status === 'DELIVERED' || o.status === 'COMPLETED').length,
+      deliveredCount: d.driverOrders.filter(
+        o => o.status === 'DELIVERED' || o.status === 'COMPLETED'
+      ).length,
       totalSales: d.driverOrders.reduce((sum, o) => sum + o.total, 0),
-    }))
+    }));
 
-    res.json(driverData)
+    res.json(driverData);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/items-performance
@@ -498,14 +510,16 @@ router.get('/drivers', authenticate, async (req: AuthRequest, res: Response) => 
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, nameAr, quantity, revenue, orders, hourly, avgPerOrder}>}
  */
-router.get('/items-performance', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/items-performance', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30))
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from
+      ? new Date(from as string)
+      : new Date(new Date().setDate(new Date().getDate() - 30));
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const orderItems = await prisma.orderItem.findMany({
       where: {
@@ -519,12 +533,22 @@ router.get('/items-performance', authenticate, async (req: AuthRequest, res: Res
         menuItem: { select: { id: true, name: true, nameAr: true, price: true } },
         order: { select: { createdAt: true } },
       },
-    })
+    });
 
     // Aggregate by item
-    const itemMap: Record<string, { name: string; nameAr: string; quantity: number; revenue: number; orders: number; hourly: number[] }> = {}
+    const itemMap: Record<
+      string,
+      {
+        name: string;
+        nameAr: string;
+        quantity: number;
+        revenue: number;
+        orders: number;
+        hourly: number[];
+      }
+    > = {};
     for (const oi of orderItems) {
-      const id = oi.menuItemId
+      const id = oi.menuItemId;
       if (!itemMap[id]) {
         itemMap[id] = {
           name: oi.menuItem.name,
@@ -533,27 +557,29 @@ router.get('/items-performance', authenticate, async (req: AuthRequest, res: Res
           revenue: 0,
           orders: 0,
           hourly: new Array(24).fill(0),
-        }
+        };
       }
-      itemMap[id].quantity += oi.quantity
-      itemMap[id].revenue += oi.price * oi.quantity
-      itemMap[id].orders++
-      const hour = new Date(oi.order.createdAt).getHours()
-      itemMap[id].hourly[hour]++
+      itemMap[id].quantity += oi.quantity;
+      itemMap[id].revenue += oi.price * oi.quantity;
+      itemMap[id].orders++;
+      const hour = new Date(oi.order.createdAt).getHours();
+      itemMap[id].hourly[hour]++;
     }
 
-    const items = Object.entries(itemMap).map(([id, data]) => ({
-      id,
-      ...data,
-      avgPerOrder: data.orders > 0 ? data.quantity / data.orders : 0,
-    })).sort((a, b) => b.quantity - a.quantity)
+    const items = Object.entries(itemMap)
+      .map(([id, data]) => ({
+        id,
+        ...data,
+        avgPerOrder: data.orders > 0 ? data.quantity / data.orders : 0,
+      }))
+      .sort((a, b) => b.quantity - a.quantity);
 
-    res.json(items)
+    res.json(items);
   } catch (error) {
-    console.error('Items performance error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Items performance error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/peak-hours
@@ -561,14 +587,16 @@ router.get('/items-performance', authenticate, async (req: AuthRequest, res: Res
  * @query {from?: string, to?: string}
  * @returns {hourly: Array<{hour, count, revenue}>, dow: Array<{day, count, revenue}>}
  */
-router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/peak-hours', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30))
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from
+      ? new Date(from as string)
+      : new Date(new Date().setDate(new Date().getDate() - 30));
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const orders = await prisma.order.findMany({
       where: {
@@ -577,36 +605,36 @@ router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) 
         createdAt: { gte: dateFrom, lte: dateTo },
       },
       select: { createdAt: true, total: true },
-    })
+    });
 
-    const hourly: { hour: number; count: number; revenue: number }[] = []
+    const hourly: { hour: number; count: number; revenue: number }[] = [];
     for (let h = 0; h < 24; h++) {
-      hourly.push({ hour: h, count: 0, revenue: 0 })
+      hourly.push({ hour: h, count: 0, revenue: 0 });
     }
 
     for (const order of orders) {
-      const hour = new Date(order.createdAt).getHours()
-      hourly[hour].count++
-      hourly[hour].revenue += order.total
+      const hour = new Date(order.createdAt).getHours();
+      hourly[hour].count++;
+      hourly[hour].revenue += order.total;
     }
 
-    const dow: { day: number; count: number; revenue: number }[] = []
+    const dow: { day: number; count: number; revenue: number }[] = [];
     for (let d = 0; d < 7; d++) {
-      dow.push({ day: d, count: 0, revenue: 0 })
+      dow.push({ day: d, count: 0, revenue: 0 });
     }
 
     for (const order of orders) {
-      const day = new Date(order.createdAt).getDay()
-      dow[day].count++
-      dow[day].revenue += order.total
+      const day = new Date(order.createdAt).getDay();
+      dow[day].count++;
+      dow[day].revenue += order.total;
     }
 
-    res.json({ hourly, dow })
+    res.json({ hourly, dow });
   } catch (error) {
-    console.error('Peak hours error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Peak hours error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/payment-methods
@@ -614,14 +642,14 @@ router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) 
  * @query {from?: string, to?: string}
  * @returns {Record<string, {count, revenue}>}
  */
-router.get('/payment-methods', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/payment-methods', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(0)
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from ? new Date(from as string) : new Date(0);
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const orders = await prisma.order.findMany({
       where: {
@@ -630,35 +658,37 @@ router.get('/payment-methods', authenticate, async (req: AuthRequest, res: Respo
         createdAt: { gte: dateFrom, lte: dateTo },
       },
       select: { paymentMethod: true, total: true },
-    })
+    });
 
-    const methods: Record<string, { count: number; revenue: number }> = {}
+    const methods: Record<string, { count: number; revenue: number }> = {};
     for (const order of orders) {
-      const method = order.paymentMethod || 'UNKNOWN'
-      if (!methods[method]) methods[method] = { count: 0, revenue: 0 }
-      methods[method].count++
-      methods[method].revenue += order.total
+      const method = order.paymentMethod || 'UNKNOWN';
+      if (!methods[method]) methods[method] = { count: 0, revenue: 0 };
+      methods[method].count++;
+      methods[method].revenue += order.total;
     }
 
-    res.json(methods)
+    res.json(methods);
   } catch (error) {
-    console.error('Payment methods error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Payment methods error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * GET /api/reports/order-types
  * Répartition livraison / emporter / sur place.
  */
-router.get('/order-types', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/order-types', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const businessId = req.user!.businessId
-    const { from, to } = req.query
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { from, to } = req.query;
 
-    const dateFrom = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30))
-    const dateTo = to ? new Date(to as string) : new Date()
+    const dateFrom = from
+      ? new Date(from as string)
+      : new Date(new Date().setDate(new Date().getDate() - 30));
+    const dateTo = to ? new Date(to as string) : new Date();
 
     const orders = await prisma.order.findMany({
       where: {
@@ -667,20 +697,20 @@ router.get('/order-types', authenticate, async (req: AuthRequest, res: Response)
         createdAt: { gte: dateFrom, lte: dateTo },
       },
       select: { type: true, total: true, isOnlineOrder: true },
-    })
+    });
 
-    const types: Record<string, { count: number; revenue: number }> = {}
+    const types: Record<string, { count: number; revenue: number }> = {};
     for (const order of orders) {
-      const type = order.type || 'DINE_IN'
-      if (!types[type]) types[type] = { count: 0, revenue: 0 }
-      types[type].count++
-      types[type].revenue += order.total
+      const type = order.type || 'DINE_IN';
+      if (!types[type]) types[type] = { count: 0, revenue: 0 };
+      types[type].count++;
+      types[type].revenue += order.total;
     }
 
-    res.json(types)
+    res.json(types);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
-export default router
+export default router;

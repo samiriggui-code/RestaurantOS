@@ -199,8 +199,8 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
       setCancelOpen(false)
       setCancelNote('')
       notifySuccess(
-        selected.stripePaymentIntentId
-          ? 'Commande annulée et remboursement Stripe lancé'
+        selected.sumupCheckoutId
+          ? 'Commande annulée et remboursement SumUp lancé'
           : 'Commande annulée',
       )
     } catch (e) {
@@ -558,7 +558,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                   className="inline-flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-900/40"
                 >
                   <Ban className="h-4 w-4" />
-                  {selected.paymentStatus === 'PAID' && selected.stripePaymentIntentId
+                  {selected.paymentStatus === 'PAID' && selected.sumupCheckoutId
                     ? 'Annuler et rembourser'
                     : 'Annuler la commande'}
                 </button>
@@ -681,9 +681,9 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
               className="mb-4 w-full rounded-xl border border-white/10 bg-charcoal px-3 py-2 text-sm text-cream"
             />
 
-            {selected.paymentStatus === 'PAID' && selected.stripePaymentIntentId ? (
+            {selected.paymentStatus === 'PAID' && selected.sumupCheckoutId ? (
               <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                Paiement CB en ligne — un remboursement Stripe sera effectué automatiquement sur la carte du
+                Paiement CB en ligne — un remboursement SumUp sera effectué automatiquement sur la carte du
                 client.
               </p>
             ) : selected.paymentStatus === 'PAID' ? (

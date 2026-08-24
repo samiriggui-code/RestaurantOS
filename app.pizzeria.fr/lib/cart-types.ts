@@ -29,7 +29,7 @@ export type CheckoutDraft = {
   city: string
   instructions: string
   timeSlot: string
-  /** online = Stripe · counter = encaissement au comptoir / SUNMI */
+  /** online = SumUp (carte en ligne) · counter = encaissement comptoir / TPE */
   paymentMode?: 'online' | 'counter'
 }
 

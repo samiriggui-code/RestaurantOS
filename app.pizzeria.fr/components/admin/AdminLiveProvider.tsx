@@ -177,7 +177,13 @@ export function AdminLiveProvider({ children }: { children: ReactNode }) {
   /** Renouvelle le JWT avant expiration pour garder le socket actif. */
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void ensureFreshAccessToken('crm')
+      void (async () => {
+        // Le token rafraîchi doit être réappliqué au socket actif, sinon ce
+        // timer ne fait rien d'utile : `getKitchenSocket(token)` compare au
+        // token courant et reconnecte lui-même si besoin (lib/socket.ts).
+        const token = await ensureFreshAccessToken('crm')
+        if (token) getKitchenSocket(token)
+      })()
     }, 10 * 60 * 1000)
     return () => window.clearInterval(timer)
   }, [])

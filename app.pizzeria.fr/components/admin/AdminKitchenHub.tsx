@@ -196,7 +196,7 @@ function KitchenOverviewPanel() {
       </section>
 
       <p className="text-xs text-cream/35">
-        Relation : commande confirmée (webhook Stripe ou comptoir) → Socket.io → KDS + moniteur CRM.
+        Relation : commande confirmée (webhook SumUp ou comptoir) → Socket.io → KDS + moniteur CRM.
         Les statuts modifiés sur la tablette se reflètent ici en temps réel.
       </p>
     </div>

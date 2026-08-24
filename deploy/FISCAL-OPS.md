@@ -6,15 +6,15 @@ Référence : **article 286 du CGI** · **BOFiP BOI-TVA-DECLA-30-10-30** (caisse
 
 ## 1. Paramètres à configurer (jour J production)
 
-| Paramètre | Où | Rôle |
-|-----------|-----|------|
+| Paramètre                        | Où                          | Rôle                                                                                     |
+| -------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
 | **Date de mise en service ISCA** | Admin → Paramètres → Fiscal | Première journée où la clôture Z est exigée. Avant cette date : pas de clôture proposée. |
-| **Mode formation** | Idem | **OFF en production.** Tickets TRAINING exclus des clôtures Z. |
-| **SIRET / TVA / raison sociale** | Paramètres → Établissement | Mentions obligatoires sur ticket 58 mm. |
-| **FISCAL_HMAC_SECRET** | `.env` serveur | Clé HMAC chaînage — **ne jamais changer** après mise en service (sinon rupture chaîne). |
-| **FISCAL_SOFTWARE_VERSION** | `.env` | Version certifiée / déclarée du logiciel. |
-| **FISCAL_ALLOW_JET_REPAIR** | `.env` | `false` en production. `true` labo uniquement. |
-| **FISCAL_REQUIRE_PRECLOSE** | `.env` | `true` — pré-clôture obligatoire avant Z. |
+| **Mode formation**               | Idem                        | **OFF en production.** Tickets TRAINING exclus des clôtures Z.                           |
+| **SIRET / TVA / raison sociale** | Paramètres → Établissement  | Mentions obligatoires sur ticket 58 mm.                                                  |
+| **FISCAL_HMAC_SECRET**           | `.env` serveur              | Clé HMAC chaînage — **ne jamais changer** après mise en service (sinon rupture chaîne).  |
+| **FISCAL_SOFTWARE_VERSION**      | `.env`                      | Version certifiée / déclarée du logiciel.                                                |
+| **FISCAL_ALLOW_JET_REPAIR**      | `.env`                      | `false` en production. `true` labo uniquement.                                           |
+| **FISCAL_REQUIRE_PRECLOSE**      | `.env`                      | `true` — pré-clôture obligatoire avant Z.                                                |
 
 ### Jour de la mise en production
 
@@ -59,13 +59,12 @@ En cas de redeploy : restaurer le dump **et** les archives fiscales ; ne pas ré
 
 **Recommandation** : oui pour le labo et la prod, mais **en complément** de scripts bash/cron, pas en remplacement du cœur métier (clôture Z reste dans l’API Express).
 
-| Workflow n8n | Déclencheur | Action |
-|--------------|-------------|--------|
-| Backup nocturne | Cron 04:00 | Webhook → script backup + upload MinIO |
+| Workflow n8n        | Déclencheur | Action                                                          |
+| ------------------- | ----------- | --------------------------------------------------------------- |
+| Backup nocturne     | Cron 04:00  | Webhook → script backup + upload MinIO                          |
 | Alerte chaîne rouge | Cron 30 min | GET `/api/fiscal/verify` (token service) → email si `ok: false` |
-| Rappel clôture Z | Cron 01:00 | Si veille non clôturée → notification admin |
-| Sync Stripe bloqué | Webhook Stripe | Relance `sync-stuck-stripe-orders.sh` |
-| Export comptable | Fin de mois | Export CSV heures + clôture M |
+| Rappel clôture Z    | Cron 01:00  | Si veille non clôturée → notification admin                     |
+| Export comptable    | Fin de mois | Export CSV heures + clôture M                                   |
 
 Stack : `deploy/docker-compose.ops.yml` (MinIO + n8n).  
 Sous-domaines labo : `minio.pizza.gsms-security.com`, `n8n.pizza.gsms-security.com`.

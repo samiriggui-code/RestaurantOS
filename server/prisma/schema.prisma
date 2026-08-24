@@ -45,14 +45,16 @@ model Business {
   guestCheckoutDrafts   GuestCheckoutDraft[]
 }
 
-/// Panier web temporaire — pas une commande tant que Stripe n'a pas réussi.
+/// Panier web temporaire — pas une commande tant que SumUp n'a pas confirmé le paiement.
 model GuestCheckoutDraft {
   id                    String    @id @default(uuid())
   businessId            String
   business              Business  @relation(fields: [businessId], references: [id])
   payload               Json
   totalCents            Int
+  /// Legacy Stripe — lecture seule / historique
   stripePaymentIntentId String?   @unique
+  sumupCheckoutId       String?   @unique
   consumedAt            DateTime?
   expiresAt             DateTime
   createdAt             DateTime  @default(now())
@@ -157,13 +159,37 @@ model ModifierOption {
   sortOrder  Int          @default(0)
 }
 
+enum OrderStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DELIVERY_ISSUE
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
 model Table {
   id           String        @id @default(uuid())
   businessId   String
   business     Business      @relation(fields: [businessId], references: [id])
   number       String
   capacity     Int           @default(4)
-  status       String        @default("AVAILABLE")
+  status       TableStatus   @default(AVAILABLE)
   qrCode       String?
   isActive     Boolean       @default(true)
   createdAt    DateTime      @default(now())
@@ -173,40 +199,40 @@ model Table {
 }
 
 model Order {
-  id                    String      @id @default(uuid())
+  id                    String         @id @default(uuid())
   businessId            String
-  business              Business    @relation(fields: [businessId], references: [id])
+  business              Business       @relation(fields: [businessId], references: [id])
   orderNumber           Int
   tableId               String?
-  table                 Table?      @relation(fields: [tableId], references: [id])
+  table                 Table?         @relation(fields: [tableId], references: [id])
   cashierId             String?
-  cashier               User?       @relation("CashierOrders", fields: [cashierId], references: [id])
+  cashier               User?          @relation("CashierOrders", fields: [cashierId], references: [id])
   /// Livreur ayant pris en charge la livraison (premier GPS / prise en charge)
   driverId              String?
-  driver                User?       @relation("DriverOrders", fields: [driverId], references: [id])
+  driver                User?          @relation("DriverOrders", fields: [driverId], references: [id])
   customerName          String?
   customerPhone         String?
   customerEmail         String?
-  type                  String      @default("DINE_IN")
-  /// PENDING_PAYMENT | CONFIRMED | PREPARING | READY | COMPLETED | CANCELLED
-  status                String      @default("CONFIRMED")
-  paymentStatus         String      @default("UNPAID")
+  type                  String         @default("DINE_IN")
+  status                OrderStatus    @default(CONFIRMED)
+  paymentStatus         PaymentStatus  @default(UNPAID)
   paymentMethod         String?
   /// Encaissement TPE : provider, transactionId, cardBrand, mode native/manuel (facturation / stats)
   paymentMeta           Json?
   paymentCapturedAt     DateTime?
   /// Montants en centimes EUR
-  subtotal              Int         @default(0)
-  tax                   Int         @default(0)
-  serviceCharge         Int         @default(0)
-  discount              Int         @default(0)
-  total                 Int         @default(0)
+  subtotal              Int            @default(0)
+  tax                   Int            @default(0)
+  serviceCharge         Int            @default(0)
+  discount              Int            @default(0)
+  total                 Int            @default(0)
   notes                 String?
-  isOnlineOrder         Boolean     @default(false)
+  isOnlineOrder         Boolean        @default(false)
   /// POS | WEB | DELIVEROO | UBER_EATS | KIOSK
   channel               String?
-  trackingToken         String?     @unique
-  stripePaymentIntentId String?     @unique
+  trackingToken         String?        @unique
+  stripePaymentIntentId String?        @unique // legacy Stripe — plus utilisé (SumUp only)
+  sumupCheckoutId       String?        @unique
   deliveryAddress       String?
   deliveryPostalCode    String?
   deliveryCity          String?
@@ -239,6 +265,7 @@ model Order {
   invoices              Invoice[]
   fiscalTickets         FiscalTicket[]
 
+  @@unique([businessId, orderNumber])
   @@index([businessId, status])
   @@index([businessId, createdAt])
 }
@@ -639,6 +666,10 @@ model FiscalSequence {
   businessId        String   @id
   business          Business @relation(fields: [businessId], references: [id])
   nextTicketNo      Int      @default(1)
+  /// Compteur atomique de numérotation des factures (verrouillé via upsert, cf. allocateInvoiceNumber)
+  nextInvoiceNo     Int      @default(1)
+  /// Compteur atomique de numérotation des commandes (cf. allocateOrderNumber)
+  nextOrderNo       Int      @default(1)
   grandTotalCents   BigInt   @default(0)
   lastTicketHash    String?
   lastEventHash     String?

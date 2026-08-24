@@ -302,7 +302,7 @@ export function DriverCourierView({ token }: Props) {
         </Link>
         {order && (
           <span className="ml-auto text-sm font-bold text-tomato-light">
-            #{order.orderNumber} · {formatEUR(order.total / 100)}
+            #{order.orderNumber} · {formatEUR(order.total)}
           </span>
         )}
       </div>

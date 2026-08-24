@@ -7,7 +7,7 @@
 - [ ] `FISCAL_HMAC_SECRET` défini en production (distinct de `JWT_SECRET`)
 - [ ] `FISCAL_SOFTWARE_VERSION` renseigné
 - [ ] Email SMTP configuré (`EMAIL_SERVER_*`) pour reçus fiscaux web
-- [ ] Stripe webhook actif (`STRIPE_WEBHOOK_SECRET`)
+- [ ] SumUp configuré (`SUMUP_API_KEY`, `SUMUP_MERCHANT_CODE`, `API_PUBLIC_BASE_URL`)
 - [ ] `npm run fiscal:verify-chain --prefix server` → OK
 - [ ] Test clôture Z sur environnement de préprod
 
@@ -34,18 +34,18 @@
 
 ## P0 implémentés (juillet 2026)
 
-| Point | Statut |
-|-------|--------|
-| Avoir auto annulation payée | ✅ |
-| Garde-fou commandes fiscalisées | ✅ |
-| Ticket fiscal synchrone (POS/comptoir) | ✅ |
-| Clôture Z fuseau Europe/Paris | ✅ |
-| Rappel Z + auto 23h55 | ✅ |
-| JET login, prix, démarrage, formation | ✅ |
-| Reçu fiscal email web | ✅ |
-| Référence TPE manuelle obligatoire | ✅ |
-| Modèle attestation BOFiP | ✅ |
-| Guide gérant in-app | ✅ |
+| Point                                  | Statut |
+| -------------------------------------- | ------ |
+| Avoir auto annulation payée            | ✅     |
+| Garde-fou commandes fiscalisées        | ✅     |
+| Ticket fiscal synchrone (POS/comptoir) | ✅     |
+| Clôture Z fuseau Europe/Paris          | ✅     |
+| Rappel Z + auto 23h55                  | ✅     |
+| JET login, prix, démarrage, formation  | ✅     |
+| Reçu fiscal email web                  | ✅     |
+| Référence TPE manuelle obligatoire     | ✅     |
+| Modèle attestation BOFiP               | ✅     |
+| Guide gérant in-app                    | ✅     |
 
 ## Reste hors périmètre code
 

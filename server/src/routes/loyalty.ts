@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, requireRole } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import {
   loyaltyFreePizzasAvailable,
@@ -9,8 +9,13 @@ import {
   normalizeLoyaltyPhone,
   redeemLoyaltyFreePizza,
 } from '../lib/loyalty-order';
+import { PERMISSION, requirePermission } from '../lib/permissions';
 
 const router = Router();
+
+const loyaltyRead = [authenticate, requirePermission(PERMISSION.LOYALTY_READ)] as const;
+const loyaltyWrite = [authenticate, requirePermission(PERMISSION.LOYALTY_WRITE)] as const;
+const loyaltyAdjust = [authenticate, requirePermission(PERMISSION.LOYALTY_ADJUST)] as const;
 
 function programPayload(program: {
   id: string;
@@ -46,7 +51,7 @@ function programPayload(program: {
   };
 }
 
-router.get('/program', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/program', ...loyaltyRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     let program = await prisma.loyaltyProgram.findFirst({
@@ -63,39 +68,34 @@ router.get('/program', authenticate, async (req: AuthRequest, res: Response) => 
   }
 });
 
-router.put(
-  '/program',
-  authenticate,
-  requireRole('ADMIN', 'MANAGER'),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const prisma: PrismaClient = req.app.get('prisma');
-      const businessId = req.user!.businessId;
-      const { name, pointsPerDinar, pointsForFreePizza, minPointsRedeem, enabled } = req.body;
+router.put('/program', ...loyaltyAdjust, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = req.user!.businessId;
+    const { name, pointsPerDinar, pointsForFreePizza, minPointsRedeem, enabled } = req.body;
 
-      const pizzaThreshold = Number(pointsForFreePizza ?? minPointsRedeem ?? 100);
+    const pizzaThreshold = Number(pointsForFreePizza ?? minPointsRedeem ?? 100);
 
-      const existing = await prisma.loyaltyProgram.findFirst({ where: { businessId } });
-      const data = {
-        name,
-        pointsPerDinar: Number(pointsPerDinar) || 1,
-        dinarPerPoint: 0,
-        pointsForFreePizza: Math.max(1, pizzaThreshold),
-        minPointsRedeem: Math.max(1, pizzaThreshold),
-        enabled: enabled !== false,
-      };
+    const existing = await prisma.loyaltyProgram.findFirst({ where: { businessId } });
+    const data = {
+      name,
+      pointsPerDinar: Number(pointsPerDinar) || 1,
+      dinarPerPoint: 0,
+      pointsForFreePizza: Math.max(1, pizzaThreshold),
+      minPointsRedeem: Math.max(1, pizzaThreshold),
+      enabled: enabled !== false,
+    };
 
-      const program = existing
-        ? await prisma.loyaltyProgram.update({ where: { id: existing.id }, data })
-        : await prisma.loyaltyProgram.create({ data: { businessId, ...data } });
-      res.json(programPayload(program));
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
+    const program = existing
+      ? await prisma.loyaltyProgram.update({ where: { id: existing.id }, data })
+      : await prisma.loyaltyProgram.create({ data: { businessId, ...data } });
+    res.json(programPayload(program));
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
   }
-);
+});
 
-router.get('/customers/search', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/customers/search', ...loyaltyRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const { phone } = req.query;
@@ -133,7 +133,7 @@ router.get('/customers/search', authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
-router.post('/customers', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/customers', ...loyaltyWrite, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const { phone, name } = req.body;
@@ -168,7 +168,7 @@ router.post('/customers', authenticate, async (req: AuthRequest, res: Response) 
   }
 });
 
-router.post('/points/add', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/points/add', ...loyaltyAdjust, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const { customerId, points, orderId, description } = req.body;
@@ -208,7 +208,7 @@ router.post('/points/add', authenticate, async (req: AuthRequest, res: Response)
 });
 
 /** Échange les points contre 1 pizza offerte (pas de réduction €). */
-router.post('/points/redeem-pizza', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/points/redeem-pizza', ...loyaltyWrite, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const { customerId, note } = req.body;
@@ -232,7 +232,7 @@ router.post('/points/redeem-pizza', authenticate, async (req: AuthRequest, res: 
 });
 
 /** @deprecated Utiliser POST /points/redeem-pizza */
-router.post('/points/redeem', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/points/redeem', ...loyaltyWrite, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const { customerId, description, note } = req.body;
@@ -255,7 +255,7 @@ router.post('/points/redeem', authenticate, async (req: AuthRequest, res: Respon
   }
 });
 
-router.get('/customers', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/customers', ...loyaltyAdjust, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const program = await prisma.loyaltyProgram.findFirst({
@@ -288,7 +288,7 @@ router.get('/customers', authenticate, async (req: AuthRequest, res: Response) =
 });
 
 /** Aperçu points pour un montant (POS / checkout). */
-router.get('/preview', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/preview', ...loyaltyRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const totalCents = parseInt(String(req.query.totalCents ?? '0'), 10);

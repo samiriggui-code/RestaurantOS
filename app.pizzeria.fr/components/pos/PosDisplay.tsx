@@ -101,7 +101,7 @@ type CartLine = {
 }
 
 type PaymentSheetTarget =
-  | { kind: 'cart' }
+  | { kind: 'cart'; reference: string }
   | { kind: 'online'; order: OpsOrder }
   | null
 
@@ -680,7 +680,7 @@ function PosScreen({
 
   function startCartPayment() {
     if (!cart.length) return
-    setPaymentSheet({ kind: 'cart' })
+    setPaymentSheet({ kind: 'cart', reference: `POS-${Date.now()}` })
   }
 
   function startOnlinePayment(order: OpsOrder) {
@@ -1149,7 +1149,8 @@ function PosScreen({
           title="Encaissement comptoir"
           subtitle={`${ORDER_TYPE_LABEL[orderType]} · TPE ${getPaymentTerminalMode() === 'native' ? 'connecté' : 'manuel'}`}
           amountCents={subtotal}
-          reference={`POS-${Date.now()}`}
+          reference={paymentSheet.reference}
+          token={getStaffSession(authScope)?.token}
           lines={cart.map((line) => ({
             id: cartLineKey(line),
             label: `${line.quantity}× ${line.menuItem.name}${line.sizeId ? ` (${pizzaSizeLabel(line.sizeId)})` : ''}`,
@@ -1168,6 +1169,7 @@ function PosScreen({
           subtitle={orderCustomerLine(paymentSheet.order)}
           amountCents={paymentSheet.order.total}
           reference={paymentSheet.order.id}
+          token={getStaffSession(authScope)?.token}
           lines={paymentSheet.order.items.map((item) => ({
             id: item.id,
             label: `${item.quantity}× ${item.menuItem.name ?? 'Article'}`,

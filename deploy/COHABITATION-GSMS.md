@@ -12,13 +12,13 @@ Les deux stacks sont **indépendantes** (Postgres, réseau Docker, conteneurs s�
 
 Enregistrements **A** → `187.77.166.124` :
 
-| Host | Usage |
-|------|--------|
-| `gsms-security.com` | gsms-school (déjà fait) |
-| `pizza.gsms-security.com` | Site public menu / panier |
-| `pizza-app.gsms-security.com` | Admin, POS, KDS |
-| `pizza-api.gsms-security.com` | API Express |
-| `minio.pizza.gsms-security.com` | Console MinIO (backups) |
+| Host                            | Usage                     |
+| ------------------------------- | ------------------------- |
+| `gsms-security.com`             | gsms-school (déjà fait)   |
+| `pizza.gsms-security.com`       | Site public menu / panier |
+| `pizza-app.gsms-security.com`   | Admin, POS, KDS           |
+| `pizza-api.gsms-security.com`   | API Express               |
+| `minio.pizza.gsms-security.com` | Console MinIO (backups)   |
 
 Attendre 5–30 min de propagation avant le build.
 
@@ -42,7 +42,7 @@ docker compose ps   # vérifier que gsms tourne toujours
 git clone <repo-restaurantos> /opt/pizzeria
 cd /opt/pizzeria
 cp deploy/.env.gsms-security.example .env
-nano .env   # DB_PASSWORD, JWT, SMTP, Stripe test
+nano .env   # DB_PASSWORD, JWT, SMTP, SumUp (clé API sandbox)
 
 # Réseau Traefik (déjà créé par Hostinger / gsms)
 docker network ls | grep traefik
@@ -58,15 +58,15 @@ docker compose exec server npx tsx prisma/seed.ts
 
 ## 4. URLs labo
 
-| Rôle | URL |
-|------|-----|
-| Menu public | https://pizza.gsms-security.com/menu |
-| Commander | https://pizza.gsms-security.com/commander |
-| Admin CRM | https://pizza-app.gsms-security.com/admin |
-| POS tablette | https://pizza-app.gsms-security.com/pos |
-| KDS | https://pizza-app.gsms-security.com/kitchen |
-| Livreur (iPhone) | https://pizza.gsms-security.com/livreur |
-| API health | https://pizza-api.gsms-security.com/api/health |
+| Rôle             | URL                                            |
+| ---------------- | ---------------------------------------------- |
+| Menu public      | https://pizza.gsms-security.com/menu           |
+| Commander        | https://pizza.gsms-security.com/commander      |
+| Admin CRM        | https://pizza-app.gsms-security.com/admin      |
+| POS tablette     | https://pizza-app.gsms-security.com/pos        |
+| KDS              | https://pizza-app.gsms-security.com/kitchen    |
+| Livreur (iPhone) | https://pizza.gsms-security.com/livreur        |
+| API health       | https://pizza-api.gsms-security.com/api/health |
 
 Login seed : voir sortie `prisma/seed.ts` (admin + PIN caisse 1234).
 
@@ -85,25 +85,22 @@ Sans ça, POS/KDS restent bloqués (middleware `pizzeria-shop-ip@file`).
 
 ---
 
-## 6. Stripe webhook (test)
+## 6. Paiement en ligne SumUp (test)
 
-Sur ton PC :
-
-```bash
-stripe listen --forward-to https://pizza-api.gsms-security.com/api/payments/webhook
-```
-
-Copier `whsec_…` dans `.env` sur le VPS → `docker compose up -d server`.
+Pas de webhook signé côté SumUp : le checkout envoie son statut au `return_url` fourni à la
+création (`API_PUBLIC_BASE_URL` dans `.env` → `.../api/payments/sumup-checkout/webhook`), donc
+rien à configurer côté dashboard SumUp — juste s'assurer que `API_PUBLIC_BASE_URL` pointe bien
+sur `https://pizza-api.gsms-security.com` avant de tester une commande en ligne.
 
 ---
 
 ## 7. Tes appareils (sans SUNMI)
 
-| Appareil | URL | APK optionnel |
-|----------|-----|----------------|
-| Tablette KDS | `pizza-app.gsms-security.com/kitchen` | `assembleKdsRelease` |
-| Tablette POS | `pizza-app.gsms-security.com/pos` | `assemblePosTabletRelease` |
-| iPhone livreur | `pizza.gsms-security.com/livreur` | Safari suffit |
+| Appareil       | URL                                   | APK optionnel              |
+| -------------- | ------------------------------------- | -------------------------- |
+| Tablette KDS   | `pizza-app.gsms-security.com/kitchen` | `assembleKdsRelease`       |
+| Tablette POS   | `pizza-app.gsms-security.com/pos`     | `assemblePosTabletRelease` |
+| iPhone livreur | `pizza.gsms-security.com/livreur`     | Safari suffit              |
 
 APK release : modifier `APP_URL` dans `android/app/build.gradle.kts` vers les URLs HTTPS ci-dessus, ou build debug avec `DEV_LAN_URL`.
 
@@ -111,12 +108,12 @@ APK release : modifier `APP_URL` dans `android/app/build.gradle.kts` vers les UR
 
 ## 8. Conflits évités
 
-| Ressource | gsms | pizzeria |
-|-----------|------|----------|
-| Postgres | `gsms_postgres_data` | `pizzeria_postgres_data` |
-| Port hôte 3001 | gsms-app | non exposé (Traefik only) |
-| Traefik | labels `gsms-*` | labels `pizzeria-*` |
-| Hostnames | `gsms-security.com` | `pizza*.gsms-security.com` |
+| Ressource      | gsms                 | pizzeria                   |
+| -------------- | -------------------- | -------------------------- |
+| Postgres       | `gsms_postgres_data` | `pizzeria_postgres_data`   |
+| Port hôte 3001 | gsms-app             | non exposé (Traefik only)  |
+| Traefik        | labels `gsms-*`      | labels `pizzeria-*`        |
+| Hostnames      | `gsms-security.com`  | `pizza*.gsms-security.com` |
 
 ---
 

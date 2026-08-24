@@ -913,12 +913,12 @@ function KitchenCancelSheet({
           className="mb-4 w-full rounded-xl border border-white/10 bg-charcoal px-3 py-2 text-sm text-cream"
         />
 
-        {order.paymentStatus === 'PAID' && order.stripePaymentIntentId && (
+        {order.paymentStatus === 'PAID' && order.sumupCheckoutId && (
           <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            Paiement CB en ligne — remboursement Stripe automatique sur la carte du client.
+            Paiement CB en ligne — remboursement SumUp automatique sur la carte du client.
           </p>
         )}
-        {order.paymentStatus === 'PAID' && !order.stripePaymentIntentId && (
+        {order.paymentStatus === 'PAID' && !order.sumupCheckoutId && (
           <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             Commande déjà payée — rembourser le client au comptoir si nécessaire.
           </p>

@@ -56,6 +56,8 @@ export type OpsOrder = {
 
   stripePaymentIntentId?: string | null
 
+  sumupCheckoutId?: string | null
+
   isOnlineOrder?: boolean
 
   channel?: string | null

@@ -484,7 +484,7 @@ function DayRecapTab({
           <p className="text-cream/45">Problèmes</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-charcoal/80 py-3">
-          <p className="text-lg font-bold text-cream">{formatEUR(recap.totalRevenueCents / 100)}</p>
+          <p className="text-lg font-bold text-cream">{formatEUR(recap.totalRevenueCents)}</p>
           <p className="text-cream/45">CA livré</p>
         </div>
       </div>
@@ -518,7 +518,7 @@ function DayRecapTab({
                     <AlertTriangle className="ml-auto h-4 w-4 text-amber-400" />
                   )}
                   <p className="mt-1 text-xs font-semibold text-cream/80">
-                    {formatEUR(item.total / 100)}
+                    {formatEUR(item.total)}
                   </p>
                   <p className="text-[10px] text-cream/40">
                     {new Date(item.completedAt).toLocaleTimeString('fr-FR', {
@@ -613,7 +613,7 @@ function StopCard({
             {addr}
           </p>
           <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-cream/45">
-            <span>{formatEUR(stop.total / 100)}</span>
+            <span>{formatEUR(stop.total)}</span>
             {legKm != null && <span>· {formatDistanceKm(legKm)} depuis {isNext ? 'vous' : 'arrêt préc.'}</span>}
             {slot && <span>· Créneau {slot}</span>}
           </div>

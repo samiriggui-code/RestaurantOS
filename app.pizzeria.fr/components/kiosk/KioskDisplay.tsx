@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Loader2, Minus, Plus, ShoppingBag, Sparkles, Trash2 } from 'lucide-react'
 import { fetchPublicMenu } from '@/lib/menu-api'
 import { resolveMenuItemImageUrl } from '@/lib/menu-image-url'
-import type { CatalogCategory, CatalogItem } from '@/lib/menu-types'
-import { formatEUR } from '@/lib/money'
+import { formatPriceEUR, type CatalogCategory, type CatalogItem } from '@/lib/menu-types'
 import { AppModuleBrand } from '@/components/brand/AppModuleBrand'
 import { cn } from '@/lib/cn'
 
@@ -169,7 +168,7 @@ export function KioskDisplay() {
                       )}
                       <div className="p-3">
                         <p className="font-semibold leading-tight">{item.name}</p>
-                        <p className="mt-2 font-mono text-lg font-bold text-tomato-light">{formatEUR(item.price)}</p>
+                        <p className="mt-2 font-mono text-lg font-bold text-tomato-light">{formatPriceEUR(item.price)}</p>
                       </div>
                     </button>
                   )
@@ -219,14 +218,14 @@ export function KioskDisplay() {
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
-                  <span className="font-mono text-sm text-tomato-light">{formatEUR(l.item.price * l.quantity)}</span>
+                  <span className="font-mono text-sm text-tomato-light">{formatPriceEUR(l.item.price * l.quantity)}</span>
                 </div>
               </div>
             ))}
           </div>
           <div className="mt-4 flex items-baseline justify-between border-t border-white/10 pt-4">
             <span className="text-xs uppercase tracking-widest text-cream/40">Total TTC</span>
-            <span className="font-display text-4xl text-tomato-light">{formatEUR(total)}</span>
+            <span className="font-display text-4xl text-tomato-light">{formatPriceEUR(total)}</span>
           </div>
           {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
           <button

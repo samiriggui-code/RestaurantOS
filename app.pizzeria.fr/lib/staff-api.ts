@@ -8,7 +8,15 @@ import {
   type AuthScope,
 } from '@/lib/staff-auth'
 
-type StaffFetchInit = RequestInit & { token?: string; scope?: AuthScope; _retried?: boolean }
+type StaffFetchInit = RequestInit & {
+  token?: string
+  scope?: AuthScope
+  _retried?: boolean
+  /** Surcharge du timeout par tentative (ms) — défaut 12s, trop long pour un simple check UI. */
+  timeoutMs?: number
+  /** Surcharge du nombre de tentatives — défaut 5, pensé pour le démarrage du serveur en dev. */
+  retries?: number
+}
 
 async function parseErrorBody(res: Response): Promise<{ error?: string; code?: string }> {
   return res.json().catch(() => ({})) as Promise<{ error?: string; code?: string }>
@@ -18,7 +26,7 @@ async function staffRequest(
   path: string,
   init: StaffFetchInit,
 ): Promise<Response> {
-  const { token: explicitToken, scope: scopeOpt, _retried, ...rest } = init
+  const { token: explicitToken, scope: scopeOpt, _retried, timeoutMs, retries, ...rest } = init
   const scope = resolveAuthScope(scopeOpt ?? 'auto')
   const token =
     explicitToken ??
@@ -32,7 +40,7 @@ async function staffRequest(
 
   let res: Response
   try {
-    res = await fetchWithRetry(apiUrl(path), { ...rest, headers })
+    res = await fetchWithRetry(apiUrl(path), { ...rest, headers }, { timeoutMs, retries })
   } catch {
     throw new Error(apiUnreachableMessage())
   }

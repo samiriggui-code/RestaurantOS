@@ -8,7 +8,8 @@ export const ORDER_TYPE_CHART_LABEL: Record<string, string> = {
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {
   CASH: 'Espèces',
   CARD: 'Carte (TPE)',
-  STRIPE: 'Stripe en ligne',
+  STRIPE: 'Stripe (historique)',
+  SUMUP: 'SumUp',
   ONLINE: 'En ligne',
   UNKNOWN: 'Non renseigné',
 }

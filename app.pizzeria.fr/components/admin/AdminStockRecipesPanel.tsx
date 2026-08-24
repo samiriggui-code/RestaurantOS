@@ -35,7 +35,14 @@ type StockItemOption = {
   category: string
 }
 
-export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOption[] }) {
+export function AdminStockRecipesPanel({
+  stockItems,
+  refreshKey = 0,
+}: {
+  stockItems: StockItemOption[]
+  /** Incrémenter après sync-defaults pour recharger la liste menu */
+  refreshKey?: number
+}) {
   const [menuItems, setMenuItems] = useState<RecipeMenuItem[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -60,7 +67,7 @@ export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOp
 
   useEffect(() => {
     loadMenuItems()
-  }, [loadMenuItems])
+  }, [loadMenuItems, refreshKey])
 
   const loadRecipe = useCallback((menuItemId: string) => {
     const session = getStaffSession()
@@ -128,11 +135,16 @@ export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOp
     if (!selectedId) return
     const session = getStaffSession()
     if (!session) return
+    const lines = draftLines.filter((l) => l.stockItemId && l.quantity > 0)
+    const ids = lines.map((l) => l.stockItemId)
+    if (new Set(ids).size !== ids.length) {
+      setError('Ingrédient en double — chaque article stock ne peut apparaître qu’une fois.')
+      return
+    }
     setSaving(true)
     setMessage(null)
     setError(null)
     try {
-      const lines = draftLines.filter((l) => l.stockItemId && l.quantity > 0)
       const saved = await staffFetch<RecipeRow[]>(`/stock/recipes/${selectedId}`, {
         method: 'PUT',
         token: session.token,
@@ -148,7 +160,11 @@ export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOp
     }
   }
 
-  const withoutRecipe = menuItems.filter((m) => m.recipeLines === 0 && m.isActive).length
+  const activeMenu = menuItems.filter((m) => m.isActive)
+  const withRecipe = activeMenu.filter((m) => m.recipeLines > 0).length
+  const coveragePct =
+    activeMenu.length === 0 ? 100 : Math.round((withRecipe / activeMenu.length) * 100)
+  const withoutRecipe = activeMenu.filter((m) => m.recipeLines === 0).length
 
   if (loadingList) {
     return (
@@ -165,6 +181,18 @@ export function AdminStockRecipesPanel({ stockItems }: { stockItems: StockItemOp
           {withoutRecipe} produit(s) actif(s) sans recette BOM — la déduction auto ne s&apos;appliquera pas tant que les ingrédients ne sont pas définis.
         </p>
       )}
+
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-cream/70">
+        <span>
+          Couverture BOM :{' '}
+          <strong className={coveragePct === 100 ? 'text-emerald-300' : 'text-amber-200'}>
+            {coveragePct}%
+          </strong>
+        </span>
+        <span className="text-cream/40">
+          {withRecipe}/{activeMenu.length} produits actifs avec recette
+        </span>
+      </div>
 
       <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-100/85">
         Consommation automatique : à chaque vente encaissée (caisse, paiement en ligne, sync POS), les quantités ci-dessous sont sorties du stock selon ces recettes.

@@ -113,6 +113,7 @@ export function AdminStockView() {
   const [tab, setTab] = useState<StockTab>('inventory')
   const [busy, setBusy] = useState<string | null>(null)
   const [items, setItems] = useState<StockItem[]>([])
+  const [recipesRefreshKey, setRecipesRefreshKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const { error, setError } = useFeedbackState()
   const [filter, setFilter] = useState<string>('Tous')
@@ -449,7 +450,10 @@ export function AdminStockView() {
                 if (!session) return
                 setBusy('sync-recipes')
                 staffFetch('/stock/recipes/sync-defaults', { method: 'POST', token: session.token })
-                  .then(() => notifySuccess('Recettes synchronisées.'))
+                  .then(() => {
+                    notifySuccess('Recettes synchronisées.')
+                    setRecipesRefreshKey((k) => k + 1)
+                  })
                   .catch((e) => notifyError(e instanceof Error ? e.message : 'Erreur'))
                   .finally(() => setBusy(null))
               }}
@@ -459,6 +463,7 @@ export function AdminStockView() {
             </button>
           </div>
           <AdminStockRecipesPanel
+            refreshKey={recipesRefreshKey}
             stockItems={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit, category: i.category }))}
           />
         </div>

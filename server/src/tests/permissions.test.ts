@@ -75,4 +75,12 @@ describe('permissions — orders matrix', () => {
     expect(hasPermission('MANAGER', PERMISSION.EMPLOYEES_ADMIN)).toBe(false);
     expect(hasPermission('ADMIN', PERMISSION.EMPLOYEES_ADMIN)).toBe(true);
   });
+
+  it('stock — ADMIN/MANAGER read+write, WAITER none', () => {
+    expect(hasPermission('ADMIN', PERMISSION.STOCK_READ)).toBe(true);
+    expect(hasPermission('ADMIN', PERMISSION.STOCK_WRITE)).toBe(true);
+    expect(hasPermission('MANAGER', PERMISSION.STOCK_WRITE)).toBe(true);
+    expect(hasPermission('WAITER', PERMISSION.STOCK_READ)).toBe(false);
+    expect(hasPermission('CHEF', PERMISSION.STOCK_READ)).toBe(false);
+  });
 });

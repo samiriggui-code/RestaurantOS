@@ -52,6 +52,10 @@ export const PERMISSION = {
   EMPLOYEES_PLANNING_READ: 'employees:planning_read',
   /** Édition planning / remplacements */
   EMPLOYEES_PLANNING_WRITE: 'employees:planning_write',
+  /** Lecture inventaire + recettes BOM */
+  STOCK_READ: 'stock:read',
+  /** CRUD stock, mouvements, édition recettes */
+  STOCK_WRITE: 'stock:write',
 } as const;
 
 export type Permission = (typeof PERMISSION)[keyof typeof PERMISSION];
@@ -96,6 +100,8 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
     PERMISSION.LICENSES_WRITE,
     PERMISSION.EMPLOYEES_ADMIN,
     ...ADMIN_MANAGER_EMPLOYEES,
+    PERMISSION.STOCK_READ,
+    PERMISSION.STOCK_WRITE,
   ]),
   [ROLE.MANAGER]: new Set([
     PERMISSION.REPORTS_READ,
@@ -107,6 +113,8 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
     PERMISSION.DEVICES_PRINT,
     PERMISSION.LICENSES_READ,
     ...ADMIN_MANAGER_EMPLOYEES,
+    PERMISSION.STOCK_READ,
+    PERMISSION.STOCK_WRITE,
   ]),
   [ROLE.CASHIER]: new Set([
     PERMISSION.LOYALTY_READ,

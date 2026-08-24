@@ -59,7 +59,7 @@ PaymentProvider
 | **C**     | Permissions settings + devices (audit 1.4)                                            | ✅ Clos — `SETTINGS_*` + `DEVICES_*`             |
 | **D**     | Permissions licenses + employees (audit 1.4 restant)                                  | ✅ Clos — `LICENSES_*` + `EMPLOYEES_*`           |
 | **FE**    | DriverCourierView → `/api/driver/*` + auth PIN                                        | ✅ Clos                                          |
-| **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | À faire                                          |
+| **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | ✅ Clos — PosSession + merge + gate commande     |
 | **F**     | POS avancé — transfert de commande entre tables/serveurs (stretch, dépend de E)       | Plus tard                                        |
 | **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | Plus tard                                        |
 | **P3**    | Option B multi-entry frontend                                                         | Plus tard                                        |
@@ -148,31 +148,21 @@ PaymentProvider
 
 **Preuve :** `next build` OK
 
-### Mini-spec E — **À FAIRE** (POS avancé : session caisse + fusion de notes)
+### Mini-spec E — **CLOS** (POS avancé : session caisse + fusion de notes)
 
-**Origine :** déploiement de test URY sur VPS (2026-08-25, `ury.gsms-security.com`), comparaison directe CRM/KDS/POS. Verdict : RestaurantOS devant sur CRM (fidélité — URY n'a rien) et KDS (URY = juste un toast de notif, pas d'écran dédié). URY devant sur 2 points POS concrets, à rattraper.
+**Origine :** déploiement de test URY sur VPS (2026-08-25, `ury.gsms-security.com`), comparaison directe CRM/KDS/POS.
 
-**E.1 — Session de caisse (ouverture/fermeture)**
+**Livré :**
 
-- Objectif : traçabilité du fond de caisse par service, comme `POSOpeningDialog`/`POSClosingDialog`/`ClosingPaymentTable` côté URY. Aujourd'hui rien n'existe dans `pos.ts` pour ça.
-- Ne PAS ajouter de colonne sur `Order` (fiscalement sensible, déjà figé par `assertOrderFiscallyMutable`) — la session est une entité à part, liée par fenêtre temporelle + `cashierId`.
-- Prisma : nouveau modèle `PosSession` (`id`, `businessId`, `cashierId`, `openedAt`, `openingCashAmount`, `closedAt DateTime?`, `closingCashAmount Int?`, `expectedCashAmount Int?`, `discrepancy Int?`, `status` — enum `OPEN`/`CLOSED`, `notes String?`).
-- Backend : `server/src/lib/pos-session.ts` — `openPosSession` (refuse si une session `OPEN` existe déjà pour ce cashier/business), `closePosSession` (calcule `expectedCashAmount` = somme des commandes `paymentMethod: CASH` payées dans la fenêtre `[openedAt, now]` pour ce business, `discrepancy = closingCashAmount - expectedCashAmount`).
-- Routes `pos.ts` : `POST /api/pos/session/open`, `POST /api/pos/session/:id/close`, `GET /api/pos/session/current` — permission `PERMISSION.POS_SESSION` (ADMIN/MANAGER/CASHIER, même pattern que `permissions.ts` existant).
-- Frontend : `PosOpeningDialog.tsx` / `PosClosingDialog.tsx` dans `app.pizzeria.fr/components/pos/` — bloque l'accès à `PosDisplay.tsx` tant qu'aucune session n'est ouverte (miroir du flow URY), écart affiché en fin de service.
-- Test : `pos-session.test.ts` (pattern `order-p1-core.test.ts` — mock Prisma simple, pas de supertest).
+- Prisma `PosSession` + migration `20260825010000_pos_session`
+- `lib/pos-session.ts` / `lib/order-merge.ts` + routes `/api/pos/session/*` + `POST /api/orders/merge`
+- `PERMISSION.POS_SESSION` (ADMIN/MANAGER/CASHIER)
+- FE : dialogs open/close/merge, onglet Session, **gate stricte** `PosCashSessionGate` sur module Commande
+- Tests : `pos-session.test.ts` + `order-merge.test.ts`
 
-**E.2 — Fusion de notes (bill merge)**
+**Preuve :** typecheck + jest Phase E verts
 
-- Objectif : symétrique de `order-split.ts` (qui existe déjà) — regrouper plusieurs commandes ouvertes (même table ou tables différentes en salle) en une seule avant encaissement.
-- Backend : `server/src/lib/order-merge.ts` — `mergeOrders(prisma, io, { targetOrderId, sourceOrderIds, businessId })`. Garde-fous identiques à `splitOrder` : refuse si une des commandes est `PAID`/`CANCELLED`/`COMPLETED`. Déplace tous les `OrderItem` des sources vers la cible (`orderItem.updateMany`), recalcule `subtotal/tax/serviceCharge/total` de la cible via `computeOrderTotalsFromLines`, passe les commandes sources en `CANCELLED` (motif `OTHER`, note "Fusionnée dans #<orderNumber cible>") plutôt que de les supprimer — garde l'historique/traçabilité fiscale.
-- Route : `POST /api/orders/merge` dans `orders.ts`, `requireRole('ADMIN','MANAGER','CASHIER')` (même garde que `/:id/split`).
-- Frontend : `BillMergeDialog.tsx` dans `app.pizzeria.fr/components/pos/` — sélection multi-commandes ouvertes, confirmation, appel API.
-- Test : `order-merge.test.ts`, même convention que `order-split.test.ts` (mock Prisma minimal).
-
-**Hors-scope E :** transfert de commande entre tables/serveurs (→ mini-spec F), aggregator selector dans le POS (déjà géré backend via `channel` sur `Order`, pas de gap UI urgent identifié).
-
-**Critère "done" E :** `npm run typecheck` (server + app.pizzeria.fr) OK, tests `pos-session` + `order-merge` verts, URLs `/api/orders/...` et `/api/pos/...` existantes inchangées.
+**Hors-scope E :** transfert (→ F), aggregator selector POS
 
 ### Mini-spec F — **PLUS TARD** (transfert de commande entre tables/serveurs)
 

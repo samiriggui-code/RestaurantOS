@@ -12,6 +12,7 @@ import {
   Settings2,
   ShoppingBag,
   UtensilsCrossed,
+  Wallet,
   Wifi,
 } from 'lucide-react'
 import { AppModuleBrand } from '@/components/brand/AppModuleBrand'
@@ -27,6 +28,7 @@ export type PosModuleId =
   | 'stock'
   | 'params'
   | 'alertes'
+  | 'session'
 
 export type PosModuleCard = {
   id: PosModuleId
@@ -85,6 +87,13 @@ export const POS_MODULES: PosModuleCard[] = [
     description: 'Imprimantes · TPE · tests',
     icon: Settings2,
     accent: 'from-cream/10 to-cream/5 border-white/15',
+  },
+  {
+    id: 'session',
+    label: 'Session caisse',
+    description: 'Ouverture/fermeture · fusion de notes',
+    icon: Wallet,
+    accent: 'from-teal-500/20 to-teal-500/5 border-teal-500/25',
   },
   {
     id: 'alertes',

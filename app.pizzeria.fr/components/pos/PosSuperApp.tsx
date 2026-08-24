@@ -9,6 +9,8 @@ import { PosKitchenQueueTab } from '@/components/pos/PosKitchenQueueTab'
 import { PosTablesTab, PosReservationsTab, PosWifiTab, PosStockTab } from '@/components/pos/PosModulesTab'
 import { PosPeripheralsTab } from '@/components/pos/PosPeripheralsPanel'
 import { PosNotificationsTab } from '@/components/pos/PosNotificationsTab'
+import { PosSessionTab } from '@/components/pos/PosSessionTab'
+import { PosCashSessionGate } from '@/components/pos/PosCashSessionGate'
 import {
   getPosModuleLabel,
   PosHomeHub,
@@ -42,7 +44,9 @@ function PosSuperInner() {
 
   const panel =
     module === 'commande' ? (
-      <PosDisplay mode="device" superApp />
+      <PosCashSessionGate>
+        <PosDisplay mode="device" superApp />
+      </PosCashSessionGate>
     ) : module === 'cuisine' ? (
       <PosKitchenQueueTab />
     ) : module === 'salles' ? (
@@ -55,6 +59,8 @@ function PosSuperInner() {
       <PosStockTab />
     ) : module === 'params' ? (
       <PosPeripheralsTab settings={peripherals} onChange={setPeripherals} />
+    ) : module === 'session' ? (
+      <PosSessionTab />
     ) : (
       <PosNotificationsTab />
     )

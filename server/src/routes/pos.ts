@@ -15,8 +15,12 @@ import { ensureLoyaltyCreditForPaidOrder } from '../lib/loyalty-order';
 import { requireFiscalTicketForPaidOrder } from '../lib/fiscal/hook-paid-order';
 import { allocateOrderNumber } from '../lib/order-number';
 import { randomBytes } from 'crypto';
+import { PERMISSION, requirePermission } from '../lib/permissions';
+import { openPosSession, closePosSession, getCurrentPosSession } from '../lib/pos-session';
 
 const router = Router();
+
+const posSession = [authenticate, requirePermission(PERMISSION.POS_SESSION)] as const;
 
 function generateTrackingToken(): string {
   return randomBytes(6).toString('hex');
@@ -184,5 +188,74 @@ router.post(
     }
   }
 );
+
+/**
+ * GET /api/pos/session/current
+ * Session de caisse ouverte pour le cashier connecté, ou null.
+ * (Avant /session/:id pour éviter toute ambiguïté Express.)
+ */
+router.get('/session/current', ...posSession, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const session = await getCurrentPosSession(prisma, {
+      businessId: req.user!.businessId,
+      cashierId: req.user!.userId,
+    });
+    res.json(session);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/pos/session/open
+ * Ouvre une session de caisse (fond de caisse déclaré).
+ * @body { openingCashAmount: number }
+ */
+router.post('/session/open', ...posSession, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { openingCashAmount } = req.body as { openingCashAmount?: number };
+
+    const result = await openPosSession(prisma, {
+      businessId: req.user!.businessId,
+      cashierId: req.user!.userId,
+      openingCashAmount: Number(openingCashAmount),
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.status(201).json(result.session);
+  } catch (error) {
+    console.error('POS session open error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/pos/session/:id/close
+ * Clôture une session de caisse — calcule l'écart avec les encaissements CASH.
+ * @body { closingCashAmount: number, notes?: string }
+ */
+router.post('/session/:id/close', ...posSession, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { closingCashAmount, notes } = req.body as { closingCashAmount?: number; notes?: string };
+
+    const result = await closePosSession(prisma, {
+      sessionId: req.params.id,
+      businessId: req.user!.businessId,
+      closingCashAmount: Number(closingCashAmount),
+      notes,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.json(result.session);
+  } catch (error) {
+    console.error('POS session close error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 export default router;

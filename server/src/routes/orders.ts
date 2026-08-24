@@ -25,6 +25,7 @@ import { updateOrderPayment } from '../lib/order-payment-update';
 import { updateOrderStatus } from '../lib/order-update-status';
 import { createOrder } from '../lib/order-create';
 import { splitOrder } from '../lib/order-split';
+import { mergeOrders } from '../lib/order-merge';
 
 export { ORDER_CANCEL_REASONS, type OrderCancelReason };
 
@@ -828,6 +829,43 @@ router.post('/:id/split', ...ordersPayment, async (req: AuthRequest, res: Respon
     res.json({ original: result.original, splits: result.splits });
   } catch (error) {
     console.error('Split bill error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/orders/merge
+ * Fusionne plusieurs commandes non payées dans une commande cible.
+ * @body {targetOrderId: string, sourceOrderIds: string[]}
+ * @returns {target: Order}
+ * @throws 400 if any order is paid/closed
+ * @throws 404 if any order not found
+ */
+router.post('/merge', ...ordersPayment, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const io: SocketIOServer | undefined = req.app.get('io');
+    const { targetOrderId, sourceOrderIds } = req.body as {
+      targetOrderId?: string;
+      sourceOrderIds?: string[];
+    };
+    if (!targetOrderId || !Array.isArray(sourceOrderIds) || sourceOrderIds.length === 0) {
+      return res
+        .status(400)
+        .json({ error: 'targetOrderId et sourceOrderIds (Array<string> non vide) requis' });
+    }
+
+    const result = await mergeOrders(prisma, io, {
+      targetOrderId,
+      sourceOrderIds,
+      businessId: req.user!.businessId,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.json({ target: result.target });
+  } catch (error) {
+    console.error('Merge bill error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

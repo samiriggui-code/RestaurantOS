@@ -43,6 +43,7 @@ model Business {
   fiscalArchives        FiscalArchive[]
   fiscalDayPrecloses    FiscalDayPreclose[]
   guestCheckoutDrafts   GuestCheckoutDraft[]
+  posSessions           PosSession[]
 }
 
 /// Panier web temporaire — pas une commande tant que SumUp n'a pas confirmé le paiement.
@@ -85,6 +86,7 @@ model User {
   driverOrders     Order[]                 @relation("DriverOrders")
   attendance       Attendance[]
   scheduleEntries  EmployeeScheduleEntry[]
+  posSessions      PosSession[]
 }
 
 model MenuCategory {
@@ -181,6 +183,11 @@ enum TableStatus {
   AVAILABLE
   OCCUPIED
   RESERVED
+}
+
+enum PosSessionStatus {
+  OPEN
+  CLOSED
 }
 
 model Table {
@@ -285,6 +292,33 @@ model OrderItem {
   sortOrder         Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+/// Session de caisse (ouverture/fermeture) — pas de FK vers Order (fiscalement figé),
+/// le rapprochement se fait par fenêtre temporelle + cashierId.
+model PosSession {
+  id                 String           @id @default(uuid())
+  businessId         String
+  business           Business         @relation(fields: [businessId], references: [id])
+  cashierId          String
+  cashier            User             @relation(fields: [cashierId], references: [id])
+  status             PosSessionStatus @default(OPEN)
+  openedAt           DateTime         @default(now())
+  /// Fond de caisse déclaré à l'ouverture, en centimes EUR
+  openingCashAmount  Int
+  closedAt           DateTime?
+  /// Espèces comptées à la fermeture, en centimes EUR
+  closingCashAmount  Int?
+  /// Somme des encaissements CASH sur la fenêtre de session, calculée à la clôture
+  expectedCashAmount Int?
+  /// closingCashAmount - expectedCashAmount (positif = excédent, négatif = manque)
+  discrepancy        Int?
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([businessId, status])
+  @@index([businessId, cashierId])
 }
 
 model DeliveryZone {

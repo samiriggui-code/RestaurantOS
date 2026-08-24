@@ -83,4 +83,11 @@ describe('permissions — orders matrix', () => {
     expect(hasPermission('WAITER', PERMISSION.STOCK_READ)).toBe(false);
     expect(hasPermission('CHEF', PERMISSION.STOCK_READ)).toBe(false);
   });
+
+  it('pos session — ADMIN/MANAGER/CASHIER, not WAITER', () => {
+    expect(hasPermission('ADMIN', PERMISSION.POS_SESSION)).toBe(true);
+    expect(hasPermission('MANAGER', PERMISSION.POS_SESSION)).toBe(true);
+    expect(hasPermission('CASHIER', PERMISSION.POS_SESSION)).toBe(true);
+    expect(hasPermission('WAITER', PERMISSION.POS_SESSION)).toBe(false);
+  });
 });

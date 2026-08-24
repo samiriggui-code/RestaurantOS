@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Installe le cron backup quotidien 04:00 Europe/Paris (dump SQL -> MinIO)
 set -euo pipefail
 

@@ -19,8 +19,7 @@ import { DELIVERY_ISSUE_REASONS } from '@/lib/delivery-handover'
 type DeliveryIssueReason = (typeof DELIVERY_ISSUE_REASONS)[number]['value']
 import { NavigationLauncher } from '@/components/delivery/NavigationLauncher'
 import { DeliveryTrackingMapLazy } from '@/components/delivery/DeliveryTrackingMapLazy'
-import { postDriverLocation } from '@/lib/driver-api'
-import { fetchDriverStops } from '@/lib/driver-api'
+import { confirmDriverDelivery, fetchDriverStops, postDriverLocation, reportDriverDeliveryIssue } from '@/lib/driver-api'
 import {
   formatGeolocationError,
   getGeolocationSupport,
@@ -36,6 +35,7 @@ const ACTIVE_DELIVERY_KEY = 'pizzeria_driver_active_delivery'
 type Props = { token: string }
 
 type DriverOrder = {
+  id: string
   orderNumber: number
   status: string
   customerName: string | null
@@ -111,7 +111,7 @@ export function DriverCourierView({ token }: Props) {
   }, [done, loadNextStop])
 
   useEffect(() => {
-    if (!gpsActive) return
+    if (!gpsActive || !order?.id) return
 
     const support = getGeolocationSupport()
     if (!support.available) {
@@ -131,7 +131,7 @@ export function DriverCourierView({ token }: Props) {
           }
           return [...prev, coords].slice(-400)
         })
-        void postDriverLocation(token, coords)
+        void postDriverLocation(order.id, coords)
           .then((data) => {
             setLastSent(new Date().toLocaleTimeString('fr-FR'))
             setError(null)
@@ -146,7 +146,7 @@ export function DriverCourierView({ token }: Props) {
     )
 
     return () => navigator.geolocation.clearWatch(id)
-  }, [gpsActive, token])
+  }, [gpsActive, order?.id])
 
   function toggleGps() {
     if (gpsActive) {
@@ -189,15 +189,11 @@ export function DriverCourierView({ token }: Props) {
     : null
 
   async function confirmDelivery() {
+    if (!order?.id) return
     setConfirming(true)
     setError(null)
     try {
-      const res = await fetch(
-        `/api/public/orders/track-token/${encodeURIComponent(token)}/driver-confirm`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) },
-      )
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Confirmation impossible')
+      await confirmDriverDelivery(order.id, code)
       setDone('delivered')
       setGpsActive(false)
       sessionStorage.removeItem(ACTIVE_DELIVERY_KEY)
@@ -209,19 +205,11 @@ export function DriverCourierView({ token }: Props) {
   }
 
   async function reportIssue() {
+    if (!order?.id) return
     setIssueSending(true)
     setError(null)
     try {
-      const res = await fetch(
-        `/api/public/orders/track-token/${encodeURIComponent(token)}/driver-issue`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: issueReason, note: issueNote }),
-        },
-      )
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Envoi impossible')
+      await reportDriverDeliveryIssue(order.id, { reason: issueReason, note: issueNote })
       setDone('issue')
       setIssueOpen(false)
       setGpsActive(false)

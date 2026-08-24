@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { authenticate, requireRole } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
+import { PERMISSION, requirePermission, requireAnyPermission } from '../lib/permissions';
 import { AuthRequest } from '../types';
 import { isValidStaffPin } from '../lib/pin';
 import {
@@ -140,7 +141,7 @@ function requireOperationalPin(role: string, pin?: string | null): void {
 router.get(
   '/',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_READ),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -190,7 +191,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -237,45 +238,50 @@ router.post(
  * Get all shifts for the current business with user count.
  * @returns {Array<Shift & {_count: {users: number}}>}
  */
-router.get('/shifts', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const businessId = req.user!.businessId;
-    const withStaff = req.query.withStaff === '1';
+router.get(
+  '/shifts',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_READ),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const businessId = req.user!.businessId;
+      const withStaff = req.query.withStaff === '1';
 
-    if (withStaff) {
-      const [shifts, unassigned] = await Promise.all([
-        prisma.shift.findMany({
-          where: { businessId, isActive: true },
-          include: {
-            _count: { select: { users: true } },
-            users: {
-              where: { isActive: true },
-              select: { id: true, name: true, role: true, email: true },
-              orderBy: { name: 'asc' },
+      if (withStaff) {
+        const [shifts, unassigned] = await Promise.all([
+          prisma.shift.findMany({
+            where: { businessId, isActive: true },
+            include: {
+              _count: { select: { users: true } },
+              users: {
+                where: { isActive: true },
+                select: { id: true, name: true, role: true, email: true },
+                orderBy: { name: 'asc' },
+              },
             },
-          },
-          orderBy: { startTime: 'asc' },
-        }),
-        prisma.user.findMany({
-          where: { businessId, isActive: true, shiftId: null, role: { not: 'ADMIN' } },
-          select: { id: true, name: true, role: true, email: true },
-          orderBy: { name: 'asc' },
-        }),
-      ]);
-      return res.json({ shifts, unassigned });
-    }
+            orderBy: { startTime: 'asc' },
+          }),
+          prisma.user.findMany({
+            where: { businessId, isActive: true, shiftId: null, role: { not: 'ADMIN' } },
+            select: { id: true, name: true, role: true, email: true },
+            orderBy: { name: 'asc' },
+          }),
+        ]);
+        return res.json({ shifts, unassigned });
+      }
 
-    const shifts = await prisma.shift.findMany({
-      where: { businessId, isActive: true },
-      include: { _count: { select: { users: true } } },
-      orderBy: { startTime: 'asc' },
-    });
-    res.json(shifts);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+      const shifts = await prisma.shift.findMany({
+        where: { businessId, isActive: true },
+        include: { _count: { select: { users: true } } },
+        orderBy: { startTime: 'asc' },
+      });
+      res.json(shifts);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 /**
  * POST /api/employees/shifts/sync
@@ -284,7 +290,7 @@ router.get('/shifts', authenticate, async (req: AuthRequest, res: Response) => {
 router.post(
   '/shifts/sync',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -314,7 +320,7 @@ router.post(
 router.post(
   '/shifts',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -337,7 +343,7 @@ router.post(
 router.put(
   '/shifts/:id',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -360,7 +366,7 @@ router.put(
 router.delete(
   '/shifts/:id',
   authenticate,
-  requireRole('ADMIN'),
+  requirePermission(PERMISSION.EMPLOYEES_ADMIN),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -381,7 +387,7 @@ router.delete(
 router.put(
   '/:id/salary',
   authenticate,
-  requireRole('ADMIN'),
+  requirePermission(PERMISSION.EMPLOYEES_ADMIN),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -406,7 +412,7 @@ router.put(
 router.get(
   '/payroll',
   authenticate,
-  requireRole('ADMIN'),
+  requirePermission(PERMISSION.EMPLOYEES_ADMIN),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -450,130 +456,150 @@ router.get(
  * POST /api/employees/clock-in
  * Pointage entrée — employé connecté.
  */
-router.post('/clock-in', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const result = await punchEmployeeAttendance(prisma, {
-      businessId: req.user!.businessId,
-      userId: req.user!.userId,
-      source: 'SELF',
-    });
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result.data);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+router.post(
+  '/clock-in',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_SELF),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const result = await punchEmployeeAttendance(prisma, {
+        businessId: req.user!.businessId,
+        userId: req.user!.userId,
+        source: 'SELF',
+      });
+      if (result.error) return res.status(result.status).json({ error: result.error });
+      res.json(result.data);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 /**
  * POST /api/employees/clock-out
  * Pointage sortie — employé connecté.
  */
-router.post('/clock-out', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const result = await punchEmployeeAttendance(prisma, {
-      businessId: req.user!.businessId,
-      userId: req.user!.userId,
-      source: 'SELF',
-      forceOut: true,
-    });
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result.data);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+router.post(
+  '/clock-out',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_SELF),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const result = await punchEmployeeAttendance(prisma, {
+        businessId: req.user!.businessId,
+        userId: req.user!.userId,
+        source: 'SELF',
+        forceOut: true,
+      });
+      if (result.error) return res.status(result.status).json({ error: result.error });
+      res.json(result.data);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 /** POST /api/employees/attendance/punch — bascule entrée/sortie (PIN employé obligatoire) */
-router.post('/attendance/punch', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const { userId, pin } = req.body as { userId?: string; pin?: string };
-    if (!userId) return res.status(400).json({ error: 'userId obligatoire' });
-    if (!pin) return res.status(400).json({ error: 'PIN obligatoire pour valider le pointage' });
+router.post(
+  '/attendance/punch',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_SELF),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const { userId, pin } = req.body as { userId?: string; pin?: string };
+      if (!userId) return res.status(400).json({ error: 'userId obligatoire' });
+      if (!pin) return res.status(400).json({ error: 'PIN obligatoire pour valider le pointage' });
 
-    const normalizedPin = String(pin).trim();
-    if (!isValidStaffPin(normalizedPin)) {
-      return res.status(400).json({ error: 'PIN invalide (4 chiffres)' });
+      const normalizedPin = String(pin).trim();
+      if (!isValidStaffPin(normalizedPin)) {
+        return res.status(400).json({ error: 'PIN invalide (4 chiffres)' });
+      }
+
+      const target = await prisma.user.findFirst({
+        where: { id: userId, businessId: req.user!.businessId, isActive: true },
+        select: { id: true, pin: true },
+      });
+      if (!target) return res.status(404).json({ error: 'Employé introuvable' });
+      if (!target.pin || target.pin !== normalizedPin) {
+        return res.status(403).json({ error: 'PIN incorrect' });
+      }
+
+      const result = await punchEmployeeAttendance(prisma, {
+        businessId: req.user!.businessId,
+        userId,
+        source: 'KITCHEN',
+      });
+      if (result.error) return res.status(result.status).json({ error: result.error });
+      res.json(result.data);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
     }
-
-    const target = await prisma.user.findFirst({
-      where: { id: userId, businessId: req.user!.businessId, isActive: true },
-      select: { id: true, pin: true },
-    });
-    if (!target) return res.status(404).json({ error: 'Employé introuvable' });
-    if (!target.pin || target.pin !== normalizedPin) {
-      return res.status(403).json({ error: 'PIN incorrect' });
-    }
-
-    const result = await punchEmployeeAttendance(prisma, {
-      businessId: req.user!.businessId,
-      userId,
-      source: 'KITCHEN',
-    });
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result.data);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
   }
-});
+);
 
 /** POST /api/employees/planning/substitute — remplace un planifié absent par un disponible (KDS) */
-router.post('/planning/substitute', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const { absentUserId, substituteUserId, pin, date } = req.body as {
-      absentUserId?: string;
-      substituteUserId?: string;
-      pin?: string;
-      date?: string;
-    };
+router.post(
+  '/planning/substitute',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const { absentUserId, substituteUserId, pin, date } = req.body as {
+        absentUserId?: string;
+        substituteUserId?: string;
+        pin?: string;
+        date?: string;
+      };
 
-    if (!absentUserId || !substituteUserId) {
-      return res.status(400).json({ error: 'Employé absent et remplaçant obligatoires' });
+      if (!absentUserId || !substituteUserId) {
+        return res.status(400).json({ error: 'Employé absent et remplaçant obligatoires' });
+      }
+      if (!pin) return res.status(400).json({ error: 'PIN du remplaçant obligatoire' });
+
+      const normalizedPin = String(pin).trim();
+      if (!isValidStaffPin(normalizedPin)) {
+        return res.status(400).json({ error: 'PIN invalide (4 chiffres)' });
+      }
+
+      const substitute = await prisma.user.findFirst({
+        where: { id: substituteUserId, businessId: req.user!.businessId, isActive: true },
+        select: { id: true, pin: true, name: true },
+      });
+      if (!substitute) return res.status(404).json({ error: 'Remplaçant introuvable' });
+      if (!substitute.pin || substitute.pin !== normalizedPin) {
+        return res.status(403).json({ error: 'PIN incorrect — seul le remplaçant peut confirmer' });
+      }
+
+      const day = date?.trim() || todayDateKey();
+      const result = await substituteScheduleEntry(prisma, {
+        businessId: req.user!.businessId,
+        date: day,
+        absentUserId,
+        substituteUserId,
+      });
+
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      res.json({
+        success: true,
+        message: `${result.substituteName} remplace ${result.absentName}`,
+        absentName: result.absentName,
+        substituteName: result.substituteName,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
     }
-    if (!pin) return res.status(400).json({ error: 'PIN du remplaçant obligatoire' });
-
-    const normalizedPin = String(pin).trim();
-    if (!isValidStaffPin(normalizedPin)) {
-      return res.status(400).json({ error: 'PIN invalide (4 chiffres)' });
-    }
-
-    const substitute = await prisma.user.findFirst({
-      where: { id: substituteUserId, businessId: req.user!.businessId, isActive: true },
-      select: { id: true, pin: true, name: true },
-    });
-    if (!substitute) return res.status(404).json({ error: 'Remplaçant introuvable' });
-    if (!substitute.pin || substitute.pin !== normalizedPin) {
-      return res.status(403).json({ error: 'PIN incorrect — seul le remplaçant peut confirmer' });
-    }
-
-    const day = date?.trim() || todayDateKey();
-    const result = await substituteScheduleEntry(prisma, {
-      businessId: req.user!.businessId,
-      date: day,
-      absentUserId,
-      substituteUserId,
-    });
-
-    if (!result.ok) return res.status(result.status).json({ error: result.error });
-    res.json({
-      success: true,
-      message: `${result.substituteName} remplace ${result.absentName}`,
-      absentName: result.absentName,
-      substituteName: result.substituteName,
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
   }
-});
+);
 
 /** POST /api/employees/attendance/manual-close — admin clôture une sortie oubliée */
 router.post(
   '/attendance/manual-close',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_READ),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -642,189 +668,205 @@ router.post(
  * GET /api/employees/planning/today-board
  * Mur équipe KDS — qui est planifié / présent aujourd'hui + pointages.
  */
-router.get('/planning/today-board', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const businessId = req.user!.businessId;
-    const date = (req.query.date as string) || todayDateKey();
+router.get(
+  '/planning/today-board',
+  authenticate,
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_READ),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const businessId = req.user!.businessId;
+      const date = (req.query.date as string) || todayDateKey();
 
-    const weekFrom = ((): string => {
-      const d = new Date(`${date}T12:00:00`);
-      const day = d.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      d.setDate(d.getDate() + diff);
-      return d.toISOString().slice(0, 10);
-    })();
+      const weekFrom = ((): string => {
+        const d = new Date(`${date}T12:00:00`);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        d.setDate(d.getDate() + diff);
+        return d.toISOString().slice(0, 10);
+      })();
 
-    const weekTo = ((): string => {
-      const d = new Date(`${weekFrom}T12:00:00`);
-      d.setDate(d.getDate() + 6);
-      return d.toISOString().slice(0, 10);
-    })();
+      const weekTo = ((): string => {
+        const d = new Date(`${weekFrom}T12:00:00`);
+        d.setDate(d.getDate() + 6);
+        return d.toISOString().slice(0, 10);
+      })();
 
-    const [users, todayEntries, weekEntries, attendances, shifts] = await Promise.all([
-      prisma.user.findMany({
-        where: { businessId, isActive: true },
-        select: {
-          id: true,
-          name: true,
-          role: true,
-          shiftId: true,
-          planningMeta: true,
-          shift: { select: { id: true, name: true, startTime: true, endTime: true, slug: true } },
-        },
-        orderBy: { name: 'asc' },
-      }),
-      prisma.employeeScheduleEntry.findMany({
-        where: { businessId, date },
-        include: {
-          shift: { select: { id: true, name: true, startTime: true, endTime: true } },
-        },
-      }),
-      prisma.employeeScheduleEntry.findMany({
-        where: { businessId, date: { gte: weekFrom, lte: weekTo }, shiftId: { not: null } },
-        include: {
-          user: { select: { id: true, name: true, role: true, isActive: true } },
-          shift: { select: { id: true, name: true, startTime: true, endTime: true } },
-        },
-        orderBy: [{ date: 'asc' }, { user: { name: 'asc' } }],
-      }),
-      prisma.attendance.findMany({
-        where: { businessId, date },
-      }),
-      prisma.shift.findMany({
-        where: { businessId, isActive: true },
-        orderBy: { sortOrder: 'asc' },
-      }),
-    ]);
+      const [users, todayEntries, weekEntries, attendances, shifts] = await Promise.all([
+        prisma.user.findMany({
+          where: { businessId, isActive: true },
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            shiftId: true,
+            planningMeta: true,
+            shift: { select: { id: true, name: true, startTime: true, endTime: true, slug: true } },
+          },
+          orderBy: { name: 'asc' },
+        }),
+        prisma.employeeScheduleEntry.findMany({
+          where: { businessId, date },
+          include: {
+            shift: { select: { id: true, name: true, startTime: true, endTime: true } },
+          },
+        }),
+        prisma.employeeScheduleEntry.findMany({
+          where: { businessId, date: { gte: weekFrom, lte: weekTo }, shiftId: { not: null } },
+          include: {
+            user: { select: { id: true, name: true, role: true, isActive: true } },
+            shift: { select: { id: true, name: true, startTime: true, endTime: true } },
+          },
+          orderBy: [{ date: 'asc' }, { user: { name: 'asc' } }],
+        }),
+        prisma.attendance.findMany({
+          where: { businessId, date },
+        }),
+        prisma.shift.findMany({
+          where: { businessId, isActive: true },
+          orderBy: { sortOrder: 'asc' },
+        }),
+      ]);
 
-    const staff = users.filter(isPlanningParticipant);
-    const activeUserIds = new Set(staff.map(u => u.id));
-    const entryByUser = new Map(todayEntries.map(e => [e.userId, e]));
-    const attendanceByUser = new Map(
-      attendances.filter(a => activeUserIds.has(a.userId)).map(a => [a.userId, a])
-    );
+      const staff = users.filter(isPlanningParticipant);
+      const activeUserIds = new Set(staff.map(u => u.id));
+      const entryByUser = new Map(todayEntries.map(e => [e.userId, e]));
+      const attendanceByUser = new Map(
+        attendances.filter(a => activeUserIds.has(a.userId)).map(a => [a.userId, a])
+      );
 
-    const employeesAll = staff.map(u => {
-      const entry = entryByUser.get(u.id);
-      const att = attendanceByUser.get(u.id);
-      const scheduled = Boolean(entry?.shiftId);
-      const startTime = scheduled ? (entry?.startTime ?? entry?.shift?.startTime ?? null) : null;
-      const attStatus = attendanceStatus(att ?? null);
-      const punchWindow = evaluateClockInWindow(new Date(), date, scheduled, startTime, attStatus);
-      return {
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        defaultShift: u.shift,
-        scheduled,
-        roleLabel: entry?.roleLabel ?? null,
-        shift: scheduled ? (entry?.shift ?? null) : null,
-        startTime,
-        endTime: scheduled ? (entry?.endTime ?? entry?.shift?.endTime ?? null) : null,
-        scheduleNotes: entry?.notes ?? null,
-        attendance: att ? serializeAttendance(att) : null,
-        punch: {
-          canClockIn: punchWindow.canClockIn,
-          canClockOut: attStatus === 'IN',
-          canSubstitute: scheduled && attStatus === 'NONE',
-          blockedReason: punchWindow.blockedReason,
-          opensAt: punchWindow.opensAt?.toISOString() ?? null,
-        },
-      };
-    });
+      const employeesAll = staff.map(u => {
+        const entry = entryByUser.get(u.id);
+        const att = attendanceByUser.get(u.id);
+        const scheduled = Boolean(entry?.shiftId);
+        const startTime = scheduled ? (entry?.startTime ?? entry?.shift?.startTime ?? null) : null;
+        const attStatus = attendanceStatus(att ?? null);
+        const punchWindow = evaluateClockInWindow(
+          new Date(),
+          date,
+          scheduled,
+          startTime,
+          attStatus
+        );
+        return {
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          defaultShift: u.shift,
+          scheduled,
+          roleLabel: entry?.roleLabel ?? null,
+          shift: scheduled ? (entry?.shift ?? null) : null,
+          startTime,
+          endTime: scheduled ? (entry?.endTime ?? entry?.shift?.endTime ?? null) : null,
+          scheduleNotes: entry?.notes ?? null,
+          attendance: att ? serializeAttendance(att) : null,
+          punch: {
+            canClockIn: punchWindow.canClockIn,
+            canClockOut: attStatus === 'IN',
+            canSubstitute: scheduled && attStatus === 'NONE',
+            blockedReason: punchWindow.blockedReason,
+            opensAt: punchWindow.opensAt?.toISOString() ?? null,
+          },
+        };
+      });
 
-    const availableSubstitutes = employeesAll
-      .filter(
-        e =>
-          !e.scheduled &&
-          (e.attendance?.status ?? 'NONE') !== 'IN' &&
-          (e.attendance?.status ?? 'NONE') !== 'OUT'
-      )
-      .map(e => ({
-        id: e.id,
-        name: e.name,
-        role: e.role,
-        defaultShift: e.defaultShift,
-      }));
-
-    /** KDS : uniquement planifiés aujourd'hui ou pointés (pas toute la liste staff). */
-    const employees = employeesAll.filter(e => e.scheduled || e.attendance?.status === 'IN');
-
-    const presentCount = employeesAll.filter(e => e.attendance?.status === 'IN').length;
-    const finishedCount = employeesAll.filter(e => e.attendance?.status === 'OUT').length;
-    const scheduledCount = employeesAll.filter(e => e.scheduled).length;
-
-    res.json({
-      date,
-      weekFrom,
-      weekTo,
-      shifts,
-      employees,
-      weekEntries: weekEntries
-        .filter(e => e.user.isActive)
+      const availableSubstitutes = employeesAll
+        .filter(
+          e =>
+            !e.scheduled &&
+            (e.attendance?.status ?? 'NONE') !== 'IN' &&
+            (e.attendance?.status ?? 'NONE') !== 'OUT'
+        )
         .map(e => ({
           id: e.id,
-          date: e.date,
-          roleLabel: e.roleLabel,
-          user: { id: e.user.id, name: e.user.name, role: e.user.role },
-          shift: e.shift,
-          startTime: e.startTime,
-          endTime: e.endTime,
-        })),
-      allStaff: employeesAll,
-      availableSubstitutes,
-      summary: {
-        scheduled: scheduledCount,
-        present: presentCount,
-        finishedToday: finishedCount,
-        totalStaff: staff.length,
-        onBoard: employees.length,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+          name: e.name,
+          role: e.role,
+          defaultShift: e.defaultShift,
+        }));
+
+      /** KDS : uniquement planifiés aujourd'hui ou pointés (pas toute la liste staff). */
+      const employees = employeesAll.filter(e => e.scheduled || e.attendance?.status === 'IN');
+
+      const presentCount = employeesAll.filter(e => e.attendance?.status === 'IN').length;
+      const finishedCount = employeesAll.filter(e => e.attendance?.status === 'OUT').length;
+      const scheduledCount = employeesAll.filter(e => e.scheduled).length;
+
+      res.json({
+        date,
+        weekFrom,
+        weekTo,
+        shifts,
+        employees,
+        weekEntries: weekEntries
+          .filter(e => e.user.isActive)
+          .map(e => ({
+            id: e.id,
+            date: e.date,
+            roleLabel: e.roleLabel,
+            user: { id: e.user.id, name: e.user.name, role: e.user.role },
+            shift: e.shift,
+            startTime: e.startTime,
+            endTime: e.endTime,
+          })),
+        allStaff: employeesAll,
+        availableSubstitutes,
+        summary: {
+          scheduled: scheduledCount,
+          present: presentCount,
+          finishedToday: finishedCount,
+          totalStaff: staff.length,
+          onBoard: employees.length,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);
 
 /**
  * GET /api/employees/attendance
  * Historique pointages (admin) ou jour courant (staff).
  */
-router.get('/attendance', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma');
-    const { from, to, userId, date } = req.query;
-    const isAdmin = req.user!.role === 'ADMIN' || req.user!.role === 'MANAGER';
+router.get(
+  '/attendance',
+  authenticate,
+  requireAnyPermission(PERMISSION.EMPLOYEES_ATTENDANCE_READ, PERMISSION.EMPLOYEES_ATTENDANCE_SELF),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const { from, to, userId, date } = req.query;
+      const isAdmin = req.user!.role === 'ADMIN' || req.user!.role === 'MANAGER';
 
-    const where: Record<string, unknown> = { businessId: req.user!.businessId };
-    if (userId && isAdmin) where.userId = userId as string;
-    else if (!isAdmin) where.userId = req.user!.userId;
+      const where: Record<string, unknown> = { businessId: req.user!.businessId };
+      if (userId && isAdmin) where.userId = userId as string;
+      else if (!isAdmin) where.userId = req.user!.userId;
 
-    if (date) {
-      where.date = date as string;
-    } else if (from || to) {
-      where.date = {};
-      if (from) (where.date as Record<string, string>).gte = from as string;
-      if (to) (where.date as Record<string, string>).lte = to as string;
+      if (date) {
+        where.date = date as string;
+      } else if (from || to) {
+        where.date = {};
+        if (from) (where.date as Record<string, string>).gte = from as string;
+        if (to) (where.date as Record<string, string>).lte = to as string;
+      }
+
+      const records = await prisma.attendance.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, role: true } }, shift: true },
+        orderBy: [{ date: 'desc' }, { clockIn: 'desc' }],
+      });
+      res.json(records.map(r => ({ ...r, ...serializeAttendance(r) })));
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
     }
-
-    const records = await prisma.attendance.findMany({
-      where,
-      include: { user: { select: { id: true, name: true, role: true } }, shift: true },
-      orderBy: [{ date: 'desc' }, { clockIn: 'desc' }],
-    });
-    res.json(records.map(r => ({ ...r, ...serializeAttendance(r) })));
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
   }
-});
+);
 
 /** GET /api/employees/attendance/monthly — synthèse heures du mois (comptable / BS) */
 router.get(
   '/attendance/monthly',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_READ),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -842,7 +884,7 @@ router.get(
 router.get(
   '/attendance/monthly/export',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_ATTENDANCE_READ),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -860,7 +902,7 @@ router.get(
 router.get(
   '/schedule',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_READ),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -949,7 +991,7 @@ router.get(
 router.put(
   '/schedule',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1084,7 +1126,7 @@ async function applySchedulePlan(
 router.post(
   '/schedule/smart-preview',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1124,7 +1166,7 @@ router.post(
 router.post(
   '/schedule/smart-fill',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1220,7 +1262,7 @@ router.post(
 router.post(
   '/schedule/fill-week',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1290,7 +1332,7 @@ router.post(
 router.post(
   '/schedule/copy-week',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1333,7 +1375,7 @@ router.post(
 router.delete(
   '/schedule/:id',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_PLANNING_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1358,7 +1400,7 @@ router.delete(
 router.put(
   '/:id',
   authenticate,
-  requireRole('ADMIN', 'MANAGER'),
+  requirePermission(PERMISSION.EMPLOYEES_WRITE),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
@@ -1409,7 +1451,7 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
-  requireRole('ADMIN'),
+  requirePermission(PERMISSION.EMPLOYEES_ADMIN),
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');

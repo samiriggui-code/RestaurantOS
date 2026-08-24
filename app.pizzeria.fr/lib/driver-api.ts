@@ -142,18 +142,43 @@ export async function fetchDriverDayRecap(): Promise<DriverDayRecap> {
 }
 
 export async function postDriverLocation(
-  token: string,
+  orderId: string,
   coords: { lat: number; lng: number },
 ): Promise<{ success: boolean; order?: { status: string; driverName?: string | null } }> {
-  const res = await fetch(
-    `/api/public/orders/track-token/${encodeURIComponent(token)}/driver-location`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...driverAuthHeaders() },
-      body: JSON.stringify(coords),
-    },
-  )
+  const res = await fetch(`/api/driver/orders/${encodeURIComponent(orderId)}/location`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...driverAuthHeaders() },
+    body: JSON.stringify(coords),
+  })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? 'Erreur GPS')
+  return data
+}
+
+export async function confirmDriverDelivery(
+  orderId: string,
+  code: string,
+): Promise<{ success: boolean; order?: { status: string } }> {
+  const res = await fetch(`/api/driver/orders/${encodeURIComponent(orderId)}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...driverAuthHeaders() },
+    body: JSON.stringify({ code }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Confirmation impossible')
+  return data
+}
+
+export async function reportDriverDeliveryIssue(
+  orderId: string,
+  payload: { reason: string; note?: string },
+): Promise<{ success: boolean; order?: { status: string } }> {
+  const res = await fetch(`/api/driver/orders/${encodeURIComponent(orderId)}/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...driverAuthHeaders() },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Envoi impossible')
   return data
 }

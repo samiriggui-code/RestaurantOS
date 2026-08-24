@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Sauvegarde PostgreSQL + archives fiscales -> MinIO (S3-compatible)
 # Usage : depuis /opt/pizzeria avec .env charge (cron ou manuel)
 set -euo pipefail

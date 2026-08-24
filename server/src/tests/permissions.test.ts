@@ -50,4 +50,29 @@ describe('permissions — orders matrix', () => {
     expect(hasPermission('CHEF', PERMISSION.DEVICES_PRINT)).toBe(true);
     expect(hasPermission('CHEF', PERMISSION.DEVICES_WRITE)).toBe(false);
   });
+
+  it('licenses — MANAGER read only, ADMIN write', () => {
+    expect(hasPermission('MANAGER', PERMISSION.LICENSES_READ)).toBe(true);
+    expect(hasPermission('MANAGER', PERMISSION.LICENSES_WRITE)).toBe(false);
+    expect(hasPermission('ADMIN', PERMISSION.LICENSES_WRITE)).toBe(true);
+    expect(hasPermission('WAITER', PERMISSION.LICENSES_READ)).toBe(false);
+  });
+
+  it('employees — WAITER can punch, not read payroll', () => {
+    expect(hasPermission('WAITER', PERMISSION.EMPLOYEES_ATTENDANCE_SELF)).toBe(true);
+    expect(hasPermission('WAITER', PERMISSION.EMPLOYEES_READ)).toBe(false);
+    expect(hasPermission('WAITER', PERMISSION.EMPLOYEES_PLANNING_READ)).toBe(false);
+  });
+
+  it('employees — CHEF planning read/write for KDS substitute', () => {
+    expect(hasPermission('CHEF', PERMISSION.EMPLOYEES_PLANNING_READ)).toBe(true);
+    expect(hasPermission('CHEF', PERMISSION.EMPLOYEES_PLANNING_WRITE)).toBe(true);
+    expect(hasPermission('CHEF', PERMISSION.EMPLOYEES_ATTENDANCE_READ)).toBe(false);
+  });
+
+  it('employees — MANAGER attendance export, not admin delete', () => {
+    expect(hasPermission('MANAGER', PERMISSION.EMPLOYEES_ATTENDANCE_READ)).toBe(true);
+    expect(hasPermission('MANAGER', PERMISSION.EMPLOYEES_ADMIN)).toBe(false);
+    expect(hasPermission('ADMIN', PERMISSION.EMPLOYEES_ADMIN)).toBe(true);
+  });
 });

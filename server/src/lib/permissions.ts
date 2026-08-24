@@ -34,6 +34,24 @@ export const PERMISSION = {
   DEVICES_ONBOARDING: 'devices:onboarding',
   /** Test impression LAN (cuisine / caisse) */
   DEVICES_PRINT: 'devices:print',
+  /** Lecture licence boutique */
+  LICENSES_READ: 'licenses:read',
+  /** Génération / mise à jour licence */
+  LICENSES_WRITE: 'licenses:write',
+  /** Liste employés / shifts (CRM) */
+  EMPLOYEES_READ: 'employees:read',
+  /** CRUD employés / shifts / planning (hors admin-only) */
+  EMPLOYEES_WRITE: 'employees:write',
+  /** Salaires, paie, suppression employé/shift */
+  EMPLOYEES_ADMIN: 'employees:admin',
+  /** Pointage entrée/sortie (soi ou PIN KDS) */
+  EMPLOYEES_ATTENDANCE_SELF: 'employees:attendance_self',
+  /** Historique / export heures (comptable) */
+  EMPLOYEES_ATTENDANCE_READ: 'employees:attendance_read',
+  /** Mur équipe KDS / lecture planning */
+  EMPLOYEES_PLANNING_READ: 'employees:planning_read',
+  /** Édition planning / remplacements */
+  EMPLOYEES_PLANNING_WRITE: 'employees:planning_write',
 } as const;
 
 export type Permission = (typeof PERMISSION)[keyof typeof PERMISSION];
@@ -53,6 +71,16 @@ const ADMIN_MANAGER_SETTINGS: Permission[] = [
   PERMISSION.DEVICES_WRITE,
 ];
 
+const ADMIN_MANAGER_EMPLOYEES: Permission[] = [
+  PERMISSION.EMPLOYEES_READ,
+  PERMISSION.EMPLOYEES_WRITE,
+  PERMISSION.EMPLOYEES_ATTENDANCE_READ,
+  PERMISSION.EMPLOYEES_PLANNING_READ,
+  PERMISSION.EMPLOYEES_PLANNING_WRITE,
+];
+
+const STAFF_ATTENDANCE: Permission[] = [PERMISSION.EMPLOYEES_ATTENDANCE_SELF];
+
 const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
   [ROLE.ADMIN]: new Set([
     PERMISSION.REPORTS_READ,
@@ -64,6 +92,10 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
     PERMISSION.SETTINGS_WRITE,
     PERMISSION.DEVICES_ONBOARDING,
     PERMISSION.DEVICES_PRINT,
+    PERMISSION.LICENSES_READ,
+    PERMISSION.LICENSES_WRITE,
+    PERMISSION.EMPLOYEES_ADMIN,
+    ...ADMIN_MANAGER_EMPLOYEES,
   ]),
   [ROLE.MANAGER]: new Set([
     PERMISSION.REPORTS_READ,
@@ -73,6 +105,8 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
     ...ALL_ORDERS,
     ...ADMIN_MANAGER_SETTINGS,
     PERMISSION.DEVICES_PRINT,
+    PERMISSION.LICENSES_READ,
+    ...ADMIN_MANAGER_EMPLOYEES,
   ]),
   [ROLE.CASHIER]: new Set([
     PERMISSION.LOYALTY_READ,
@@ -83,17 +117,22 @@ const ROLE_PERMISSIONS: Record<string, ReadonlySet<Permission>> = {
     PERMISSION.ORDERS_CANCEL,
     PERMISSION.ORDERS_CUSTOMER_PII,
     PERMISSION.DEVICES_PRINT,
+    ...STAFF_ATTENDANCE,
   ]),
   [ROLE.WAITER]: new Set([
     PERMISSION.LOYALTY_READ,
     PERMISSION.ORDERS_READ,
     PERMISSION.ORDERS_WRITE,
+    ...STAFF_ATTENDANCE,
   ]),
   [ROLE.CHEF]: new Set([
     PERMISSION.ORDERS_READ,
     PERMISSION.ORDERS_WRITE,
     PERMISSION.ORDERS_CANCEL,
     PERMISSION.DEVICES_PRINT,
+    ...STAFF_ATTENDANCE,
+    PERMISSION.EMPLOYEES_PLANNING_READ,
+    PERMISSION.EMPLOYEES_PLANNING_WRITE,
   ]),
   [ROLE.DRIVER]: new Set([PERMISSION.ORDERS_READ]),
 };
@@ -106,6 +145,18 @@ export function requirePermission(...needed: Permission[]) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     const role = req.user?.role;
     if (!role || !needed.every(p => hasPermission(role, p))) {
+      res.status(403).json({ error: 'Insufficient permissions' });
+      return;
+    }
+    next();
+  };
+}
+
+/** Au moins une permission (ex. attendance : admin export ou pointage staff). */
+export function requireAnyPermission(...needed: Permission[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    const role = req.user?.role;
+    if (!role || !needed.some(p => hasPermission(role, p))) {
       res.status(403).json({ error: 'Insufficient permissions' });
       return;
     }

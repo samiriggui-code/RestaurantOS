@@ -204,7 +204,9 @@ export function AdminLoyaltyView() {
       })
       setCustomers((prev) => prev.filter((c) => c.id !== customer.id))
       if (searchResult?.id === customer.id) setSearchResult(null)
+      setMemberPage(0)
       setMessage('Client fidélité effacé.')
+      await reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Suppression impossible')
     } finally {

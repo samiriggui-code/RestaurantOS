@@ -3,9 +3,9 @@
  * Source : RNE / INSEE (nov. 2023) · site https://www.lazpizzafarguesainthilaire.com/
  */
 
-export const LAZ_PIZZA_DOMAIN = 'lazpizzafarguesainthilaire.com'
+export const LAZ_PIZZA_DOMAIN = 'lazpizzafarguesainthilaire.com';
 
-export const LAZ_PIZZA_PUBLIC_URL = `https://www.${LAZ_PIZZA_DOMAIN}`
+export const LAZ_PIZZA_PUBLIC_URL = `https://www.${LAZ_PIZZA_DOMAIN}`;
 
 /** Emails staff : prenom.nom@lazpizzafarguesainthilaire.com */
 export function lazPizzaStaffEmail(prenom: string, nom: string): string {
@@ -14,21 +14,21 @@ export function lazPizzaStaffEmail(prenom: string, nom: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '')
+    .replace(/[^a-z0-9]+/g, '');
   const n = nom
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '')
-  return `${p}.${n}@${LAZ_PIZZA_DOMAIN}`
+    .replace(/[^a-z0-9]+/g, '');
+  return `${p}.${n}@${LAZ_PIZZA_DOMAIN}`;
 }
 
 export const LAZ_PIZZA_LEGAL = {
   tradeName: 'La Z Pizza',
   legalName: 'LA Z PIZZA',
-  address: '33 Avenue de l\'Entre-Deux-Mers, 33370 Fargues-Saint-Hilaire',
-  addressLine: 'LA Z PIZZA, 33 AVENUE DE L\'ENTRE 2 MERS 33370 FARGUES-SAINT-HILAIRE',
+  address: "33 Avenue de l'Entre-Deux-Mers, 33370 Fargues-Saint-Hilaire",
+  addressLine: "LA Z PIZZA, 33 AVENUE DE L'ENTRE 2 MERS 33370 FARGUES-SAINT-HILAIRE",
   phone: '05.57.80.32.45',
   siren: '981 700 842',
   siret: '981 700 842 00017',
@@ -45,9 +45,10 @@ export const LAZ_PIZZA_LEGAL = {
     uberEats: true,
     deliveroo: true,
   },
-} as const
+} as const;
 
 /** Business.settings JSON complet pour seed / sync. */
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- objet de config figé (constantes ci-dessus), le type inféré littéral est plus précis qu'une interface dupliquée.
 export function lazPizzaDefaultBusinessSettings() {
   return {
     address: LAZ_PIZZA_LEGAL.address,
@@ -81,5 +82,5 @@ export function lazPizzaDefaultBusinessSettings() {
       platformDeliveryNote:
         'Uber Eats & Deliveroo : leurs livreurs récupèrent en boutique. Livreur maison = site + zones propres.',
     },
-  }
+  };
 }

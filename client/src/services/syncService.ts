@@ -1,76 +1,82 @@
-import { getQueuedRequests, removeQueuedRequest, getQueueSize, QueuedRequest } from './offlineQueue'
-import { axiosInstance } from './api'
+import {
+  getQueuedRequests,
+  removeQueuedRequest,
+  getQueueSize,
+  QueuedRequest,
+} from './offlineQueue';
+import { axiosInstance } from './api';
+import type { Method } from 'axios';
 
-type SyncCallback = (status: { pending: number; syncing: boolean; lastSync: Date | null }) => void
+type SyncCallback = (status: { pending: number; syncing: boolean; lastSync: Date | null }) => void;
 
-let syncCallbacks: SyncCallback[] = []
-let isSyncing = false
-let lastSync: Date | null = null
+let syncCallbacks: SyncCallback[] = [];
+let isSyncing = false;
+let lastSync: Date | null = null;
 
 export function onSyncStatusChange(cb: SyncCallback) {
-  syncCallbacks.push(cb)
+  syncCallbacks.push(cb);
   return () => {
-    syncCallbacks = syncCallbacks.filter(c => c !== cb)
-  }
+    syncCallbacks = syncCallbacks.filter(c => c !== cb);
+  };
 }
 
 function notify() {
-  const pending = 0 // will be estimated
-  const status = { pending, syncing: isSyncing, lastSync }
-  syncCallbacks.forEach(cb => cb(status))
+  const pending = 0; // will be estimated
+  const status = { pending, syncing: isSyncing, lastSync };
+  syncCallbacks.forEach(cb => cb(status));
   getQueueSize().then(size => {
-    const s = { pending: size, syncing: isSyncing, lastSync }
-    syncCallbacks.forEach(cb => cb(s))
-  })
+    const s = { pending: size, syncing: isSyncing, lastSync };
+    syncCallbacks.forEach(cb => cb(s));
+  });
 }
 
 async function replayRequest(req: QueuedRequest): Promise<boolean> {
   try {
     await axiosInstance({
-      method: req.method as any,
+      method: req.method as Method,
       url: req.url,
       data: req.data,
       headers: { ...req.headers, 'X-Offline-Replay': 'true' },
       timeout: 15000,
-    })
-    if (req.id != null) await removeQueuedRequest(req.id)
-    return true
+    });
+    if (req.id != null) await removeQueuedRequest(req.id);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 export async function processQueue(): Promise<{ success: number; failed: number }> {
-  if (isSyncing) return { success: 0, failed: 0 }
-  isSyncing = true
-  notify()
+  if (isSyncing) return { success: 0, failed: 0 };
+  isSyncing = true;
+  notify();
 
-  let success = 0
-  let failed = 0
+  let success = 0;
+  let failed = 0;
 
   try {
-    const queue = await getQueuedRequests()
+    const queue = await getQueuedRequests();
     for (const req of queue) {
-      const ok = await replayRequest(req)
-      if (ok) success++
-      else failed++
+      const ok = await replayRequest(req);
+      if (ok) success++;
+      else failed++;
     }
-    lastSync = new Date()
+    lastSync = new Date();
   } finally {
-    isSyncing = false
-    notify()
+    isSyncing = false;
+    notify();
   }
 
-  return { success, failed }
+  return { success, failed };
 }
 
 export function getSyncStatus() {
-  return { pending: 0, syncing: isSyncing, lastSync }
+  return { pending: 0, syncing: isSyncing, lastSync };
 }
 
 // Auto-sync when online
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
-    processQueue()
-  })
+    processQueue();
+  });
 }

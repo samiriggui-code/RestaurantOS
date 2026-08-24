@@ -1,92 +1,122 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../services/api'
-import { MenuCategory, CartItem } from '../../types'
-import { Plus, Minus, Trash2, ShoppingCart, X, Search, CreditCard } from 'lucide-react'
-import toast from 'react-hot-toast'
-import { useTranslation } from 'react-i18next'
-import { formatMoney } from '../../lib/locale'
+import { useState, useEffect } from 'react';
+import { api } from '../../services/api';
+import { MenuCategory, CartItem, MenuItem } from '../../types';
+import { Plus, Minus, Trash2, ShoppingCart, X, Search, CreditCard } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
+import { formatMoney } from '../../lib/locale';
 
 export default function POSPage() {
-  const { t } = useTranslation()
-  const [categories, setCategories] = useState<MenuCategory[]>([])
-  const [selectedCategory, setSelectedCategory] = useState('')
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [showPayment, setShowPayment] = useState(false)
+  const { t } = useTranslation();
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [showPayment, setShowPayment] = useState(false);
 
-  const businessId = localStorage.getItem('businessId') || ''
+  const businessId = localStorage.getItem('businessId') || '';
 
   useEffect(() => {
-    if (!businessId) return
-    api.get(`/menu/categories?businessId=${businessId}`)
-      .then(res => { setCategories(res.data); if (res.data.length) setSelectedCategory(res.data[0].id) })
+    if (!businessId) return;
+    api
+      .get(`/menu/categories?businessId=${businessId}`)
+      .then(res => {
+        setCategories(res.data);
+        if (res.data.length) setSelectedCategory(res.data[0].id);
+      })
       .catch(() => toast.error(t('errors.load_failed')))
-      .finally(() => setLoading(false))
-  }, [businessId])
+      .finally(() => setLoading(false));
+  }, [businessId, t]);
 
-  const allItems = categories.flatMap(c => c.items).filter(i => i.isAvailable)
+  const allItems = categories.flatMap(c => c.items).filter(i => i.isAvailable);
   const filtered = search
-    ? allItems.filter(i =>
-        i.name.toLowerCase().includes(search.toLowerCase()) ||
-        i.nameAr?.includes(search)
+    ? allItems.filter(
+        i => i.name.toLowerCase().includes(search.toLowerCase()) || i.nameAr?.includes(search)
       )
     : selectedCategory
       ? categories.find(c => c.id === selectedCategory)?.items.filter(i => i.isAvailable) || []
-      : allItems
+      : allItems;
 
-  const addToCart = (item: any) => {
+  const addToCart = (item: MenuItem) => {
     setCart(prev => {
-      const existing = prev.find(i => i.menuItem.id === item.id)
+      const existing = prev.find(i => i.menuItem.id === item.id);
       if (existing) {
-        return prev.map(i => i.menuItem.id === item.id ? { ...i, quantity: i.quantity + 1 } : i)
+        return prev.map(i => (i.menuItem.id === item.id ? { ...i, quantity: i.quantity + 1 } : i));
       }
-      return [...prev, { menuItem: item, quantity: 1, selectedModifiers: {}, totalPrice: item.discountPrice || item.price }]
-    })
-  }
+      return [
+        ...prev,
+        {
+          menuItem: item,
+          quantity: 1,
+          selectedModifiers: {},
+          totalPrice: item.discountPrice || item.price,
+        },
+      ];
+    });
+  };
 
   const updateQty = (id: string, delta: number) => {
-    setCart(prev => prev.map(i => {
-      if (i.menuItem.id !== id) return i
-      const qty = Math.max(0, i.quantity + delta)
-      return qty === 0 ? null : { ...i, quantity: qty, totalPrice: i.totalPrice !== 0 ? (i.totalPrice / i.quantity) * qty : 0 }
-    }).filter(Boolean) as CartItem[])
-  }
+    setCart(
+      prev =>
+        prev
+          .map(i => {
+            if (i.menuItem.id !== id) return i;
+            const qty = Math.max(0, i.quantity + delta);
+            return qty === 0
+              ? null
+              : {
+                  ...i,
+                  quantity: qty,
+                  totalPrice: i.totalPrice !== 0 ? (i.totalPrice / i.quantity) * qty : 0,
+                };
+          })
+          .filter(Boolean) as CartItem[]
+    );
+  };
 
   const removeItem = (id: string) => {
-    setCart(prev => prev.filter(i => i.menuItem.id !== id))
-  }
+    setCart(prev => prev.filter(i => i.menuItem.id !== id));
+  };
 
-  const subtotal = cart.reduce((sum, i) => sum + i.totalPrice, 0)
+  const subtotal = cart.reduce((sum, i) => sum + i.totalPrice, 0);
 
   const placeOrder = async () => {
-    if (!cart.length) return
+    if (!cart.length) return;
     try {
       await api.post('/orders', {
         businessId,
-        items: cart.map(i => ({ menuItemId: i.menuItem.id, quantity: i.quantity, unitPrice: i.menuItem.discountPrice || i.menuItem.price })),
+        items: cart.map(i => ({
+          menuItemId: i.menuItem.id,
+          quantity: i.quantity,
+          unitPrice: i.menuItem.discountPrice || i.menuItem.price,
+        })),
         type: 'DINE_IN',
-      })
-      toast.success(t('orders.order_placed'))
-      setCart([])
-      setShowPayment(false)
+      });
+      toast.success(t('orders.order_placed'));
+      setCart([]);
+      setShowPayment(false);
     } catch {
-      toast.error(t('errors.failed'))
+      toast.error(t('errors.failed'));
     }
-  }
+  };
 
-  if (loading) return (
-    <div className="flex justify-center py-20">
-      <div className="w-10 h-10 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
-    </div>
-  )
+  if (loading)
+    return (
+      <div className="flex justify-center py-20">
+        <div className="w-10 h-10 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
+      </div>
+    );
 
   return (
     <div className="flex h-[calc(100vh-5rem)] gap-4">
       <div className="flex-1 flex flex-col">
         <div className="mb-4">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400" size={18} />
+            <Search
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400"
+              size={18}
+            />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -122,10 +152,16 @@ export default function POSPage() {
               className="bg-surface-800 rounded-xl p-3 border border-surface-600/40 hover:border-primary-500/30 hover:shadow-glow transition-all text-right group"
             >
               {item.image && (
-                <img src={item.image} className="w-full h-24 object-cover rounded-lg mb-2" />
+                <img
+                  src={item.image}
+                  alt={item.name || item.nameAr || ''}
+                  className="w-full h-24 object-cover rounded-lg mb-2"
+                />
               )}
               <p className="font-medium text-sm text-surface-50">{item.name || item.nameAr}</p>
-              <p className="text-primary-200 font-bold mt-1">{formatMoney(item.discountPrice || item.price)}</p>
+              <p className="text-primary-200 font-bold mt-1">
+                {formatMoney(item.discountPrice || item.price)}
+              </p>
             </button>
           ))}
         </div>
@@ -143,24 +179,41 @@ export default function POSPage() {
           {cart.map((item, idx) => (
             <div key={idx} className="flex items-center gap-3 bg-surface-700 rounded-xl p-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-surface-50 truncate">{item.menuItem.name || item.menuItem.nameAr}</p>
+                <p className="text-sm font-medium text-surface-50 truncate">
+                  {item.menuItem.name || item.menuItem.nameAr}
+                </p>
                 <p className="text-xs text-surface-400">{formatMoney(item.menuItem.price)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => updateQty(item.menuItem.id, -1)} className="w-7 h-7 rounded-full bg-surface-600 flex items-center justify-center hover:bg-surface-500 text-surface-200">
+                <button
+                  onClick={() => updateQty(item.menuItem.id, -1)}
+                  className="w-7 h-7 rounded-full bg-surface-600 flex items-center justify-center hover:bg-surface-500 text-surface-200"
+                >
                   <Minus size={14} />
                 </button>
-                <span className="text-sm font-bold text-surface-50 w-5 text-center">{item.quantity}</span>
-                <button onClick={() => updateQty(item.menuItem.id, 1)} className="w-7 h-7 rounded-full bg-surface-600 flex items-center justify-center hover:bg-surface-500 text-surface-200">
+                <span className="text-sm font-bold text-surface-50 w-5 text-center">
+                  {item.quantity}
+                </span>
+                <button
+                  onClick={() => updateQty(item.menuItem.id, 1)}
+                  className="w-7 h-7 rounded-full bg-surface-600 flex items-center justify-center hover:bg-surface-500 text-surface-200"
+                >
                   <Plus size={14} />
                 </button>
               </div>
-              <button onClick={() => removeItem(item.menuItem.id)} className="text-red-400 hover:text-red-300">
+              <button
+                onClick={() => removeItem(item.menuItem.id)}
+                className="text-red-400 hover:text-red-300"
+              >
                 <Trash2 size={16} />
               </button>
             </div>
           ))}
-          {!cart.length && <p className="text-surface-400 text-center py-8 text-sm">{t('menu_customer.cart_empty')}</p>}
+          {!cart.length && (
+            <p className="text-surface-400 text-center py-8 text-sm">
+              {t('menu_customer.cart_empty')}
+            </p>
+          )}
         </div>
 
         <div className="p-4 border-t border-surface-600/40 space-y-3">
@@ -184,7 +237,10 @@ export default function POSPage() {
           <div className="bg-surface-800 rounded-2xl p-6 w-full max-w-sm border border-surface-600/40 animate-scale-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-surface-50">{t('menu_customer.payment_method')}</h3>
-              <button onClick={() => setShowPayment(false)} className="text-surface-400 hover:text-surface-200 p-1">
+              <button
+                onClick={() => setShowPayment(false)}
+                className="text-surface-400 hover:text-surface-200 p-1"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -199,10 +255,16 @@ export default function POSPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={placeOrder} className="bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-medium transition-all active:scale-[0.98]">
+              <button
+                onClick={placeOrder}
+                className="bg-primary-500 hover:bg-primary-600 text-white py-3 rounded-xl font-medium transition-all active:scale-[0.98]"
+              >
                 {t('menu_customer.cash')}
               </button>
-              <button onClick={placeOrder} className="bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-medium transition-all active:scale-[0.98]">
+              <button
+                onClick={placeOrder}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-medium transition-all active:scale-[0.98]"
+              >
                 {t('menu_customer.card')}
               </button>
             </div>
@@ -210,5 +272,5 @@ export default function POSPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

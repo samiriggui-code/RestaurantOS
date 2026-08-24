@@ -1,106 +1,120 @@
-import { useState, useEffect } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
-import { useTranslation } from '../i18n/useTranslation'
-import { api } from '../services/api'
-import { useCart } from '../store/CartContext'
-import { useNetworkStatus } from '../hooks/useNetworkStatus'
-import { MenuCategory, MenuItem } from '../types'
+import { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from '../i18n/useTranslation';
+import { api } from '../services/api';
+import { useCart } from '../store/CartContext';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { MenuCategory, MenuItem } from '../types';
 import {
-  ShoppingCart, Plus, Minus, ChevronLeft, Coffee, Bell, Home, Sparkles,
-  UtensilsCrossed, Timer, Package, ShoppingBag, Star,
-} from 'lucide-react'
-import toast from 'react-hot-toast'
+  ShoppingCart,
+  Plus,
+  ChevronLeft,
+  Bell,
+  Home,
+  UtensilsCrossed,
+  Timer,
+  ShoppingBag,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function MenuPage() {
-  const { t } = useTranslation()
-  const isOnline = useNetworkStatus()
-  const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const urlBusinessId = searchParams.get('businessId') || ''
-  const tableId = searchParams.get('tableId')
-  const existingOrderParam = searchParams.get('existingOrderId')
-  const [businessId, setBusinessId] = useState(urlBusinessId)
-  const [businessName, setBusinessName] = useState('')
-  const [categories, setCategories] = useState<MenuCategory[]>([])
-  const [activeCategory, setActiveCategory] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [itemModifiers, setItemModifiers] = useState<Record<string, string[]>>({})
-  const [itemNotes, setItemNotes] = useState('')
-  const { addItem, itemCount, setTableId, setBusinessId: setCartBusinessId, setExistingOrderId } = useCart()
+  const { t } = useTranslation();
+  const isOnline = useNetworkStatus();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const urlBusinessId = searchParams.get('businessId') || '';
+  const tableId = searchParams.get('tableId');
+  const existingOrderParam = searchParams.get('existingOrderId');
+  const [businessId, setBusinessId] = useState(urlBusinessId);
+  const [businessName, setBusinessName] = useState('');
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  const [itemModifiers, setItemModifiers] = useState<Record<string, string[]>>({});
+  const [itemNotes, setItemNotes] = useState('');
+  const {
+    addItem,
+    itemCount,
+    setTableId,
+    setBusinessId: setCartBusinessId,
+    setExistingOrderId,
+  } = useCart();
 
   useEffect(() => {
-    if (tableId) setTableId(tableId)
-    if (existingOrderParam) setExistingOrderId(existingOrderParam)
-  }, [tableId, existingOrderParam, setTableId, setExistingOrderId])
+    if (tableId) setTableId(tableId);
+    if (existingOrderParam) setExistingOrderId(existingOrderParam);
+  }, [tableId, existingOrderParam, setTableId, setExistingOrderId]);
 
   useEffect(() => {
     if (tableId && businessId && isOnline && !existingOrderParam) {
-      api.getActiveOrderForTable(tableId, businessId)
-        .then((order: any) => {
-          if (order && order.id) setExistingOrderId(order.id)
+      api
+        .getActiveOrderForTable(tableId, businessId)
+        .then((order: { id?: string } | null) => {
+          if (order?.id) setExistingOrderId(order.id);
         })
-        .catch(() => {})
+        .catch(() => {});
     }
-  }, [tableId, businessId, isOnline])
+  }, [tableId, businessId, isOnline, existingOrderParam, setExistingOrderId]);
 
   useEffect(() => {
     if (urlBusinessId) {
-      setBusinessId(urlBusinessId)
-      setCartBusinessId(urlBusinessId)
-      return
+      setBusinessId(urlBusinessId);
+      setCartBusinessId(urlBusinessId);
+      return;
     }
     fetch('/api/settings/public')
       .then(r => r.json())
       .then(b => {
         if (b?.id) {
-          setBusinessId(b.id)
-          setCartBusinessId(b.id)
-          setBusinessName(b.name || b.nameAr)
+          setBusinessId(b.id);
+          setCartBusinessId(b.id);
+          setBusinessName(b.name || b.nameAr);
         }
       })
-      .catch(() => setLoading(false))
-  }, [urlBusinessId])
+      .catch(() => setLoading(false));
+  }, [urlBusinessId, setCartBusinessId]);
 
   useEffect(() => {
-    if (!businessId) return
-    api.getCategories(businessId)
+    if (!businessId) return;
+    api
+      .getCategories(businessId)
       .then(data => {
-        setCategories(data)
-        if (data.length > 0) setActiveCategory(data[0].id)
+        setCategories(data);
+        if (data.length > 0) setActiveCategory(data[0].id);
       })
       .catch(() => {
-        if (!urlBusinessId) toast.error('لا يوجد مطعم بعد - سجل دخول لوحة التحكم وأضف الأصناف')
-        else toast.error('فشل تحميل القائمة')
+        if (!urlBusinessId) toast.error('لا يوجد مطعم بعد - سجل دخول لوحة التحكم وأضف الأصناف');
+        else toast.error('فشل تحميل القائمة');
       })
-      .finally(() => setLoading(false))
-  }, [businessId])
+      .finally(() => setLoading(false));
+  }, [businessId, urlBusinessId]);
 
   const handleAddToCart = (item: MenuItem) => {
     if (item.modifiers && item.modifiers.length > 0) {
-      setSelectedItem(item)
-      setItemModifiers({})
-      setItemNotes('')
+      setSelectedItem(item);
+      setItemModifiers({});
+      setItemNotes('');
     } else {
-      addItem(item)
-      toast.success(t('menu_customer.add_to_cart'))
+      addItem(item);
+      toast.success(t('menu_customer.add_to_cart'));
     }
-  }
+  };
 
   const handleConfirmModifiers = () => {
-    if (!selectedItem) return
+    if (!selectedItem) return;
     for (const mod of selectedItem.modifiers) {
       if (mod.required && (!itemModifiers[mod.id] || itemModifiers[mod.id].length === 0)) {
-        toast.error(`يرجى اختيار ${mod.name || mod.nameAr}`)
-        return
+        toast.error(`يرجى اختيار ${mod.name || mod.nameAr}`);
+        return;
       }
     }
-    addItem(selectedItem, 1, itemModifiers, itemNotes)
-    toast.success(t('menu_customer.add_to_cart'))
-    setSelectedItem(null)
-  }
+    addItem(selectedItem, 1, itemModifiers, itemNotes);
+    toast.success(t('menu_customer.add_to_cart'));
+    setSelectedItem(null);
+  };
 
-  const activeItems = categories.find(c => c.id === activeCategory)?.items || []
+  const activeItems = categories.find(c => c.id === activeCategory)?.items || [];
 
   if (loading) {
     return (
@@ -110,7 +124,7 @@ export default function MenuPage() {
           <p className="text-surface-400">{t('loading')}</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (!businessId && categories.length === 0) {
@@ -121,12 +135,14 @@ export default function MenuPage() {
         </div>
         <h1 className="text-2xl font-bold text-white mb-2">{t('consumer.welcome')}</h1>
         <p className="text-white/50 mb-2">{t('no_data')}</p>
-        <p className="text-sm text-white/30 mb-8">للمشرف: امسح QR الخاص بالمطعم أو استخدم لوحة التحكم</p>
+        <p className="text-sm text-white/30 mb-8">
+          للمشرف: امسح QR الخاص بالمطعم أو استخدم لوحة التحكم
+        </p>
         <button onClick={() => navigate('/login')} className="btn-primary">
           {t('nav.dashboard')}
         </button>
       </div>
-    )
+    );
   }
 
   return (
@@ -154,9 +170,11 @@ export default function MenuPage() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ tableId, businessId }),
-                      })
-                      toast.success('تم استدعاء النادل!')
-                    } catch { toast.error('فشل') }
+                      });
+                      toast.success('تم استدعاء النادل!');
+                    } catch {
+                      toast.error('فشل');
+                    }
                   }}
                   className="p-2.5 bg-white/15 hover:bg-white/25 rounded-2xl backdrop-blur-sm transition-all"
                   title={t('consumer.call_waiter')}
@@ -169,15 +187,15 @@ export default function MenuPage() {
                 className="relative p-2.5 bg-white/15 hover:bg-white/25 rounded-2xl backdrop-blur-sm transition-all"
               >
                 <ShoppingBag className="w-5 h-5 text-white" />
-                {itemCount > 0 && (
-                  <span className="notif-count">{itemCount}</span>
-                )}
+                {itemCount > 0 && <span className="notif-count">{itemCount}</span>}
               </button>
             </div>
           </div>
           <div className="text-center">
             <h1 className="font-bold text-xl text-white">{t('menu_customer.title')}</h1>
-            {businessName && <p className="text-sm text-cream/80 mt-0.5 font-display">{businessName}</p>}
+            {businessName && (
+              <p className="text-sm text-cream/80 mt-0.5 font-display">{businessName}</p>
+            )}
           </div>
         </div>
 
@@ -194,9 +212,7 @@ export default function MenuPage() {
               }`}
               style={{ animationDelay: `${i * 0.05}s` }}
             >
-              <span className="flex items-center gap-2">
-                {cat.name || cat.nameAr}
-              </span>
+              <span className="flex items-center gap-2">{cat.name || cat.nameAr}</span>
             </button>
           ))}
         </div>
@@ -223,9 +239,13 @@ export default function MenuPage() {
               )}
               <div className="flex-1 min-w-0 flex flex-col justify-between">
                 <div>
-                  <h3 className="font-display text-base font-bold leading-snug text-cream">{item.name || item.nameAr}</h3>
+                  <h3 className="font-display text-base font-bold leading-snug text-cream">
+                    {item.name || item.nameAr}
+                  </h3>
                   {item.description && (
-                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cream/45">{item.description}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cream/45">
+                      {item.description}
+                    </p>
                   )}
                   {item.prepTime > 0 && (
                     <div className="flex items-center gap-1 mt-1.5">
@@ -238,7 +258,9 @@ export default function MenuPage() {
                   <div className="flex items-center gap-2">
                     {item.discountPrice ? (
                       <div className="flex items-center gap-1.5">
-                        <span className="text-lg font-bold text-tomato-light">{item.discountPrice}</span>
+                        <span className="text-lg font-bold text-tomato-light">
+                          {item.discountPrice}
+                        </span>
                         <span className="text-xs text-cream/35 line-through">{item.price}</span>
                       </div>
                     ) : (
@@ -276,10 +298,17 @@ export default function MenuPage() {
           <div className="bg-charcoal-soft w-full max-w-lg rounded-t-4xl border-t border-white/10 p-6 max-h-[80vh] overflow-y-auto animate-slide-up shadow-modal text-cream">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="font-display text-xl font-bold text-cream">{selectedItem.name || selectedItem.nameAr}</h2>
-                <p className="mt-0.5 text-sm font-medium text-tomato-light">{selectedItem.price} €</p>
+                <h2 className="font-display text-xl font-bold text-cream">
+                  {selectedItem.name || selectedItem.nameAr}
+                </h2>
+                <p className="mt-0.5 text-sm font-medium text-tomato-light">
+                  {selectedItem.price} €
+                </p>
               </div>
-              <button onClick={() => setSelectedItem(null)} className="w-10 h-10 rounded-2xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all">
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="w-10 h-10 rounded-2xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all"
+              >
                 <ChevronLeft size={20} className="text-surface-500" />
               </button>
             </div>
@@ -295,21 +324,21 @@ export default function MenuPage() {
                   </label>
                   <div className="space-y-2">
                     {mod.options.map(opt => {
-                      const isSelected = itemModifiers[mod.id]?.includes(opt.id)
+                      const isSelected = itemModifiers[mod.id]?.includes(opt.id);
                       return (
                         <button
                           key={opt.id}
                           onClick={() => {
                             if (mod.type === 'SINGLE') {
-                              setItemModifiers(prev => ({ ...prev, [mod.id]: [opt.id] }))
+                              setItemModifiers(prev => ({ ...prev, [mod.id]: [opt.id] }));
                             } else {
                               setItemModifiers(prev => {
-                                const current = prev[mod.id] || []
+                                const current = prev[mod.id] || [];
                                 const updated = current.includes(opt.id)
                                   ? current.filter((id: string) => id !== opt.id)
-                                  : [...current, opt.id]
-                                return { ...prev, [mod.id]: updated }
-                              })
+                                  : [...current, opt.id];
+                                return { ...prev, [mod.id]: updated };
+                              });
                             }
                           }}
                           className={`w-full flex items-center justify-between p-3.5 rounded-2xl border-2 transition-all duration-200 ${
@@ -319,25 +348,33 @@ export default function MenuPage() {
                           }`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                              isSelected ? 'border-primary-500 bg-primary-500' : 'border-surface-300'
-                            }`}>
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                isSelected
+                                  ? 'border-primary-500 bg-primary-500'
+                                  : 'border-surface-300'
+                              }`}
+                            >
                               {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                             </div>
                             <span className="font-medium text-sm">{opt.name || opt.nameAr}</span>
                           </div>
                           {opt.price > 0 && (
-                            <span className="text-sm font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg">+{opt.price}</span>
+                            <span className="text-sm font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg">
+                              +{opt.price}
+                            </span>
                           )}
                         </button>
-                      )
+                      );
                     })}
                   </div>
                 </div>
               ))}
 
               <div>
-                <label className="block font-bold text-surface-700 mb-3 text-sm">{t('menu_customer.notes')}</label>
+                <label className="block font-bold text-surface-700 mb-3 text-sm">
+                  {t('menu_customer.notes')}
+                </label>
                 <textarea
                   value={itemNotes}
                   onChange={e => setItemNotes(e.target.value)}
@@ -349,7 +386,10 @@ export default function MenuPage() {
             </div>
 
             <div className="mt-6">
-              <button onClick={handleConfirmModifiers} className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-base">
+              <button
+                onClick={handleConfirmModifiers}
+                className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-base"
+              >
                 <ShoppingBag size={18} />
                 {t('menu_customer.add_to_cart')}
               </button>
@@ -377,5 +417,5 @@ export default function MenuPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

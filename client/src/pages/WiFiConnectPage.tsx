@@ -1,45 +1,49 @@
-import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { api } from '../services/api'
-import { Wifi, Smartphone, Clock, CheckCircle, AlertCircle, Shield, Signal, Coffee } from 'lucide-react'
-import { useTranslation } from '../i18n/useTranslation'
-import toast from 'react-hot-toast'
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { api } from '../services/api';
+import { Wifi, Smartphone, Clock, CheckCircle, AlertCircle, Shield, Signal } from 'lucide-react';
+import { useTranslation } from '../i18n/useTranslation';
+import toast from 'react-hot-toast';
 
 export default function WiFiConnectPage() {
-  const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
-  const code = searchParams.get('code') || ''
-  const [phoneNumber, setPhoneNumber] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [info, setInfo] = useState<any>(null)
-  const [connected, setConnected] = useState(false)
-  const [wifiInfo, setWifiInfo] = useState<any>(null)
+  const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const code = searchParams.get('code') || '';
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [info, setInfo] = useState<{
+    durationMinutes?: number;
+    business?: { name?: string };
+  } | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [wifiInfo, setWifiInfo] = useState<{ ssid?: string; password?: string } | null>(null);
 
   useEffect(() => {
     if (code) {
-      api.getWifiInfo(code)
+      api
+        .getWifiInfo(code)
         .then(setInfo)
-        .catch(() => toast.error(t('wifi.invalid_qr')))
+        .catch(() => toast.error(t('wifi.invalid_qr')));
     }
-  }, [code])
+  }, [code, t]);
 
   const handleConnect = async () => {
     if (!phoneNumber || phoneNumber.length < 10) {
-      toast.error('يرجى إدخال رقم جوال صحيح')
-      return
+      toast.error('يرجى إدخال رقم جوال صحيح');
+      return;
     }
-    setLoading(true)
+    setLoading(true);
     try {
-      const res = await api.connectWifi({ code, phoneNumber })
-      setConnected(true)
-      setWifiInfo(res.wifi)
-      toast.success('تم الاتصال بالإنترنت بنجاح!')
-    } catch (err: any) {
-      toast.error(err.message || 'فشل الاتصال')
+      const res = await api.connectWifi({ code, phoneNumber });
+      setConnected(true);
+      setWifiInfo(res.wifi);
+      toast.success('تم الاتصال بالإنترنت بنجاح!');
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || 'فشل الاتصال');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   if (!code) {
     return (
@@ -52,7 +56,7 @@ export default function WiFiConnectPage() {
           <p className="text-white/50">{t('wifi.invalid_qr_desc')}</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (connected && wifiInfo) {
@@ -63,17 +67,26 @@ export default function WiFiConnectPage() {
             <CheckCircle className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-1">{t('wifi.connect_page.connected')}</h1>
-          <p className="text-white/50 mb-6">{t('wifi.connect_page.enjoy')} {info?.business?.name || ''}</p>
+          <p className="text-white/50 mb-6">
+            {t('wifi.connect_page.enjoy')} {info?.business?.name || ''}
+          </p>
 
           <div className="bg-white/5 rounded-3xl p-5 border border-white/10 space-y-3 mb-5">
             <div className="flex items-center justify-between py-1">
               <span className="text-surface-400 text-sm">الشبكة</span>
-              <span className="font-semibold text-white" dir="ltr">{wifiInfo.ssid}</span>
+              <span className="font-semibold text-white" dir="ltr">
+                {wifiInfo.ssid}
+              </span>
             </div>
             <div className="divider bg-white/5" />
             <div className="flex items-center justify-between py-1">
               <span className="text-surface-400 text-sm">كلمة المرور</span>
-              <span className="font-semibold font-mono text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-xl" dir="ltr">{wifiInfo.password}</span>
+              <span
+                className="font-semibold font-mono text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-xl"
+                dir="ltr"
+              >
+                {wifiInfo.password}
+              </span>
             </div>
           </div>
 
@@ -83,7 +96,7 @@ export default function WiFiConnectPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -99,7 +112,9 @@ export default function WiFiConnectPage() {
           <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-primary-400 to-emerald-500 flex items-center justify-center mx-auto mb-5 shadow-2xl shadow-emerald-500/20">
             <Wifi className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">{info?.business?.name || t('wifi.connect_page.title')}</h1>
+          <h1 className="text-2xl font-bold text-white">
+            {info?.business?.name || t('wifi.connect_page.title')}
+          </h1>
           <p className="text-surface-400 mt-2 text-sm leading-relaxed">
             {t('wifi.connect_page.desc')}
           </p>
@@ -113,9 +128,14 @@ export default function WiFiConnectPage() {
 
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-surface-300 mb-2">{t('wifi.connect_page.phone')}</label>
+            <label className="block text-sm font-medium text-surface-300 mb-2">
+              {t('wifi.connect_page.phone')}
+            </label>
             <div className="relative group">
-              <Smartphone className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-500 group-focus-within:text-primary-400 transition-colors" size={18} />
+              <Smartphone
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-surface-500 group-focus-within:text-primary-400 transition-colors"
+                size={18}
+              />
               <input
                 type="tel"
                 value={phoneNumber}
@@ -147,5 +167,5 @@ export default function WiFiConnectPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

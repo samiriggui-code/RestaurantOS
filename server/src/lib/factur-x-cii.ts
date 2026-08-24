@@ -4,53 +4,51 @@
  */
 
 type FacturXInput = {
-  businessName: string
-  siret?: string
-  vatNumber?: string
-  address?: string
-  invoiceNumber: number
-  issueDate: Date
-  dueDate?: Date | null
-  clientName: string
-  clientSiret?: string | null
-  clientVatNumber?: string | null
-  clientAddress?: string | null
-  currency?: string
-  subtotalCents: number
-  taxCents: number
-  totalCents: number
+  businessName: string;
+  siret?: string;
+  vatNumber?: string;
+  address?: string;
+  invoiceNumber: number;
+  issueDate: Date;
+  dueDate?: Date | null;
+  clientName: string;
+  clientSiret?: string | null;
+  clientVatNumber?: string | null;
+  clientAddress?: string | null;
+  currency?: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
   lines: Array<{
-    description: string
-    quantity: number
-    unitPriceCents: number
-    taxRate: number
-  }>
-}
+    description: string;
+    quantity: number;
+    unitPriceCents: number;
+    taxRate: number;
+  }>;
+};
 
 function esc(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/"/g, '&quot;');
 }
 
 function cents(n: number): string {
-  return (n / 100).toFixed(2)
+  return (n / 100).toFixed(2);
 }
 
 function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return d.toISOString().slice(0, 10);
 }
 
 export function buildFacturXCiiXml(inv: FacturXInput): string {
-  const currency = inv.currency ?? 'EUR'
-  const invoiceId = String(inv.invoiceNumber).padStart(6, '0')
+  const currency = inv.currency ?? 'EUR';
+  const invoiceId = String(inv.invoiceNumber).padStart(6, '0');
   const lineXml = inv.lines
     .map((line, idx) => {
-      const lineHt = Math.round(line.quantity * line.unitPriceCents)
-      const lineTax = Math.round(lineHt * (line.taxRate / 100))
-      const lineTtc = lineHt + lineTax
+      const lineHt = Math.round(line.quantity * line.unitPriceCents);
       return `    <ram:IncludedSupplyChainTradeLineItem>
       <ram:AssociatedDocumentLineDocument>
         <ram:LineID>${idx + 1}</ram:LineID>
@@ -76,9 +74,9 @@ export function buildFacturXCiiXml(inv: FacturXInput): string {
           <ram:LineTotalAmount>${cents(lineHt)}</ram:LineTotalAmount>
         </ram:SpecifiedTradeSettlementLineMonetarySummation>
       </ram:SpecifiedLineTradeSettlement>
-    </ram:IncludedSupplyChainTradeLineItem>`
+    </ram:IncludedSupplyChainTradeLineItem>`;
     })
-    .join('\n')
+    .join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
@@ -129,5 +127,5 @@ ${lineXml}
       </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
     </ram:ApplicableHeaderTradeSettlement>
   </rsm:SupplyChainTradeTransaction>
-</rsm:CrossIndustryInvoice>`
+</rsm:CrossIndustryInvoice>`;
 }

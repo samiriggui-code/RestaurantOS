@@ -1,38 +1,57 @@
-import { Router, Response } from 'express'
-import bcrypt from 'bcryptjs'
-import { PrismaClient } from '@prisma/client'
-import { generateToken, generateRefreshToken, verifyRefreshToken, authenticate, requireRole } from '../middleware/auth'
-import { AuthRequest } from '../types'
-import { canAccessKitchen, canAccessPos } from '../lib/roles'
-import { isValidStaffPin } from '../lib/pin'
-import { logFiscalEvent } from '../lib/fiscal/events'
+import { Router, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+import {
+  generateToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+  authenticate,
+} from '../middleware/auth';
+import { AuthRequest } from '../types';
+import { canAccessKitchen, canAccessPos } from '../lib/roles';
+import { isValidStaffPin } from '../lib/pin';
+import { logFiscalEvent } from '../lib/fiscal/events';
 
-const router = Router()
+const router = Router();
 
 function issueTokens(user: {
-  id: string
-  businessId: string
-  role: string
-  name: string
-  email: string
+  id: string;
+  businessId: string;
+  role: string;
+  name: string;
+  email: string;
   business: {
-    id: string
-    name: string
-    nameAr?: string | null
-    currency?: string
-    taxRate?: number
-    serviceChargeRate?: number
-    kitchenDisplayEnabled?: boolean
-  }
-}) {
+    id: string;
+    name: string;
+    nameAr?: string | null;
+    currency?: string;
+    taxRate?: number;
+    serviceChargeRate?: number;
+    kitchenDisplayEnabled?: boolean;
+  };
+}): {
+  accessToken: string;
+  refreshToken: string;
+  token: string;
+  user: { id: string; name: string; email: string; role: string; businessId: string };
+  business: {
+    id: string;
+    name: string;
+    nameAr: string | null;
+    currency: string;
+    taxRate: number;
+    serviceChargeRate: number;
+    kitchenDisplayEnabled: boolean;
+  };
+} {
   const payload = {
     userId: user.id,
     businessId: user.businessId,
     role: user.role,
     name: user.name,
-  }
-  const accessToken = generateToken(payload)
-  const refreshToken = generateRefreshToken(payload)
+  };
+  const accessToken = generateToken(payload);
+  const refreshToken = generateRefreshToken(payload);
   return {
     accessToken,
     refreshToken,
@@ -53,7 +72,7 @@ function issueTokens(user: {
       serviceChargeRate: user.business.serviceChargeRate ?? 0,
       kitchenDisplayEnabled: user.business.kitchenDisplayEnabled ?? true,
     },
-  }
+  };
 }
 
 /**
@@ -67,26 +86,26 @@ function issueTokens(user: {
  */
 router.post('/login', async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { email, password } = req.body
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email et mot de passe requis' })
+      return res.status(400).json({ error: 'Email et mot de passe requis' });
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase()
+    const normalizedEmail = String(email).trim().toLowerCase();
 
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       include: { business: true },
-    })
+    });
 
     if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Identifiants incorrects' })
+      return res.status(401).json({ error: 'Identifiants incorrects' });
     }
 
-    const valid = await bcrypt.compare(password, user.password)
-    if (!valid) return res.status(401).json({ error: 'Identifiants incorrects' })
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error: 'Identifiants incorrects' });
 
     void logFiscalEvent(prisma, {
       businessId: user.businessId,
@@ -95,14 +114,14 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
       entityType: 'User',
       entityId: user.id,
       payload: { method: 'email', role: user.role },
-    }).catch((err) => console.error('[fiscal] OPERATOR_LOGIN:', err))
+    }).catch(err => console.error('[fiscal] OPERATOR_LOGIN:', err));
 
-    res.json(issueTokens(user))
+    res.json(issueTokens(user));
   } catch (error) {
-    console.error('Login error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * POST /api/auth/pin
@@ -110,24 +129,24 @@ router.post('/login', async (req: AuthRequest, res: Response) => {
  */
 router.post('/pin', async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
+    const prisma: PrismaClient = req.app.get('prisma');
     const { pin, businessId, device } = req.body as {
-      pin?: string
-      businessId?: string
-      device?: 'pos' | 'kitchen'
-    }
+      pin?: string;
+      businessId?: string;
+      device?: 'pos' | 'kitchen';
+    };
 
-    const bid = businessId || process.env.BUSINESS_ID
+    const bid = businessId || process.env.BUSINESS_ID;
     if (!pin || !bid) {
-      return res.status(400).json({ error: 'PIN requis' })
+      return res.status(400).json({ error: 'PIN requis' });
     }
     if (device !== 'pos' && device !== 'kitchen') {
-      return res.status(400).json({ error: 'Appareil invalide' })
+      return res.status(400).json({ error: 'Appareil invalide' });
     }
 
-    const normalizedPin = String(pin).trim()
+    const normalizedPin = String(pin).trim();
     if (!isValidStaffPin(normalizedPin)) {
-      return res.status(400).json({ error: 'PIN invalide (4 chiffres)' })
+      return res.status(400).json({ error: 'PIN invalide (4 chiffres)' });
     }
 
     const user = await prisma.user.findFirst({
@@ -150,21 +169,21 @@ router.post('/pin', async (req: AuthRequest, res: Response) => {
           },
         },
       },
-    })
+    });
 
     if (!user) {
-      return res.status(401).json({ error: 'PIN incorrect' })
+      return res.status(401).json({ error: 'PIN incorrect' });
     }
 
     if (device === 'pos' && !canAccessPos(user.role)) {
       return res.status(403).json({
         error: 'Ce PIN est réservé à la cuisine — utilisez le PIN caisse (ex. 1234).',
-      })
+      });
     }
     if (device === 'kitchen' && !canAccessKitchen(user.role)) {
       return res.status(403).json({
         error: 'Ce PIN ne peut pas ouvrir le KDS — utilisez le PIN cuisine (5678) ou admin (2468).',
-      })
+      });
     }
 
     void logFiscalEvent(prisma, {
@@ -174,14 +193,14 @@ router.post('/pin', async (req: AuthRequest, res: Response) => {
       entityType: 'User',
       entityId: user.id,
       payload: { method: 'pin', device, role: user.role },
-    }).catch((err) => console.error('[fiscal] OPERATOR_LOGIN:', err))
+    }).catch(err => console.error('[fiscal] OPERATOR_LOGIN:', err));
 
-    res.json(issueTokens(user))
+    res.json(issueTokens(user));
   } catch (error) {
-    console.error('PIN login error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('PIN login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * POST /api/auth/register
@@ -192,20 +211,20 @@ router.post('/pin', async (req: AuthRequest, res: Response) => {
  */
 router.post('/register', async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { name, email, password, phone, businessName } = req.body
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { name, email, password, phone, businessName } = req.body;
 
-    const existing = await prisma.user.findUnique({ where: { email } })
-    if (existing) return res.status(400).json({ error: 'Email already in use' })
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(400).json({ error: 'Email already in use' });
 
-    const hashedPassword = await bcrypt.hash(password, 12)
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const business = await prisma.business.create({
       data: {
         name: businessName || name + "'s Restaurant",
         nameAr: '',
       },
-    })
+    });
 
     const user = await prisma.user.create({
       data: {
@@ -216,25 +235,25 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
         role: 'ADMIN',
         businessId: business.id,
       },
-    })
+    });
 
     const token = generateToken({
       userId: user.id,
       businessId: business.id,
       role: user.role,
       name: user.name,
-    })
+    });
 
     res.status(201).json({
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
       business,
-    })
+    });
   } catch (error) {
-    console.error('Register error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Register error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * POST /api/auth/refresh
@@ -246,35 +265,35 @@ router.post('/register', async (req: AuthRequest, res: Response) => {
  */
 router.post('/refresh', async (req: AuthRequest, res: Response) => {
   try {
-    const { refreshToken } = req.body
-    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
 
-    const decoded = verifyRefreshToken(refreshToken)
-    const prisma: PrismaClient = req.app.get('prisma')
+    const decoded = verifyRefreshToken(refreshToken);
+    const prisma: PrismaClient = req.app.get('prisma');
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       include: { business: true },
-    })
-    if (!user || !user.isActive) return res.status(401).json({ error: 'User not found' })
+    });
+    if (!user || !user.isActive) return res.status(401).json({ error: 'User not found' });
 
     const payload = {
       userId: user.id,
       businessId: user.businessId,
       role: user.role,
       name: user.name,
-    }
-    const newAccessToken = generateToken(payload)
-    const newRefreshToken = generateRefreshToken(payload)
+    };
+    const newAccessToken = generateToken(payload);
+    const newRefreshToken = generateRefreshToken(payload);
 
     res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-    })
+    });
   } catch (error) {
-    res.status(401).json({ error: 'Invalid refresh token', code: 'INVALID_REFRESH' })
+    res.status(401).json({ error: 'Invalid refresh token', code: 'INVALID_REFRESH' });
   }
-})
+});
 
 /**
  * GET /api/auth/me
@@ -285,17 +304,25 @@ router.post('/refresh', async (req: AuthRequest, res: Response) => {
  */
 router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
+    const prisma: PrismaClient = req.app.get('prisma');
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
-      select: { id: true, name: true, email: true, phone: true, role: true, businessId: true, isActive: true },
-    })
-    if (!user) return res.status(404).json({ error: 'User not found' })
-    res.json(user)
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        businessId: true,
+        isActive: true,
+      },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * PUT /api/auth/profile
@@ -305,17 +332,17 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
  */
 router.put('/profile', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { name, phone } = req.body
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { name, phone } = req.body;
     const user = await prisma.user.update({
       where: { id: req.user!.userId },
       data: { name, phone },
-    })
-    res.json({ id: user.id, name: user.name, email: user.email, phone: user.phone })
+    });
+    res.json({ id: user.id, name: user.name, email: user.email, phone: user.phone });
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 /**
  * PUT /api/auth/change-password
@@ -327,23 +354,23 @@ router.put('/profile', authenticate, async (req: AuthRequest, res: Response) => 
  */
 router.put('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { currentPassword, newPassword } = req.body
-    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } })
-    if (!user) return res.status(404).json({ error: 'User not found' })
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { currentPassword, newPassword } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const valid = await bcrypt.compare(currentPassword, user.password)
-    if (!valid) return res.status(400).json({ error: 'Current password is incorrect' })
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) return res.status(400).json({ error: 'Current password is incorrect' });
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12)
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
-    })
-    res.json({ message: 'Password updated successfully' })
+    });
+    res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
-export default router
+export default router;

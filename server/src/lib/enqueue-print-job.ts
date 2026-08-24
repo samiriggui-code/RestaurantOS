@@ -1,46 +1,48 @@
-import { PrismaClient } from '@prisma/client'
-import { Server as SocketIOServer } from 'socket.io'
-import { fiscalMetaForReceipt } from './fiscal/receipt-meta'
+import { PrismaClient } from '@prisma/client';
+import { Server as SocketIOServer } from 'socket.io';
+import { fiscalMetaForReceipt } from './fiscal/receipt-meta';
 import {
   generatePrintText,
   type PrintTicketType,
   type ReceiptPrintOptions,
-} from '../services/printer'
+} from '../services/printer';
 
 export type EnqueuePrintJobOptions = {
-  receipt?: ReceiptPrintOptions
+  receipt?: ReceiptPrintOptions;
   /** false = ne pas émettre / résoudre le ticket fiscal (tests) */
-  ensureFiscal?: boolean
-}
+  ensureFiscal?: boolean;
+};
 
 /** Enfile un ticket cuisine ou étiquette sac après confirmation de commande. */
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- retour = payload Prisma PrintJob ou null (commande/business introuvable).
 export async function enqueuePrintJob(
   prisma: PrismaClient,
   io: SocketIOServer | undefined,
   businessId: string,
   orderId: string,
   type: PrintTicketType = 'KITCHEN',
-  options?: EnqueuePrintJobOptions,
+  options?: EnqueuePrintJobOptions
 ) {
   const order = await prisma.order.findFirst({
     where: { id: orderId, businessId },
     include: { items: { include: { menuItem: true } }, table: true },
-  })
-  if (!order) return null
+  });
+  if (!order) return null;
 
-  const business = await prisma.business.findUnique({ where: { id: businessId } })
+  const business = await prisma.business.findUnique({ where: { id: businessId } });
+  if (!business) return null;
 
-  let receiptOpts = options?.receipt
+  let receiptOpts = options?.receipt;
   if (
     type === 'RECEIPT' &&
     order.paymentStatus === 'PAID' &&
     options?.ensureFiscal !== false &&
     !receiptOpts
   ) {
-    receiptOpts = await fiscalMetaForReceipt(prisma, businessId, orderId)
+    receiptOpts = await fiscalMetaForReceipt(prisma, businessId, orderId);
   }
 
-  const content = generatePrintText(order, business, type, { receipt: receiptOpts })
+  const content = generatePrintText(order, business, type, { receipt: receiptOpts });
 
   const printJob = await prisma.printJob.create({
     data: {
@@ -50,8 +52,8 @@ export async function enqueuePrintJob(
       status: 'PENDING',
       payload: { text: content },
     },
-  })
+  });
 
-  io?.to(`business:${businessId}`).emit('print:job', printJob)
-  return printJob
+  io?.to(`business:${businessId}`).emit('print:job', printJob);
+  return printJob;
 }

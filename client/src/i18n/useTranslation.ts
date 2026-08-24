@@ -1,12 +1,10 @@
-import { useTranslation as useI18nTranslation } from 'react-i18next'
+import { useCallback } from 'react';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 
-export function useTranslation() {
-  const { t: i18nT, i18n } = useI18nTranslation()
+export function useTranslation(): { t: (key: string) => string; language: string } {
+  const { t: i18nT, i18n } = useI18nTranslation();
 
-  const t = (key: string): string => {
-    const result = i18nT(key)
-    return result
-  }
+  const t = useCallback((key: string): string => i18nT(key), [i18nT]);
 
-  return { t, language: i18n.language }
+  return { t, language: i18n.language };
 }

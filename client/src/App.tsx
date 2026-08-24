@@ -1,43 +1,43 @@
-import { useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useAuthStore } from './store/authStore'
-import NetworkStatus from './components/NetworkStatus'
-import LoginPage from './pages/LoginPage'
-import KitchenPage from './pages/KitchenPage'
-import AdminLayout from './components/layout/AdminLayout'
-import DashboardPage from './pages/admin/DashboardPage'
-import MenuManagementPage from './pages/admin/MenuManagementPage'
-import OrdersPage from './pages/admin/OrdersPage'
-import TablesPage from './pages/admin/TablesPage'
-import EmployeesPage from './pages/admin/EmployeesPage'
-import WifiPage from './pages/admin/WifiPage'
-import ReportsPage from './pages/admin/ReportsPage'
-import ReservationsPage from './pages/admin/ReservationsPage'
-import SettingsPage from './pages/admin/SettingsPage'
-import POSPage from './pages/admin/POSPage'
-import ShiftsPage from './pages/admin/ShiftsPage'
-import ExpensesPage from './pages/admin/ExpensesPage'
-import UsersPage from './pages/admin/UsersPage'
+import { useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from './store/authStore';
+import NetworkStatus from './components/NetworkStatus';
+import LoginPage from './pages/LoginPage';
+import KitchenPage from './pages/KitchenPage';
+import AdminLayout from './components/layout/AdminLayout';
+import DashboardPage from './pages/admin/DashboardPage';
+import MenuManagementPage from './pages/admin/MenuManagementPage';
+import OrdersPage from './pages/admin/OrdersPage';
+import TablesPage from './pages/admin/TablesPage';
+import EmployeesPage from './pages/admin/EmployeesPage';
+import WifiPage from './pages/admin/WifiPage';
+import ReportsPage from './pages/admin/ReportsPage';
+import ReservationsPage from './pages/admin/ReservationsPage';
+import SettingsPage from './pages/admin/SettingsPage';
+import POSPage from './pages/admin/POSPage';
+import ShiftsPage from './pages/admin/ShiftsPage';
+import ExpensesPage from './pages/admin/ExpensesPage';
+import UsersPage from './pages/admin/UsersPage';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
-  const { isAuthenticated, user } = useAuthStore()
-  const location = useLocation()
+  const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (roles && user && !roles.includes(user.role)) {
-    return <Navigate to="/admin" replace />
+    return <Navigate to="/admin" replace />;
   }
 
-  return <>{children}</>
+  return <>{children}</>;
 }
 
 /** Point d'entrée : auth employé / gérant uniquement (plus de hub client QR). */
 function AuthEntry() {
-  const { isAuthenticated } = useAuthStore()
-  return <Navigate to={isAuthenticated ? '/admin' : '/login'} replace />
+  const { isAuthenticated } = useAuthStore();
+  return <Navigate to={isAuthenticated ? '/admin' : '/login'} replace />;
 }
 
 function LoadingSpinner() {
@@ -46,17 +46,17 @@ function LoadingSpinner() {
       <div className="h-10 w-10 animate-spin rounded-full border-4 border-tomato border-t-transparent" />
       <p className="text-cream/55">Chargement…</p>
     </div>
-  )
+  );
 }
 
 export default function App() {
-  const { checkAuth, isLoading } = useAuthStore()
+  const { checkAuth, isLoading } = useAuthStore();
 
   useEffect(() => {
-    checkAuth()
-  }, [])
+    checkAuth();
+  }, [checkAuth]);
 
-  if (isLoading) return <LoadingSpinner />
+  if (isLoading) return <LoadingSpinner />;
 
   return (
     <>
@@ -134,5 +134,5 @@ export default function App() {
         <Route path="*" element={<AuthEntry />} />
       </Routes>
     </>
-  )
+  );
 }

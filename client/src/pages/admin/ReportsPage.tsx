@@ -1,28 +1,61 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../services/api'
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '../../services/api';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
-} from 'recharts'
-import { Download, TrendingUp } from 'lucide-react'
-import toast from 'react-hot-toast'
-import { useTranslation } from '../../i18n/useTranslation'
-import { formatMoney } from '../../lib/locale'
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
+import {} from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useTranslation } from '../../i18n/useTranslation';
+import { formatMoney } from '../../lib/locale';
 
-const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
+const COLORS = [
+  '#22c55e',
+  '#3b82f6',
+  '#f59e0b',
+  '#ef4444',
+  '#8b5cf6',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+];
+
+type SalesDataPoint = { date: string; total: number; count: number };
+type CategoryDataPoint = {
+  id: string;
+  name?: string;
+  nameAr?: string;
+  revenue: number;
+  totalSold: number;
+};
+type EmployeeDataPoint = {
+  id: string;
+  name: string;
+  role: string;
+  orderCount: number;
+  totalSales: number;
+};
 
 export default function ReportsPage() {
-  const { t } = useTranslation()
-  const [salesData, setSalesData] = useState<any[]>([])
-  const [categoryData, setCategoryData] = useState<any[]>([])
-  const [employeeData, setEmployeeData] = useState<any[]>([])
-  const [period, setPeriod] = useState('7')
-  const [loading, setLoading] = useState(true)
+  const { t } = useTranslation();
+  const [salesData, setSalesData] = useState<SalesDataPoint[]>([]);
+  const [categoryData, setCategoryData] = useState<CategoryDataPoint[]>([]);
+  const [employeeData, setEmployeeData] = useState<EmployeeDataPoint[]>([]);
+  const [period, setPeriod] = useState('7');
+  const [loading, setLoading] = useState(true);
 
-  const loadReports = () => {
-    const from = new Date()
-    from.setDate(from.getDate() - parseInt(period))
-    const params = `from=${from.toISOString()}`
+  const loadReports = useCallback(() => {
+    const from = new Date();
+    from.setDate(from.getDate() - parseInt(period));
+    const params = `from=${from.toISOString()}`;
 
     Promise.all([
       api.getSalesReport(`${params}&groupBy=day`),
@@ -30,20 +63,27 @@ export default function ReportsPage() {
       api.getEmployeeReport(params),
     ])
       .then(([sales, cats, emps]) => {
-        setSalesData(sales)
-        setCategoryData(cats)
-        setEmployeeData(emps)
+        setSalesData(sales);
+        setCategoryData(cats);
+        setEmployeeData(emps);
       })
       .catch(() => toast.error('فشل تحميل التقارير'))
-      .finally(() => setLoading(false))
-  }
+      .finally(() => setLoading(false));
+  }, [period]);
 
-  useEffect(() => { loadReports() }, [period])
+  useEffect(() => {
+    loadReports();
+  }, [loadReports]);
 
-  const totalSales = salesData.reduce((sum, d) => sum + d.total, 0)
-  const totalOrders = salesData.reduce((sum, d) => sum + d.count, 0)
+  const totalSales = salesData.reduce((sum, d) => sum + d.total, 0);
+  const totalOrders = salesData.reduce((sum, d) => sum + d.count, 0);
 
-  if (loading) return <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" /></div>
+  if (loading)
+    return (
+      <div className="flex justify-center py-20">
+        <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
 
   return (
     <div className="space-y-6">
@@ -61,7 +101,11 @@ export default function ReportsPage() {
                 period === d ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600'
               }`}
             >
-              {d === '7' ? t('reports.period.7days') : d === '30' ? t('reports.period.30days') : t('reports.period.90days')}
+              {d === '7'
+                ? t('reports.period.7days')
+                : d === '30'
+                  ? t('reports.period.30days')
+                  : t('reports.period.90days')}
             </button>
           ))}
         </div>
@@ -78,7 +122,9 @@ export default function ReportsPage() {
           <p className="text-sm text-gray-500">{t('reports.total_orders')}</p>
         </div>
         <div className="card">
-          <p className="text-2xl font-bold">{totalOrders > 0 ? formatMoney(Math.round(totalSales / totalOrders)) : formatMoney(0)}</p>
+          <p className="text-2xl font-bold">
+            {totalOrders > 0 ? formatMoney(Math.round(totalSales / totalOrders)) : formatMoney(0)}
+          </p>
           <p className="text-sm text-gray-500">{t('reports.avg_order')}</p>
         </div>
         <div className="card">
@@ -146,8 +192,8 @@ export default function ReportsPage() {
             </thead>
             <tbody>
               {categoryData.map(cat => {
-                const totalRev = categoryData.reduce((s, c) => s + c.revenue, 0)
-                const pct = totalRev > 0 ? ((cat.revenue / totalRev) * 100).toFixed(1) : 0
+                const totalRev = categoryData.reduce((s, c) => s + c.revenue, 0);
+                const pct = totalRev > 0 ? ((cat.revenue / totalRev) * 100).toFixed(1) : 0;
                 return (
                   <tr key={cat.id} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="py-3 px-2 font-medium">{cat.name || cat.nameAr}</td>
@@ -156,13 +202,16 @@ export default function ReportsPage() {
                     <td className="py-3 px-2">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 bg-gray-200 rounded-full h-2">
-                          <div className="bg-primary-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                          <div
+                            className="bg-primary-500 h-2 rounded-full"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                         <span className="text-xs">{pct}%</span>
                       </div>
                     </td>
                   </tr>
-                )
+                );
               })}
             </tbody>
           </table>
@@ -196,5 +245,5 @@ export default function ReportsPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,56 +1,71 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api } from '../services/api'
-import { Business, MenuCategory } from '../types'
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '../services/api';
+import { Business, MenuCategory } from '../types';
 import {
-  Coffee, ShoppingBag, Wifi, Bell, Clock, ChefHat,
-  ArrowLeft, Phone, MapPin, Star, Sparkles, Utensils,
-  Gift, Percent,
-} from 'lucide-react'
-import LanguageSwitcher from '../components/ui/LanguageSwitcher'
-import toast from 'react-hot-toast'
-import { useTranslation } from '../i18n/useTranslation'
+  Coffee,
+  ShoppingBag,
+  Wifi,
+  Bell,
+  Clock,
+  ChefHat,
+  MapPin,
+  Star,
+  Sparkles,
+  Utensils,
+  Gift,
+} from 'lucide-react';
+import LanguageSwitcher from '../components/ui/LanguageSwitcher';
+import toast from 'react-hot-toast';
+import { useTranslation } from '../i18n/useTranslation';
 
 export default function ConsumerHomePage() {
-  const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const urlBusinessId = searchParams.get('businessId') || ''
-  const tableId = searchParams.get('tableId')
-  const tableNumber = searchParams.get('table')
-  const [businessId, setBusinessId] = useState(urlBusinessId)
-  const [business, setBusiness] = useState<Business | null>(null)
-  const [stats, setStats] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const urlBusinessId = searchParams.get('businessId') || '';
+  const tableId = searchParams.get('tableId');
+  const tableNumber = searchParams.get('table');
+  const [businessId, setBusinessId] = useState(urlBusinessId);
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [stats, setStats] = useState<{ categories: number; items: number } | null>(null);
+  const [, setLoading] = useState(true);
 
   useEffect(() => {
-    if (urlBusinessId) { setBusinessId(urlBusinessId); return }
+    if (urlBusinessId) {
+      setBusinessId(urlBusinessId);
+      return;
+    }
     fetch('/api/settings/public')
       .then(r => r.json())
       .then(b => {
         if (b?.id) {
-          setBusinessId(b.id)
-          setBusiness(b)
+          setBusinessId(b.id);
+          setBusiness(b);
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [urlBusinessId])
+      .finally(() => setLoading(false));
+  }, [urlBusinessId]);
 
   useEffect(() => {
-    if (!businessId) { setLoading(false); return }
-    api.getCategories(businessId)
-      .then((cats) => {
-        const itemsCount = cats.reduce((s: number, c: MenuCategory) => s + c.items.length, 0)
-        setStats({ categories: cats.length, items: itemsCount })
+    if (!businessId) {
+      setLoading(false);
+      return;
+    }
+    api
+      .getCategories(businessId)
+      .then(cats => {
+        const itemsCount = cats.reduce((s: number, c: MenuCategory) => s + c.items.length, 0);
+        setStats({ categories: cats.length, items: itemsCount });
       })
-      .catch(() => {})
+      .catch(() => {});
     fetch(`/api/settings/public/${businessId}`)
       .then(r => r.json())
       .then(setBusiness)
       .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [businessId])
+      .finally(() => setLoading(false));
+  }, [businessId]);
 
   const handleCallWaiter = async () => {
     try {
@@ -58,12 +73,12 @@ export default function ConsumerHomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tableId, businessId, message: 'طلب مساعدة' }),
-      })
-      toast.success('تم استدعاء النادل!')
+      });
+      toast.success('تم استدعاء النادل!');
     } catch {
-      toast.error('فشل استدعاء النادل')
+      toast.error('فشل استدعاء النادل');
     }
-  }
+  };
 
   const quickActions = [
     {
@@ -97,11 +112,11 @@ export default function ConsumerHomePage() {
       gradient: 'from-purple-500 to-violet-500',
       shadow: 'shadow-purple-200',
       onClick: () => {
-        const num = prompt('أدخل رقم الطلب:')
-        if (num) navigate(`/order/${num}?businessId=${businessId}`)
+        const num = prompt('أدخل رقم الطلب:');
+        if (num) navigate(`/order/${num}?businessId=${businessId}`);
       },
     },
-  ]
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-surface-950 via-primary-950 to-surface-950">
@@ -128,7 +143,9 @@ export default function ConsumerHomePage() {
             <div className="inline-flex items-center gap-2.5 bg-white/10 backdrop-blur-md border border-white/10 px-5 py-2.5 rounded-full shadow-lg animate-fade-in">
               <MapPin size={14} className="text-emerald-300" />
               <span className="text-white/80 text-sm">{t('consumer.table')}</span>
-              <span className="font-bold text-white bg-emerald-500/30 px-2.5 py-0.5 rounded-full text-sm">{tableNumber}</span>
+              <span className="font-bold text-white bg-emerald-500/30 px-2.5 py-0.5 rounded-full text-sm">
+                {tableNumber}
+              </span>
             </div>
           )}
 
@@ -154,11 +171,15 @@ export default function ConsumerHomePage() {
                 className="group relative flex flex-col items-center gap-3 p-5 rounded-3xl bg-gradient-to-br from-surface-50 to-white border border-surface-100 hover:border-primary-100 hover:shadow-lg transition-all duration-300 active:scale-[0.97]"
                 style={{ animationDelay: `${idx * 0.08}s` }}
               >
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${action.gradient} ${action.shadow} flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                <div
+                  className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${action.gradient} ${action.shadow} flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}
+                >
                   <action.icon className="w-7 h-7 text-white" />
                 </div>
                 <span className="font-bold text-surface-800 text-sm">{action.label}</span>
-                <span className="text-[11px] text-surface-400 leading-tight text-center">{action.desc}</span>
+                <span className="text-[11px] text-surface-400 leading-tight text-center">
+                  {action.desc}
+                </span>
               </button>
             ))}
           </div>
@@ -226,5 +247,5 @@ export default function ConsumerHomePage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

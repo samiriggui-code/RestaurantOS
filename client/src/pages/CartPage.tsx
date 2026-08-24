@@ -1,57 +1,85 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useCart } from '../store/CartContext'
-import { useAuthStore } from '../store/authStore'
-import { useNetworkStatus } from '../hooks/useNetworkStatus'
-import { useTranslation } from '../i18n/useTranslation'
-import { api } from '../services/api'
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCart } from '../store/CartContext';
+import { useAuthStore } from '../store/authStore';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { useTranslation } from '../i18n/useTranslation';
+import { api } from '../services/api';
 import {
-  Trash2, Plus, Minus, ArrowRight, CreditCard, Store, Package, Truck,
-  WifiOff, ShoppingBag, Wallet, Sparkles, MapPin, Receipt,
-} from 'lucide-react'
-import toast from 'react-hot-toast'
+  Trash2,
+  Plus,
+  Minus,
+  ArrowRight,
+  CreditCard,
+  Store,
+  Package,
+  Truck,
+  WifiOff,
+  ShoppingBag,
+  Wallet,
+  MapPin,
+  Receipt,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function CartPage() {
-  const { t } = useTranslation()
-  const isOnline = useNetworkStatus()
-  const navigate = useNavigate()
-  const { business } = useAuthStore()
+  const { t } = useTranslation();
+  const isOnline = useNetworkStatus();
+  const navigate = useNavigate();
+  const { business } = useAuthStore();
   const {
-    items, subtotal, tableId, existingOrderId, orderType, customerName, customerPhone, notes, businessId,
-    setOrderType, setCustomerName, setCustomerPhone, setNotes,
-    removeItem, updateItemQuantity, clearCart,
-  } = useCart()
-  const effectiveBusinessId = business?.id || businessId || new URLSearchParams(window.location.search).get('businessId') || ''
-  const [loading, setLoading] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH')
+    items,
+    subtotal,
+    tableId,
+    existingOrderId,
+    orderType,
+    customerName,
+    customerPhone,
+    notes,
+    businessId,
+    setOrderType,
+    setCustomerName,
+    setCustomerPhone,
+    setNotes,
+    removeItem,
+    updateItemQuantity,
+    clearCart,
+  } = useCart();
+  const effectiveBusinessId =
+    business?.id ||
+    businessId ||
+    new URLSearchParams(window.location.search).get('businessId') ||
+    '';
+  const [loading, setLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH');
 
-  const taxRate = business?.taxRate || 15
-  const serviceChargeRate = business?.serviceChargeRate || 10
-  const tax = subtotal * (taxRate / 100)
-  const serviceCharge = orderType === 'DINE_IN' ? subtotal * (serviceChargeRate / 100) : 0
-  const total = subtotal + tax + serviceCharge
+  const taxRate = business?.taxRate || 15;
+  const serviceChargeRate = business?.serviceChargeRate || 10;
+  const tax = subtotal * (taxRate / 100);
+  const serviceCharge = orderType === 'DINE_IN' ? subtotal * (serviceChargeRate / 100) : 0;
+  const total = subtotal + tax + serviceCharge;
 
   const handleSubmitOrder = async () => {
     if (items.length === 0) {
-      toast.error(t('menu_customer.cart_empty'))
-      return
+      toast.error(t('menu_customer.cart_empty'));
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const itemsData = items.map(item => ({
         menuItemId: item.menuItem.id,
         quantity: item.quantity,
         notes: item.notes,
         selectedModifiers: item.selectedModifiers,
-      }))
+      }));
 
       if (existingOrderId) {
-        const order = await api.addItemsToOrder(existingOrderId, itemsData)
-        toast.success('تم إضافة الأصناف للطلب!')
-        clearCart()
-        const params = new URLSearchParams(window.location.search)
-        navigate(`/order/${order.orderNumber}?${params.toString()}`)
+        const order = await api.addItemsToOrder(existingOrderId, itemsData);
+        toast.success('تم إضافة الأصناف للطلب!');
+        clearCart();
+        const params = new URLSearchParams(window.location.search);
+        navigate(`/order/${order.orderNumber}?${params.toString()}`);
       } else {
         const orderData = {
           items: itemsData,
@@ -61,19 +89,19 @@ export default function CartPage() {
           customerPhone: customerPhone || undefined,
           notes: notes || undefined,
           businessId: effectiveBusinessId,
-        }
-        const order = await api.createOrder(orderData)
-        toast.success('تم إرسال الطلب بنجاح!')
-        clearCart()
-        const params = new URLSearchParams(window.location.search)
-        navigate(`/order/${order.orderNumber}?${params.toString()}`)
+        };
+        const order = await api.createOrder(orderData);
+        toast.success('تم إرسال الطلب بنجاح!');
+        clearCart();
+        const params = new URLSearchParams(window.location.search);
+        navigate(`/order/${order.orderNumber}?${params.toString()}`);
       }
-    } catch (err: any) {
-      toast.error(err.message || 'فشل إرسال الطلب')
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || 'فشل إرسال الطلب');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   if (items.length === 0) {
     return (
@@ -88,7 +116,7 @@ export default function CartPage() {
           {t('menu_customer.view_menu')}
         </button>
       </div>
-    )
+    );
   }
 
   return (
@@ -96,12 +124,17 @@ export default function CartPage() {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-white/10 bg-charcoal/95 backdrop-blur-xl">
         <div className="flex items-center gap-3 bg-gradient-to-br from-tomato-dark via-tomato to-tomato-light px-5 py-4">
-          <button onClick={() => navigate('/menu')} className="rounded-2xl bg-white/15 p-2.5 backdrop-blur-sm transition-all hover:bg-white/25">
+          <button
+            onClick={() => navigate('/menu')}
+            className="rounded-2xl bg-white/15 p-2.5 backdrop-blur-sm transition-all hover:bg-white/25"
+          >
             <ArrowRight className="h-5 w-5 text-white" />
           </button>
           <div>
             <h1 className="font-display text-lg font-bold text-white">{t('menu_customer.cart')}</h1>
-            <p className="text-xs text-cream/80">{items.length} {t('menu_customer.cart_items')}</p>
+            <p className="text-xs text-cream/80">
+              {items.length} {t('menu_customer.cart_items')}
+            </p>
           </div>
           <button
             onClick={clearCart}
@@ -115,7 +148,9 @@ export default function CartPage() {
       <div className="p-4 space-y-4">
         {/* Order Type */}
         <div className="rounded-3xl border border-white/10 bg-charcoal/80 p-5 shadow-soft">
-          <label className="mb-4 block text-sm font-bold text-cream/70">{t('menu_customer.order_type')}</label>
+          <label className="mb-4 block text-sm font-bold text-cream/70">
+            {t('menu_customer.order_type')}
+          </label>
           <div className="grid grid-cols-3 gap-2">
             {[
               { value: 'DINE_IN', label: t('menu_customer.dine_in'), icon: Store },
@@ -124,14 +159,17 @@ export default function CartPage() {
             ].map(({ value, label, icon: Icon }) => (
               <button
                 key={value}
-                onClick={() => setOrderType(value as any)}
+                onClick={() => setOrderType(value as 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY')}
                 className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 text-sm font-medium transition-all duration-200 ${
                   orderType === value
                     ? 'border-primary-500 bg-primary-50/50 text-primary-700 shadow-sm'
                     : 'border-surface-100 text-surface-500 hover:border-surface-200 hover:bg-surface-50'
                 }`}
               >
-                <Icon size={22} className={orderType === value ? 'text-primary-500' : 'text-surface-400'} />
+                <Icon
+                  size={22}
+                  className={orderType === value ? 'text-primary-500' : 'text-surface-400'}
+                />
                 <span>{label}</span>
               </button>
             ))}
@@ -177,8 +215,12 @@ export default function CartPage() {
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-surface-800">{item.menuItem.name || item.menuItem.nameAr}</h4>
-                  <span className="text-sm text-primary-600 font-medium">{item.totalPrice.toFixed(2)} د.ج</span>
+                  <h4 className="font-bold text-surface-800">
+                    {item.menuItem.name || item.menuItem.nameAr}
+                  </h4>
+                  <span className="text-sm text-primary-600 font-medium">
+                    {item.totalPrice.toFixed(2)} د.ج
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -187,7 +229,9 @@ export default function CartPage() {
                   >
                     <Minus size={14} className="text-surface-600" />
                   </button>
-                  <span className="w-8 text-center font-bold text-surface-800 text-sm">{item.quantity}</span>
+                  <span className="w-8 text-center font-bold text-surface-800 text-sm">
+                    {item.quantity}
+                  </span>
                   <button
                     onClick={() => updateItemQuantity(index, item.quantity + 1)}
                     className="w-9 h-9 bg-primary-50 hover:bg-primary-100 rounded-xl flex items-center justify-center transition-all active:scale-90"
@@ -203,13 +247,22 @@ export default function CartPage() {
                 </div>
               </div>
               {item.notes && (
-                <p className="text-xs text-surface-400 bg-surface-50 rounded-xl px-3 py-1.5 mt-1">📝 {item.notes}</p>
+                <p className="text-xs text-surface-400 bg-surface-50 rounded-xl px-3 py-1.5 mt-1">
+                  📝 {item.notes}
+                </p>
               )}
               {item.selectedModifiers && Object.keys(item.selectedModifiers).length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {Object.values(item.selectedModifiers).flat().map((mod, i) => (
-                    <span key={i} className="text-[10px] px-2.5 py-1 bg-primary-50 text-primary-600 rounded-lg font-medium">+{mod}</span>
-                  ))}
+                  {Object.values(item.selectedModifiers)
+                    .flat()
+                    .map((mod, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] px-2.5 py-1 bg-primary-50 text-primary-600 rounded-lg font-medium"
+                      >
+                        +{mod}
+                      </span>
+                    ))}
                 </div>
               )}
             </div>
@@ -219,8 +272,11 @@ export default function CartPage() {
         {/* Notes & Payment */}
         <div className="bg-white rounded-3xl p-5 border border-surface-100 shadow-soft space-y-4">
           <div>
-            <label className="block text-sm font-bold text-surface-600 mb-2">ملاحظات</label>
+            <label htmlFor="cart-notes" className="block text-sm font-bold text-surface-600 mb-2">
+              ملاحظات
+            </label>
             <textarea
+              id="cart-notes"
               value={notes}
               onChange={e => setNotes(e.target.value)}
               className="textarea-field"
@@ -256,7 +312,9 @@ export default function CartPage() {
 
         {/* Payment Method */}
         <div className="bg-white rounded-3xl p-5 border border-surface-100 shadow-soft">
-          <label className="block text-sm font-bold text-surface-600 mb-4">{t('menu_customer.payment_method')}</label>
+          <label className="block text-sm font-bold text-surface-600 mb-4">
+            {t('menu_customer.payment_method')}
+          </label>
           <div className="grid grid-cols-2 gap-3">
             {[
               { value: 'CASH', label: 'نقداً', icon: Wallet },
@@ -264,14 +322,17 @@ export default function CartPage() {
             ].map(({ value, label, icon: Icon }) => (
               <button
                 key={value}
-                onClick={() => setPaymentMethod(value as any)}
+                onClick={() => setPaymentMethod(value as 'CASH' | 'CARD')}
                 className={`flex items-center justify-center gap-2.5 p-4 rounded-2xl border-2 font-medium transition-all duration-200 ${
                   paymentMethod === value
                     ? 'border-primary-500 bg-primary-50/50 text-primary-700 shadow-sm'
                     : 'border-surface-100 text-surface-500 hover:border-surface-200 hover:bg-surface-50'
                 }`}
               >
-                <Icon size={20} className={paymentMethod === value ? 'text-primary-500' : 'text-surface-400'} />
+                <Icon
+                  size={20}
+                  className={paymentMethod === value ? 'text-primary-500' : 'text-surface-400'}
+                />
                 <span>{label}</span>
               </button>
             ))}
@@ -306,5 +367,5 @@ export default function CartPage() {
         </button>
       </div>
     </div>
-  )
+  );
 }

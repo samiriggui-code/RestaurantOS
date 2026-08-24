@@ -1,11 +1,11 @@
-import { io, Socket } from 'socket.io-client'
+import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
-let socket: Socket | null = null
+let socket: Socket | null = null;
 
 export const getSocket = (token?: string): Socket => {
-  if (socket?.connected) return socket
+  if (socket?.connected) return socket;
 
   socket = io(SOCKET_URL, {
     auth: { token },
@@ -14,23 +14,21 @@ export const getSocket = (token?: string): Socket => {
     reconnectionDelay: 1000,
     reconnectionAttempts: 10,
     timeout: 5000,
-  })
+  });
 
-  socket.on('connect', () => console.log('🔌 Socket connected'))
-  socket.on('disconnect', (reason) => console.log('🔌 Socket disconnected:', reason))
-  socket.on('connect_error', (err) => console.warn('Socket error:', err.message))
+  socket.on('connect_error', err => console.warn('Socket error:', err.message));
 
-  return socket
-}
+  return socket;
+};
 
 export const disconnectSocket = () => {
   if (socket) {
-    socket.disconnect()
-    socket = null
+    socket.disconnect();
+    socket = null;
   }
-}
+};
 
 export const reconnectSocket = (token?: string) => {
-  disconnectSocket()
-  return getSocket(token)
-}
+  disconnectSocket();
+  return getSocket(token);
+};

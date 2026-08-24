@@ -1,17 +1,48 @@
-import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
-  TrendingUp, TrendingDown, ShoppingCart, Table2, DollarSign, Clock,
-  Users, Package, ArrowUpRight, CreditCard, Percent,
-} from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import api from '../../services/api'
-import { useAuthStore } from '../../store/authStore'
-import { getSocket } from '../../services/socket'
-import { useTranslation } from 'react-i18next'
-import { formatMoney } from '../../lib/locale'
+  TrendingUp,
+  TrendingDown,
+  ShoppingCart,
+  Table2,
+  DollarSign,
+  Clock,
+  Users,
+  Package,
+  CreditCard,
+  Percent,
+  type LucideIcon,
+} from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import api from '../../services/api';
+import { useAuthStore } from '../../store/authStore';
+import { getSocket } from '../../services/socket';
+import { useTranslation } from 'react-i18next';
+import { formatMoney } from '../../lib/locale';
 
-const StatCard = ({ title, value, sub, icon: Icon, trend, color }: any) => (
+const StatCard = ({
+  title,
+  value,
+  sub,
+  icon: Icon,
+  trend,
+  color,
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+  icon: LucideIcon;
+  trend?: number;
+  color?: string;
+}) => (
   <div className="relative group bg-surface-800 rounded-2xl p-5 border border-surface-600/40 hover:border-primary-500/30 transition-all duration-300 hover:shadow-glow overflow-hidden">
     <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
     <div className="relative z-10">
@@ -20,9 +51,11 @@ const StatCard = ({ title, value, sub, icon: Icon, trend, color }: any) => (
           <Icon size={20} className={color ? 'text-white' : 'text-primary-200'} />
         </div>
         {trend !== undefined && (
-          <span className={`text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-full ${
-            trend >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
-          }`}>
+          <span
+            className={`text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-full ${
+              trend >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
+            }`}
+          >
             {trend >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
             {Math.abs(trend).toFixed(1)}%
           </span>
@@ -33,49 +66,50 @@ const StatCard = ({ title, value, sub, icon: Icon, trend, color }: any) => (
       {sub && <div className="text-xs text-surface-400 mt-1">{sub}</div>}
     </div>
   </div>
-)
+);
 
 export default function DashboardPage() {
-  const { t } = useTranslation()
-  const { user } = useAuthStore()
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
+  const { t } = useTranslation();
+  useAuthStore();
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const { data } = await api.get('/reports/dashboard')
-      return data
+      const { data } = await api.get('/reports/dashboard');
+      return data;
     },
     refetchInterval: 60_000,
-  })
+  });
 
   const { data: salesData } = useQuery({
     queryKey: ['sales-chart'],
     queryFn: async () => {
-      const { data } = await api.get('/reports/sales?period=week')
-      return data
+      const { data } = await api.get('/reports/sales?period=week');
+      return data;
     },
-  })
+  });
 
   useEffect(() => {
-    const socket = getSocket(token || undefined)
-    const handleNewData = () => refetch()
-    socket.on('order:created', handleNewData)
-    socket.on('payment:completed', handleNewData)
+    const socket = getSocket(token || undefined);
+    const handleNewData = () => refetch();
+    socket.on('order:created', handleNewData);
+    socket.on('payment:completed', handleNewData);
     return () => {
-      socket.off('order:created', handleNewData)
-      socket.off('payment:completed', handleNewData)
-    }
-  }, [refetch])
+      socket.off('order:created', handleNewData);
+      socket.off('payment:completed', handleNewData);
+    };
+  }, [refetch, token]);
 
-  if (isLoading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
-    </div>
-  )
+  if (isLoading)
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
+      </div>
+    );
 
-  const s = data?.sales
-  const o = data?.operations
+  const s = data?.sales;
+  const o = data?.operations;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -164,7 +198,9 @@ export default function DashboardPage() {
               <TrendingUp size={18} className="text-primary-200" />
               {t('dashboard.sales_chart')}
             </h2>
-            <span className="text-xs text-surface-400 bg-surface-700 px-2.5 py-1 rounded-lg">آخر 7 أيام</span>
+            <span className="text-xs text-surface-400 bg-surface-700 px-2.5 py-1 rounded-lg">
+              آخر 7 أيام
+            </span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={salesData.byDay}>
@@ -180,7 +216,13 @@ export default function DashboardPage() {
                 }}
                 labelStyle={{ color: '#c3c6d7' }}
               />
-              <Line type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={2} dot={{ fill: '#2563eb', r: 3 }} />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="#2563eb"
+                strokeWidth={2}
+                dot={{ fill: '#2563eb', r: 3 }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -193,50 +235,75 @@ export default function DashboardPage() {
             {t('dashboard.recent_orders')}
           </h2>
           <div className="space-y-1">
-            {data.recentOrders.slice(0, 8).map((order: any, i: number) => (
-              <div
-                key={order.id}
-                className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-surface-700/50 transition-all duration-200 animate-fade-in"
-                style={{ animationDelay: `${i * 0.05}s` }}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center text-xs font-bold text-surface-200">
-                    #{String(order.orderNumber).slice(-3)}
-                  </span>
-                  <div>
-                    <span className="text-sm font-medium text-surface-50">
-                      {order.customerName || `${t('consumer.table')} ${order.table?.number || '-'}`}
+            {data.recentOrders.slice(0, 8).map(
+              (
+                order: {
+                  id: string;
+                  orderNumber: string | number;
+                  customerName?: string;
+                  table?: { number?: string | number };
+                  status: string;
+                  total: number;
+                },
+                i: number
+              ) => (
+                <div
+                  key={order.id}
+                  className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-surface-700/50 transition-all duration-200 animate-fade-in"
+                  style={{ animationDelay: `${i * 0.05}s` }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center text-xs font-bold text-surface-200">
+                      #{String(order.orderNumber).slice(-3)}
                     </span>
-                    {order.table && (
-                      <span className="text-xs text-surface-400 mr-2">
-                        {t('consumer.table')} {order.table.number}
+                    <div>
+                      <span className="text-sm font-medium text-surface-50">
+                        {order.customerName ||
+                          `${t('consumer.table')} ${order.table?.number || '-'}`}
                       </span>
-                    )}
+                      {order.table && (
+                        <span className="text-xs text-surface-400 mr-2">
+                          {t('consumer.table')} {order.table.number}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                        order.status === 'DELIVERED'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : order.status === 'PREPARING'
+                            ? 'bg-amber-500/15 text-amber-300'
+                            : order.status === 'READY'
+                              ? 'bg-blue-500/15 text-blue-300'
+                              : order.status === 'CANCELLED'
+                                ? 'bg-red-500/15 text-red-300'
+                                : 'bg-surface-600 text-surface-300'
+                      }`}
+                    >
+                      {order.status === 'DELIVERED'
+                        ? t('orders.delivered')
+                        : order.status === 'PREPARING'
+                          ? t('orders.preparing')
+                          : order.status === 'READY'
+                            ? t('orders.ready')
+                            : order.status === 'CANCELLED'
+                              ? t('orders.cancelled')
+                              : order.status === 'PENDING'
+                                ? t('orders.pending')
+                                : order.status}
+                    </span>
+                    <span className="text-sm text-emerald-300 font-medium">
+                      {formatMoney(order.total ?? 0)}
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                    order.status === 'DELIVERED' ? 'bg-emerald-500/15 text-emerald-300' :
-                    order.status === 'PREPARING' ? 'bg-amber-500/15 text-amber-300' :
-                    order.status === 'READY' ? 'bg-blue-500/15 text-blue-300' :
-                    order.status === 'CANCELLED' ? 'bg-red-500/15 text-red-300' :
-                    'bg-surface-600 text-surface-300'
-                  }`}>
-                    {order.status === 'DELIVERED' ? t('orders.delivered') :
-                     order.status === 'PREPARING' ? t('orders.preparing') :
-                     order.status === 'READY' ? t('orders.ready') :
-                     order.status === 'CANCELLED' ? t('orders.cancelled') :
-                     order.status === 'PENDING' ? t('orders.pending') : order.status}
-                  </span>
-                  <span className="text-sm text-emerald-300 font-medium">
-                    {formatMoney(order.total ?? 0)}
-                  </span>
-                </div>
-              </div>
-            ))}
+              )
+            )}
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

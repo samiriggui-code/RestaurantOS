@@ -1,45 +1,48 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
-import { fiscalGenesisHash, fiscalHmac } from './hash'
-import { appendFiscalEvent, logFiscalEvent } from './events'
+import type { Prisma, PrismaClient } from '@prisma/client';
+import { fiscalGenesisHash, fiscalHmac } from './hash';
+import { appendFiscalEvent, logFiscalEvent } from './events';
 import {
   aggregateTaxByRate,
   bpsFromBusinessTaxRate,
   fiscalLinesFromOrder,
   resolveOrderPriceMode,
   sumTaxByRate,
-} from './vat'
-import { parseBusinessSettings } from '../business-settings'
+} from './vat';
+import { parseBusinessSettings } from '../business-settings';
 
 export type IssueFiscalTicketInput = {
-  businessId: string
-  orderId: string
-  operatorId?: string | null
-  paymentMethod?: string | null
-  offlineRef?: string | null
-  offlineSoldAt?: Date | null
-}
+  businessId: string;
+  orderId: string;
+  operatorId?: string | null;
+  paymentMethod?: string | null;
+  offlineRef?: string | null;
+  offlineSoldAt?: Date | null;
+};
 
 export type IssueFiscalVoidInput = {
-  businessId: string
-  voidOfTicketId: string
-  operatorId: string
-  reason: string
-}
+  businessId: string;
+  voidOfTicketId: string;
+  operatorId: string;
+  reason: string;
+};
 
 function softwareVersion(): string {
-  return process.env.FISCAL_SOFTWARE_VERSION ?? '1.0.0'
+  return process.env.FISCAL_SOFTWARE_VERSION ?? '1.0.0';
 }
 
 async function isTrainingMode(prisma: PrismaClient, businessId: string): Promise<boolean> {
-  const biz = await prisma.business.findUnique({ where: { id: businessId }, select: { settings: true } })
-  const settings = parseBusinessSettings(biz?.settings)
-  return settings.fiscalTrainingMode === true
+  const biz = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { settings: true },
+  });
+  const settings = parseBusinessSettings(biz?.settings);
+  return settings.fiscalTrainingMode === true;
 }
 
 /** Idempotent : un ticket SALE par commande (hors TRAINING). */
 export async function ensureFiscalTicketForPaidOrder(
   prisma: PrismaClient,
-  input: IssueFiscalTicketInput,
+  input: IssueFiscalTicketInput
 ): Promise<{ ticketId: string; serialNumber: number; created: boolean } | null> {
   const existing = await prisma.fiscalTicket.findFirst({
     where: {
@@ -47,51 +50,52 @@ export async function ensureFiscalTicketForPaidOrder(
       orderId: input.orderId,
       kind: { in: ['SALE', 'TRAINING'] },
     },
-  })
+  });
   if (existing) {
-    return { ticketId: existing.id, serialNumber: existing.serialNumber, created: false }
+    return { ticketId: existing.id, serialNumber: existing.serialNumber, created: false };
   }
 
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, businessId: input.businessId, paymentStatus: 'PAID' },
     include: { items: { include: { menuItem: true } } },
-  })
-  if (!order) return null
+  });
+  if (!order) return null;
 
-  const training = await isTrainingMode(prisma, input.businessId)
+  const training = await isTrainingMode(prisma, input.businessId);
   const ticket = await issueFiscalTicket(prisma, {
     ...input,
     kind: training ? 'TRAINING' : 'SALE',
     order,
-  })
-  return { ticketId: ticket.id, serialNumber: ticket.serialNumber, created: true }
+  });
+  return { ticketId: ticket.id, serialNumber: ticket.serialNumber, created: true };
 }
 
 type OrderWithItems = Prisma.OrderGetPayload<{
-  include: { items: { include: { menuItem: true } } }
-}>
+  include: { items: { include: { menuItem: true } } };
+}>;
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- retour = payload Prisma FiscalTicket, dérivé du schéma généré.
 export async function issueFiscalTicket(
   prisma: PrismaClient,
-  input: IssueFiscalTicketInput & { kind?: string; order: OrderWithItems },
+  input: IssueFiscalTicketInput & { kind?: string; order: OrderWithItems }
 ) {
-  const business = await prisma.business.findUniqueOrThrow({ where: { id: input.businessId } })
-  const defaultVatBps = bpsFromBusinessTaxRate(business.taxRate)
-  const priceMode = resolveOrderPriceMode(input.order)
-  const lines = fiscalLinesFromOrder(input.order, defaultVatBps)
-  const taxByRate = aggregateTaxByRate(lines, priceMode)
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: input.businessId } });
+  const defaultVatBps = bpsFromBusinessTaxRate(business.taxRate);
+  const priceMode = resolveOrderPriceMode(input.order);
+  const lines = fiscalLinesFromOrder(input.order, defaultVatBps);
+  const taxByRate = aggregateTaxByRate(lines, priceMode);
 
   // Caisse HT : recaler sur Order.tax si écart minime
   if (priceMode === 'HT' && input.order.tax > 0) {
-    const computed = sumTaxByRate(taxByRate)
+    const computed = sumTaxByRate(taxByRate);
     if (Math.abs(computed - input.order.tax) > 2 && Object.keys(taxByRate).length === 1) {
-      const key = Object.keys(taxByRate)[0]
-      taxByRate[key] = input.order.tax
+      const key = Object.keys(taxByRate)[0];
+      taxByRate[key] = input.order.tax;
     }
   }
 
-  const kind = input.kind ?? 'SALE'
-  const issuedAt = new Date()
+  const kind = input.kind ?? 'SALE';
+  const issuedAt = new Date();
   const payload = {
     orderNumber: input.order.orderNumber,
     type: input.order.type,
@@ -103,9 +107,9 @@ export async function issueFiscalTicket(
     customerName: input.order.customerName,
     isOnlineOrder: input.order.isOnlineOrder,
     priceMode,
-  } satisfies Record<string, unknown>
+  } satisfies Record<string, unknown>;
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async tx => {
     const seq = await tx.fiscalSequence.upsert({
       where: { businessId: input.businessId },
       create: {
@@ -113,10 +117,10 @@ export async function issueFiscalTicket(
         softwareVersion: softwareVersion(),
       },
       update: {},
-    })
+    });
 
-    const serialNumber = seq.nextTicketNo
-    const previousHash = seq.lastTicketHash ?? fiscalGenesisHash()
+    const serialNumber = seq.nextTicketNo;
+    const previousHash = seq.lastTicketHash ?? fiscalGenesisHash();
 
     const hashBody = JSON.stringify({
       serialNumber,
@@ -130,8 +134,8 @@ export async function issueFiscalTicket(
       operatorId: input.operatorId ?? input.order.cashierId,
       offlineRef: input.offlineRef ?? null,
       previousHash,
-    })
-    const recordHash = fiscalHmac(hashBody)
+    });
+    const recordHash = fiscalHmac(hashBody);
 
     const ticket = await tx.fiscalTicket.create({
       data: {
@@ -152,9 +156,9 @@ export async function issueFiscalTicket(
         previousHash,
         recordHash,
       },
-    })
+    });
 
-    const grandDelta = BigInt(kind === 'VOID' ? -input.order.total : input.order.total)
+    const grandDelta = BigInt(kind === 'VOID' ? -input.order.total : input.order.total);
     await tx.fiscalSequence.update({
       where: { businessId: input.businessId },
       data: {
@@ -163,7 +167,7 @@ export async function issueFiscalTicket(
         grandTotalCents: seq.grandTotalCents + grandDelta,
         softwareVersion: softwareVersion(),
       },
-    })
+    });
 
     await appendFiscalEvent(tx, {
       businessId: input.businessId,
@@ -178,38 +182,41 @@ export async function issueFiscalTicket(
         totalCents: input.order.total,
         offlineRef: input.offlineRef ?? undefined,
       },
-    })
+    });
 
-    return ticket
-  })
+    return ticket;
+  });
 }
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- retour = payload Prisma FiscalTicket, dérivé du schéma généré.
 export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVoidInput) {
   const original = await prisma.fiscalTicket.findFirst({
     where: { id: input.voidOfTicketId, businessId: input.businessId, kind: 'SALE' },
-  })
+  });
   if (!original) {
-    throw new Error('Ticket fiscal original introuvable')
+    throw new Error('Ticket fiscal original introuvable');
   }
 
   const existingVoid = await prisma.fiscalTicket.findFirst({
     where: { businessId: input.businessId, voidOfId: original.id },
-  })
+  });
   if (existingVoid) {
-    return existingVoid
+    return existingVoid;
   }
 
-  const issuedAt = new Date()
-  const totalCents = -original.totalCents
-  const subtotalCents = -original.subtotalCents
+  const issuedAt = new Date();
+  const totalCents = -original.totalCents;
+  const subtotalCents = -original.subtotalCents;
   const taxByRate = Object.fromEntries(
-    Object.entries(original.taxByRate as Record<string, number>).map(([k, v]) => [k, -v]),
-  )
+    Object.entries(original.taxByRate as Record<string, number>).map(([k, v]) => [k, -v])
+  );
 
-  return prisma.$transaction(async (tx) => {
-    const seq = await tx.fiscalSequence.findUniqueOrThrow({ where: { businessId: input.businessId } })
-    const serialNumber = seq.nextTicketNo
-    const previousHash = seq.lastTicketHash ?? fiscalGenesisHash()
+  return prisma.$transaction(async tx => {
+    const seq = await tx.fiscalSequence.findUniqueOrThrow({
+      where: { businessId: input.businessId },
+    });
+    const serialNumber = seq.nextTicketNo;
+    const previousHash = seq.lastTicketHash ?? fiscalGenesisHash();
 
     const hashBody = JSON.stringify({
       serialNumber,
@@ -219,8 +226,8 @@ export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVo
       voidReason: input.reason,
       totalCents,
       previousHash,
-    })
-    const recordHash = fiscalHmac(hashBody)
+    });
+    const recordHash = fiscalHmac(hashBody);
 
     const ticket = await tx.fiscalTicket.create({
       data: {
@@ -245,7 +252,7 @@ export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVo
         voidOfId: original.id,
         voidReason: input.reason,
       },
-    })
+    });
 
     await tx.fiscalSequence.update({
       where: { businessId: input.businessId },
@@ -254,7 +261,7 @@ export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVo
         lastTicketHash: recordHash,
         grandTotalCents: seq.grandTotalCents + BigInt(totalCents),
       },
-    })
+    });
 
     await appendFiscalEvent(tx, {
       businessId: input.businessId,
@@ -263,10 +270,10 @@ export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVo
       entityType: 'FiscalTicket',
       entityId: ticket.id,
       payload: { voidOfSerial: original.serialNumber, reason: input.reason },
-    })
+    });
 
-    return ticket
-  })
+    return ticket;
+  });
 }
 
 /** Réimpression : incrémente compteur + JET (ticket immuable — pas de UPDATE sur FiscalTicket). */
@@ -274,20 +281,20 @@ export async function recordFiscalReprint(
   prisma: PrismaClient,
   businessId: string,
   orderId: string,
-  operatorId?: string | null,
+  operatorId?: string | null
 ): Promise<number> {
   const ticket = await prisma.fiscalTicket.findFirst({
     where: { businessId, orderId, kind: { in: ['SALE', 'TRAINING'] } },
     orderBy: { serialNumber: 'desc' },
-  })
-  if (!ticket) return 0
+  });
+  if (!ticket) return 0;
 
   // reprintCount sur ticket : nécessiterait UPDATE interdit — stocker dans JET + table annexe
   // Pour ISCA : compteur via événements REPRINT
   const count = await prisma.fiscalEvent.count({
     where: { businessId, eventType: 'REPRINT', entityId: ticket.id },
-  })
-  const next = count + 1
+  });
+  const next = count + 1;
 
   await logFiscalEvent(prisma, {
     businessId,
@@ -296,7 +303,7 @@ export async function recordFiscalReprint(
     entityType: 'FiscalTicket',
     entityId: ticket.id,
     payload: { serialNumber: ticket.serialNumber, reprintNumber: next, duplicata: true },
-  })
+  });
 
-  return next
+  return next;
 }

@@ -421,12 +421,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           </div>
         </div>
 
-        {error && (
-          <p className="rounded-xl border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
-            {error}
-          </p>
-        )}
-
+        {/* Erreurs paiement = CheckoutPayment uniquement (pas de doublon avec `error` parent). */}
         <CheckoutPayment
           lines={lines}
           checkout={checkoutDraft}

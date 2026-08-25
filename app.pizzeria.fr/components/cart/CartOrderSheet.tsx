@@ -406,7 +406,7 @@ export function CartOrderSheet() {
                 </button>
               )}
 
-              {panelProps.error && (
+              {panelProps.error && step !== 'confirm' && (
                 <p className="mt-2 text-xs text-red-400">{panelProps.error}</p>
               )}
             </>

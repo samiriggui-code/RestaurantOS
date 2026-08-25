@@ -85,13 +85,11 @@ function SumupCardForm({
   draftId,
   checkoutId,
   onSuccess,
-  onError,
 }: {
   total: number
   draftId: string
   checkoutId: string
   onSuccess: (token: string, orderNumber: number) => void
-  onError: (message: string) => void
 }) {
   const [paying, setPaying] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
@@ -100,7 +98,6 @@ function SumupCardForm({
 
   function reportError(message: string) {
     setPayError(message)
-    onError(message)
   }
 
   useEffect(() => {
@@ -313,9 +310,12 @@ export function CheckoutPayment({
         setCheckoutId(data.checkoutId)
       } catch (err) {
         if (cancelled || abort.signal.aborted) return
-        const message = err instanceof Error ? err.message : 'Erreur initialisation paiement'
+        // Affiché une seule fois ici — ne pas remonter au parent (évite le triple « SumUp non configuré »).
+        const raw = err instanceof Error ? err.message : 'Erreur initialisation paiement'
+        const message = /sumup|non configuré|paiement en ligne/i.test(raw)
+          ? 'Paiement en ligne indisponible pour le moment. Choisissez « Comptoir » pour commander.'
+          : raw
         setInitError(message)
-        onError(message)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -377,7 +377,6 @@ export function CheckoutPayment({
         draftId={draftId}
         checkoutId={checkoutId}
         onSuccess={onSuccess}
-        onError={onError}
       />
     </div>
   )

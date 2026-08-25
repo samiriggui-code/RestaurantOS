@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { FileText, Loader2, Mail, Phone, Printer, Search, Ban, X } from 'lucide-react'
+import { FileText, Loader2, Mail, Phone, Printer, RefreshCw, Search, Ban, X } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { ORDER_CHANNEL_OPTIONS } from '@/lib/admin-nav'
@@ -32,6 +32,7 @@ import { OrderItemLineTotal, OrderItemLines } from '@/components/ops/OrderItemLi
 import { cn } from '@/lib/cn'
 import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
 import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider'
+import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs'
 
 const STATUS_FILTERS = [
   { value: '', label: 'Tous statuts' },
@@ -268,29 +269,22 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-cream">{title}</h1>
-        <p className="text-sm text-cream/50">{subtitle}</p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {ARCHIVE_PERIODS.map((p) => (
+    <AdminPageShell>
+      <AdminPageHeader
+        title={title}
+        description={subtitle}
+        actions={
           <button
-            key={p.value}
             type="button"
-            onClick={() => setPeriod(p.value)}
-            className={cn(
-              'rounded-xl px-4 py-2 text-sm font-medium',
-              period === p.value
-                ? 'bg-tomato text-white'
-                : 'border border-white/10 text-cream/60 hover:bg-white/5'
-            )}
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm text-cream hover:bg-white/5 disabled:opacity-50"
           >
-            {p.label}
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            Actualiser
           </button>
-        ))}
-      </div>
+        }
+      />
 
       {error && (
         <p className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-2 text-sm text-red-200">
@@ -298,57 +292,79 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
         </p>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/30" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="N°, nom, téléphone…"
-            className="w-full rounded-xl border border-white/10 bg-[#1A1412] py-2.5 pl-10 pr-4 text-cream"
-          />
+      {/* Une seule barre : période · recherche · statut · canal · compteur */}
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+        <div
+          className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
+          role="group"
+          aria-label="Période"
+        >
+          {ARCHIVE_PERIODS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPeriod(p.value)}
+              className={cn(
+                'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                period === p.value
+                  ? 'bg-tomato/20 text-tomato-light'
+                  : 'text-cream/55 hover:bg-white/[0.04] hover:text-cream'
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/35" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="N°, nom, téléphone…"
+              className="w-full rounded-xl border border-white/15 bg-[#120e0c] py-2.5 pl-10 pr-4 text-sm text-cream outline-none placeholder:text-cream/35 focus:border-tomato/40"
+            />
+          </div>
+          <select
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value)}
+            aria-label="Canal"
+            className="w-full shrink-0 rounded-xl border border-white/15 bg-[#120e0c] px-3 py-2.5 text-sm text-cream sm:w-auto sm:min-w-[11rem]"
+          >
+            {ORDER_CHANNEL_OPTIONS.map((o) => (
+              <option key={o.value || 'all'} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div
+          className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
+          role="group"
+          aria-label="Statut"
+        >
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
               type="button"
               onClick={() => setStatusFilter(f.value)}
               className={cn(
-                'rounded-xl px-3 py-2 text-xs font-medium sm:text-sm',
+                'rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:text-sm',
                 statusFilter === f.value
                   ? 'bg-white/15 text-cream'
-                  : 'border border-white/10 text-cream/50 hover:bg-white/5'
+                  : 'text-cream/50 hover:bg-white/[0.04] hover:text-cream'
               )}
             >
               {f.label}
             </button>
           ))}
         </div>
-        <select
-          value={channelFilter}
-          onChange={(e) => setChannelFilter(e.target.value)}
-          className="rounded-xl border border-white/10 bg-[#1A1412] px-3 py-2 text-sm text-cream"
-        >
-          {ORDER_CHANNEL_OPTIONS.map((o) => (
-            <option key={o.value || 'all'} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-cream/50">
-        <span>
+        <p className="text-sm text-cream/50">
           {filtered.length} commande(s) · total affiché {formatEUR(totalAmount)}
-        </span>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="text-tomato-light hover:underline"
-        >
-          Actualiser
-        </button>
+        </p>
       </div>
 
       {loading ? (
@@ -713,6 +729,6 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
           </div>
         </div>
       ) : null}
-    </div>
+    </AdminPageShell>
   )
 }

@@ -697,7 +697,9 @@ export function CheckoutWizard() {
             </div>
           )}
 
-          {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          {error && step !== 'confirm' && (
+            <p className="mt-4 text-sm text-red-400">{error}</p>
+          )}
 
           <div className="mt-8 flex flex-wrap gap-3">
             <button

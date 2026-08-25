@@ -51,19 +51,19 @@ PaymentProvider
 
 ## P1–P5
 
-| Phase     | Contenu (skill URY)                                                                   | Statut                                           |
-| --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| **P1**    | Découpe `orders.ts` + domaine delivery (logique hors monolithe, **URLs API stables**) | ✅ Clos                                          |
-| **A**     | Permissions orders (audit 1.4 restant)                                                | ✅ Clos — `ORDERS_*` + routes gated              |
-| **B**     | Module DRIVER API (audit 1.7)                                                         | ✅ Clos — `lib/driver-actions` + `/api/driver/*` |
-| **C**     | Permissions settings + devices (audit 1.4)                                            | ✅ Clos — `SETTINGS_*` + `DEVICES_*`             |
-| **D**     | Permissions licenses + employees (audit 1.4 restant)                                  | ✅ Clos — `LICENSES_*` + `EMPLOYEES_*`           |
-| **FE**    | DriverCourierView → `/api/driver/*` + auth PIN                                        | ✅ Clos                                          |
-| **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | ✅ Clos — PosSession + merge + gate commande     |
-| **F**     | POS avancé — transfert de commande entre tables/serveurs (stretch, dépend de E)       | Plus tard                                        |
-| **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | ✅ Clos — RBAC + BOM (`7f77adf`)                 |
-| **P3**    | Option B multi-entry frontend                                                         | Plus tard                                        |
-| **P4–P5** | Selon skill (legacy client, Android)                                                  | Plus tard                                        |
+| Phase     | Contenu (skill URY)                                                                   | Statut                                                                        |
+| --------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **P1**    | Découpe `orders.ts` + domaine delivery (logique hors monolithe, **URLs API stables**) | ✅ Clos                                                                       |
+| **A**     | Permissions orders (audit 1.4 restant)                                                | ✅ Clos — `ORDERS_*` + routes gated                                           |
+| **B**     | Module DRIVER API (audit 1.7)                                                         | ✅ Clos — `lib/driver-actions` + `/api/driver/*`                              |
+| **C**     | Permissions settings + devices (audit 1.4)                                            | ✅ Clos — `SETTINGS_*` + `DEVICES_*`                                          |
+| **D**     | Permissions licenses + employees (audit 1.4 restant)                                  | ✅ Clos — `LICENSES_*` + `EMPLOYEES_*`                                        |
+| **FE**    | DriverCourierView → `/api/driver/*` + auth PIN                                        | ✅ Clos                                                                       |
+| **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | ✅ Clos — PosSession + merge + gate commande                                  |
+| **F**     | POS avancé — transfert de commande entre tables/serveurs (stretch, dépend de E)       | ✅ Clos — `lib/order-transfer.ts` + PATCH `/orders/:id/transfer` + dialog POS |
+| **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | ✅ Clos — RBAC + BOM (`7f77adf`)                                              |
+| **P3**    | Option B multi-entry frontend                                                         | Plus tard                                                                     |
+| **P4–P5** | Selon skill (legacy client, Android)                                                  | Plus tard                                                                     |
 
 ### Mini-spec P1 — **CLOS**
 
@@ -170,8 +170,13 @@ PaymentProvider
 
 **Preuve :** tests stock + typecheck au ship P2.
 
-### Mini-spec F — **PLUS TARD** (transfert de commande entre tables/serveurs)
+### Mini-spec F — **CLOS** (transfert de commande entre tables/serveurs)
 
-- Objectif : équivalent de `CaptainTransferDialog` côté URY — réassigner une commande ouverte à une autre table et/ou un autre cashier/serveur, sans passer par annulation.
-- Backend : `PATCH /api/orders/:id/transfer` dans `orders.ts` → `lib/order-transfer.ts`, body `{ tableId?, cashierId? }`, refuse si commande `PAID`/`CANCELLED`/terminale (mêmes garde-fous que merge/split), libère l'ancienne table si plus aucune commande active, occupe la nouvelle.
-- Dépend de E (même famille de garde-fous, même convention de test) — à faire après, pas en parallèle, pour éviter du travail redondant si E fait évoluer les helpers partagés (VAT/totaux/table).
+**Livré (2026-08-25) :**
+
+- `lib/order-transfer.ts` — réassigne une commande ouverte à une autre table et/ou un autre cashier, sans annulation. Refuse si `PAID` ou statut terminal (`COMPLETED`/`DELIVERED`/`CANCELLED`), mêmes garde-fous que merge/split.
+- `PATCH /api/orders/:id/transfer` (`routes/orders.ts`, `...ordersPayment`), body `{ tableId?, cashierId? }`.
+- Libère l'ancienne table uniquement si plus aucune commande active dessus (vérifié par requête, pas une libération inconditionnelle) ; occupe la nouvelle.
+- FE : `OrderTransferDialog.tsx` (choix commande → table cible), tuile dédiée dans `PosSessionTab`.
+
+**Preuve :** `order-transfer.test.ts` (8 tests, dont un cas qui a attrapé un vrai bug avant livraison : le check de libération de table se déclenchait à tort quand seul le cashier changeait) + typecheck serveur/frontend propres + suite complète 187/188 tests verts (1 échec pré-existant sans rapport, `menu.test.ts`).

@@ -38,8 +38,8 @@ type RawCategory = Omit<CatalogCategory, 'items' | 'shortLabel'> & {
   shortLabel?: string;
 };
 
-const DESCRIPTION_TODO =
-  'Description à compléter avec le client — ingrédients non communiqués pour cette pizza';
+/** Vide intentionnellement — pas de recette communiquée, on n'invente pas d'ingrédients sur la carte publique. */
+const DESCRIPTION_TODO = '';
 
 const PIZZA_SIZE_NOTE =
   'Prix Sénior 31 cm — Méga 40 cm, Suprema 50 cm et Supergéante 60×40 cm disponibles';

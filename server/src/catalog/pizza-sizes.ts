@@ -1,13 +1,13 @@
 /** Tailles pizza La Z — grilles tarifaires flyer (prix fixes par palier) */
 
-export type PizzaSizeId = '31' | '40' | '50' | '60x40'
+export type PizzaSizeId = '31' | '40' | '50' | '60x40';
 
 export const PIZZA_SIZES: { id: PizzaSizeId; label: string; seniorLabel?: string }[] = [
   { id: '31', label: '31 cm', seniorLabel: 'Sénior' },
   { id: '40', label: '40 cm', seniorLabel: 'Méga' },
   { id: '50', label: '50 cm', seniorLabel: 'Suprema' },
   { id: '60x40', label: 'Méga 60×40', seniorLabel: 'Supergéante' },
-]
+];
 
 /** Grilles flyer — prix 31 / 40 / 50 / 60×40 cm */
 const PIZZA_PRICE_GRID: Record<number, Record<PizzaSizeId, number>> = {
@@ -15,17 +15,17 @@ const PIZZA_PRICE_GRID: Record<number, Record<PizzaSizeId, number>> = {
   12: { '31': 12, '40': 19.5, '50': 26.5, '60x40': 29.5 },
   13.5: { '31': 13.5, '40': 20.5, '50': 27.5, '60x40': 34.5 },
   16.5: { '31': 16.5, '40': 24.5, '50': 30.5, '60x40': 38.5 },
-}
+};
 
 /** Suppléments — prix par taille (flyer) */
-export type SupplementPriceKey = 'meat-cheese' | 'veg' | 'cheezy' | 'premium'
+export type SupplementPriceKey = 'meat-cheese' | 'veg' | 'cheezy' | 'premium';
 
 export const SUPPLEMENT_PRICE_GRID: Record<SupplementPriceKey, Record<PizzaSizeId, number>> = {
   'meat-cheese': { '31': 2.5, '40': 3.5, '50': 4.5, '60x40': 5.5 },
   veg: { '31': 1, '40': 2, '50': 3, '60x40': 4 },
   cheezy: { '31': 3, '40': 4, '50': 5, '60x40': 6 },
   premium: { '31': 3, '40': 4, '50': 5, '60x40': 6 },
-}
+};
 
 export const SUPPLEMENT_PRICE_KEY_BY_SLUG: Record<string, SupplementPriceKey> = {
   'supplements-viande-fromage': 'meat-cheese',
@@ -33,20 +33,44 @@ export const SUPPLEMENT_PRICE_KEY_BY_SLUG: Record<string, SupplementPriceKey> = 
   'supplements-pate-cheezy': 'cheezy',
   'supplements-magret-jambon-truffe-ou-serrano': 'premium',
   'supplements-magret-ou-jambon-a-la-truffe-ou-jambon-serrano': 'premium',
-}
+};
 
 export function priceForPizzaSize(basePrice31: number, sizeId: PizzaSizeId): number {
-  const grid = PIZZA_PRICE_GRID[basePrice31]
-  if (grid) return grid[sizeId]
+  const grid = PIZZA_PRICE_GRID[basePrice31];
+  if (grid) return grid[sizeId];
   // repli si prix catalogue atypique
-  const tier = basePrice31 >= 16 ? 16.5 : basePrice31 >= 13.5 ? 13.5 : basePrice31 >= 12 ? 12 : 11
-  return PIZZA_PRICE_GRID[tier][sizeId]
+  const tier = basePrice31 >= 16 ? 16.5 : basePrice31 >= 13.5 ? 13.5 : basePrice31 >= 12 ? 12 : 11;
+  return PIZZA_PRICE_GRID[tier][sizeId];
 }
 
 export function priceForSupplement(key: SupplementPriceKey, sizeId: PizzaSizeId): number {
-  return SUPPLEMENT_PRICE_GRID[key][sizeId]
+  return SUPPLEMENT_PRICE_GRID[key][sizeId];
 }
 
 export function pizzaSizeLabel(sizeId: PizzaSizeId): string {
-  return PIZZA_SIZES.find((s) => s.id === sizeId)?.label ?? sizeId
+  return PIZZA_SIZES.find(s => s.id === sizeId)?.label ?? sizeId;
+}
+
+export function pizzaSizeIdFromLabel(label: string): PizzaSizeId | null {
+  return PIZZA_SIZES.find(s => s.label === label)?.id ?? null;
+}
+
+/**
+ * Promo hebdo La Z Pizza (flyer / PROMO.detail, app.pizzeria.fr/lib/pizzeria-content.ts) :
+ * lundi-jeudi Méga à 18€, mardi Sénior à 11€ — à emporter uniquement, hors Les Z Pizzas.
+ * Retourne null si aucune promo ne s'applique (prix normal de la grille à utiliser).
+ * Copie identique côté front (app.pizzeria.fr/lib/pizza-sizes.ts) — garder synchronisées.
+ */
+export function weeklyPromoPrice(
+  categoryId: string,
+  sizeId: PizzaSizeId,
+  orderType: 'pickup' | 'delivery',
+  date: Date = new Date()
+): number | null {
+  if (orderType !== 'pickup') return null;
+  if (categoryId !== 'tomate' && categoryId !== 'creme') return null;
+  const day = date.getDay();
+  if (sizeId === '40' && day >= 1 && day <= 4) return 18;
+  if (sizeId === '31' && day === 2) return 11;
+  return null;
 }

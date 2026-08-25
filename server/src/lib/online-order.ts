@@ -9,6 +9,7 @@ import { validateFormuleLines } from './sync-menu-formules';
 import { generateDeliveryHandoverCode } from './delivery-handover';
 import { geocodeDeliveryAddress } from './geocode';
 import { allocateOrderNumber } from './order-number';
+import { pizzaSizeIdFromLabel, priceForPizzaSize, weeklyPromoPrice } from '../catalog/pizza-sizes';
 
 const SNAPSHOT_SLUG = '__snapshot__';
 
@@ -78,12 +79,32 @@ async function resolveMenuItem(
   businessId: string,
   line: OnlineCartLine,
   snapshotItemId: string
-): Promise<string> {
+): Promise<{ id: string; priceCents: number | null }> {
   const bySlug = await prisma.menuItem.findFirst({
     where: { slug: line.slug, category: { businessId } },
   });
-  if (bySlug && bySlug.slug !== SNAPSHOT_SLUG) return bySlug.id;
-  return snapshotItemId;
+  if (bySlug && bySlug.slug !== SNAPSHOT_SLUG) return { id: bySlug.id, priceCents: bySlug.price };
+  return { id: snapshotItemId, priceCents: null };
+}
+
+/**
+ * Prix serveur-autoritaire d'une ligne pizza taillée : ignore le prix envoyé par le client
+ * pour recalculer taille + promo hebdo à partir du catalogue (évite la manipulation de prix
+ * et applique la promo même si le front a un bug/est désynchronisé).
+ * Retourne null si la ligne n'est pas une pizza taillée reconnue (garde le prix client tel quel).
+ */
+function authoritativePizzaPriceCents(
+  line: OnlineCartLine,
+  catalogPriceCents: number | null,
+  orderType: 'pickup' | 'delivery'
+): number | null {
+  if (catalogPriceCents == null || !line.sizeLabel) return null;
+  const sizeId = pizzaSizeIdFromLabel(line.sizeLabel);
+  if (!sizeId) return null;
+  const basePrice31 = catalogPriceCents / 100;
+  const promo = weeklyPromoPrice(line.categoryId, sizeId, orderType);
+  const normal = priceForPizzaSize(basePrice31, sizeId);
+  return Math.round((promo ?? normal) * 100);
 }
 
 export function validateOnlineOrderBody(body: OnlineOrderBody): string | null {
@@ -175,8 +196,14 @@ export async function createOnlineOrder(
   }> = [];
 
   for (const line of body.lines) {
-    const menuItemId = await resolveMenuItem(prisma, businessId, line, snapshot.id);
-    const priceCents = eurosToCents(line.unitPrice);
+    const resolved = await resolveMenuItem(prisma, businessId, line, snapshot.id);
+    const menuItemId = resolved.id;
+    const authoritative = authoritativePizzaPriceCents(
+      line,
+      resolved.priceCents,
+      checkout.orderType
+    );
+    const priceCents = authoritative ?? eurosToCents(line.unitPrice);
     itemsSubtotalCents += priceCents * line.quantity;
 
     const notes = [line.sizeLabel, line.offerTag ? `Offre: ${line.offerTag}` : null]

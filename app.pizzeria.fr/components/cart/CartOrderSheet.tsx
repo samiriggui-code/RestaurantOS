@@ -68,6 +68,7 @@ export function CartOrderSheet() {
     activeTracking,
     setActiveTracking,
     clearActiveTracking,
+    applyOrderTypePricing,
   } = useCart()
 
   const [mode, setMode] = useState<SheetOrderMode>('delivery')
@@ -76,6 +77,12 @@ export function CartOrderSheet() {
 
   const orderType: OrderType = mode === 'delivery' ? 'delivery' : 'pickup'
   const pizzaSubtotal = useMemo(() => pizzaSubtotalFromLines(lines), [lines])
+
+  // Promo hebdo (Méga lun-jeu 18€, Sénior mardi 11€) : à emporter uniquement — recalculée
+  // à chaque changement de mode, pas à l'ajout au panier (orderType inconnu à ce moment-là).
+  useEffect(() => {
+    applyOrderTypePricing(orderType)
+  }, [orderType, applyOrderTypePricing])
 
   const browseMenu = useCallback(() => {
     closeCartSheet()

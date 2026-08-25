@@ -49,3 +49,26 @@ export function priceForSupplement(key: SupplementPriceKey, sizeId: PizzaSizeId)
 export function pizzaSizeLabel(sizeId: PizzaSizeId): string {
   return PIZZA_SIZES.find((s) => s.id === sizeId)?.label ?? sizeId
 }
+
+export function pizzaSizeIdFromLabel(label: string): PizzaSizeId | null {
+  return PIZZA_SIZES.find((s) => s.label === label)?.id ?? null
+}
+
+/**
+ * Promo hebdo La Z Pizza (flyer / PROMO.detail) : lundi-jeudi Méga à 18€, mardi Sénior à 11€ —
+ * à emporter uniquement, hors Les Z Pizzas. Retourne null si aucune promo ne s'applique
+ * (prix normal de la grille à utiliser).
+ */
+export function weeklyPromoPrice(
+  categoryId: string,
+  sizeId: PizzaSizeId,
+  orderType: 'pickup' | 'delivery',
+  date: Date = new Date(),
+): number | null {
+  if (orderType !== 'pickup') return null
+  if (categoryId !== 'tomate' && categoryId !== 'creme') return null
+  const day = date.getDay()
+  if (sizeId === '40' && day >= 1 && day <= 4) return 18
+  if (sizeId === '31' && day === 2) return 11
+  return null
+}

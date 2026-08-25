@@ -42,6 +42,8 @@ export function AddToCartControl({ item, categoryId, className }: AddToCartContr
       basePrice: item.price,
       unitPrice,
       sizeId: isPizza || isSizedSupplement ? sizeId : undefined,
+      // Prix Sénior catalogue — nécessaire pour recalculer la promo hebdo quand orderType change.
+      catalogPrice: isPizza ? item.price : undefined,
       image: item.image || undefined,
     })
     setAdded(true)

@@ -9,9 +9,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { CartLine } from '@/lib/cart-types'
+import type { CartLine, OrderType } from '@/lib/cart-types'
 import type { PizzaSizeId } from '@/lib/pizza-sizes'
-import { pizzaSizeLabel } from '@/lib/pizza-sizes'
+import { pizzaSizeLabel, priceForPizzaSize, weeklyPromoPrice } from '@/lib/pizza-sizes'
 import { PIZZA_CATEGORY_IDS } from '@/lib/menu-types'
 
 import type { CheckoutStepId } from '@/lib/checkout-flow'
@@ -53,6 +53,8 @@ type CartContextValue = {
   updateQuantity: (lineId: string, quantity: number) => void
   removeLine: (lineId: string) => void
   clearCart: () => void
+  /** Recalcule le prix des pizzas éligibles à la promo hebdo selon le mode choisi (à emporter/livraison). */
+  applyOrderTypePricing: (orderType: OrderType) => void
 }
 
 const CartContext = createContext<CartContextValue | null>(null)
@@ -179,6 +181,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearCart = useCallback(() => setLines([]), [])
 
+  const applyOrderTypePricing = useCallback((orderType: OrderType) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (!l.sizeId || l.catalogPrice == null) return l
+        const normal = priceForPizzaSize(l.catalogPrice, l.sizeId)
+        const promo = weeklyPromoPrice(l.categoryId, l.sizeId, orderType)
+        const unitPrice = promo ?? normal
+        return unitPrice === l.unitPrice ? l : { ...l, unitPrice }
+      }),
+    )
+  }, [])
+
   const itemCount = useMemo(() => lines.reduce((s, l) => s + l.quantity, 0), [lines])
   const subtotal = useMemo(
     () => lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0),
@@ -202,6 +216,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       updateQuantity,
       removeLine,
       clearCart,
+      applyOrderTypePricing,
     }),
     [
       lines,
@@ -219,6 +234,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       updateQuantity,
       removeLine,
       clearCart,
+      applyOrderTypePricing,
     ],
   )
 

@@ -72,3 +72,24 @@ export async function mergeOrders(
     body: JSON.stringify({ targetOrderId, sourceOrderIds }),
   })
 }
+
+export type TransferableTable = { id: string; number: string; capacity: number; status: string }
+
+/** Tables du restaurant, pour choisir la cible d'un transfert de commande. */
+export async function fetchTransferableTables(token: string): Promise<TransferableTable[]> {
+  return staffFetch<TransferableTable[]>('/tables', { token, scope: 'device' })
+}
+
+/** Réassigne une commande ouverte à une autre table (Phase F). */
+export async function transferOrder(
+  token: string,
+  orderId: string,
+  tableId: string,
+): Promise<{ order: unknown }> {
+  return staffFetch(`/orders/${orderId}/transfer`, {
+    method: 'PATCH',
+    token,
+    scope: 'device',
+    body: JSON.stringify({ tableId }),
+  })
+}

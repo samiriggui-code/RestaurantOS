@@ -26,6 +26,7 @@ import { updateOrderStatus } from '../lib/order-update-status';
 import { createOrder } from '../lib/order-create';
 import { splitOrder } from '../lib/order-split';
 import { mergeOrders } from '../lib/order-merge';
+import { transferOrder } from '../lib/order-transfer';
 
 export { ORDER_CANCEL_REASONS, type OrderCancelReason };
 
@@ -829,6 +830,40 @@ router.post('/:id/split', ...ordersPayment, async (req: AuthRequest, res: Respon
     res.json({ original: result.original, splits: result.splits });
   } catch (error) {
     console.error('Split bill error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/orders/:id/transfer
+ * Réassigne une commande ouverte à une autre table et/ou un autre cashier/serveur,
+ * sans passer par annulation (Phase F).
+ * @body {tableId?: string | null, cashierId?: string | null}
+ * @returns {order: Order}
+ * @throws 400 if order is paid/terminal, or neither field provided
+ * @throws 404 if order/table/cashier not found
+ */
+router.patch('/:id/transfer', ...ordersPayment, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const io: SocketIOServer | undefined = req.app.get('io');
+    const { tableId, cashierId } = req.body as {
+      tableId?: string | null;
+      cashierId?: string | null;
+    };
+
+    const result = await transferOrder(prisma, io, {
+      orderId: req.params.id,
+      businessId: req.user!.businessId,
+      tableId,
+      cashierId,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
+    }
+    res.json({ order: result.order });
+  } catch (error) {
+    console.error('Transfer order error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

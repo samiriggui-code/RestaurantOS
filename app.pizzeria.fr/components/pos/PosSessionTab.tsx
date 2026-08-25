@@ -1,18 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, LogIn, LogOut, Merge, Wallet } from 'lucide-react'
+import { ArrowRightLeft, Loader2, LogIn, LogOut, Merge, Wallet } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { fetchCurrentPosSession, type PosSession } from '@/lib/pos-session-api'
 import { formatEUR } from '@/lib/money'
 import { PosOpeningDialog } from '@/components/pos/PosOpeningDialog'
 import { PosClosingDialog } from '@/components/pos/PosClosingDialog'
 import { BillMergeDialog } from '@/components/pos/BillMergeDialog'
+import { OrderTransferDialog } from '@/components/pos/OrderTransferDialog'
 
 export function PosSessionTab() {
   const [session, setSession] = useState<PosSession | null>(null)
   const [loading, setLoading] = useState(true)
-  const [dialog, setDialog] = useState<'open' | 'close' | 'merge' | null>(null)
+  const [dialog, setDialog] = useState<'open' | 'close' | 'merge' | 'transfer' | null>(null)
 
   const reload = useCallback(async () => {
     const staffSession = getStaffSession('device')
@@ -115,6 +116,25 @@ export function PosSessionTab() {
             Ouvrir
           </button>
         </div>
+
+        <div className="rounded-2xl border border-white/10 bg-[#141010] p-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/15">
+              <ArrowRightLeft className="h-5 w-5 text-violet-400" />
+            </span>
+            <div>
+              <p className="font-semibold text-cream">Transférer une commande</p>
+              <p className="text-xs text-cream/45">Changer une commande ouverte de table</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDialog('transfer')}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-medium text-cream/80 hover:bg-white/5"
+          >
+            Ouvrir
+          </button>
+        </div>
       </div>
 
       <PosOpeningDialog
@@ -140,6 +160,11 @@ export function PosSessionTab() {
         open={dialog === 'merge'}
         onClose={() => setDialog(null)}
         onMerged={() => setDialog(null)}
+      />
+      <OrderTransferDialog
+        open={dialog === 'transfer'}
+        onClose={() => setDialog(null)}
+        onTransferred={() => setDialog(null)}
       />
     </div>
   )

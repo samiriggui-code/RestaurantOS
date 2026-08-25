@@ -6,6 +6,9 @@ import { generateDeliveryHandoverCode } from './delivery-handover';
 import { geocodeDeliveryAddress } from './geocode';
 import { enqueueConfirmedOrderPrints } from './enqueue-order-prints';
 import { ensureSnapshotMenuItem } from './online-order';
+import { deductStockWithAlerts } from './stock-deduct-alerts';
+import { requireFiscalTicketForPaidOrder } from './fiscal/hook-paid-order';
+import { ensureLoyaltyCreditForPaidOrder } from './loyalty-order';
 import type { MarketplaceProvider } from './marketplace-integrations';
 import {
   marketplaceChannel,
@@ -40,6 +43,25 @@ export type MarketplaceOrderPayload = {
     scheduledAt?: string;
   };
 };
+
+/**
+ * Résout la ligne agrégateur vers le vrai MenuItem par nom (pas de slug/SKU côté
+ * Uber Eats/Deliveroo) — active la déduction de stock et le reporting par produit
+ * (P6.4). Repli sur l'item snapshot générique si aucun nom ne matche.
+ */
+async function resolveMarketplaceMenuItem(
+  prisma: PrismaClient,
+  businessId: string,
+  lineName: string,
+  snapshotItemId: string
+): Promise<string> {
+  const name = lineName.trim();
+  if (!name) return snapshotItemId;
+  const match = await prisma.menuItem.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' }, category: { businessId } },
+  });
+  return match?.id ?? snapshotItemId;
+}
 
 function validatePayload(body: MarketplaceOrderPayload): string | null {
   if (!body?.order) return 'Payload commande manquant';
@@ -109,8 +131,9 @@ export async function ingestMarketplaceOrder(
   for (const line of input.lines) {
     const priceCents = Math.round(line.unitCents);
     itemsSubtotalCents += priceCents * line.quantity;
+    const menuItemId = await resolveMarketplaceMenuItem(prisma, businessId, line.name, snapshot.id);
     orderItemsData.push({
-      menuItemId: snapshot.id,
+      menuItemId,
       quantity: line.quantity,
       price: priceCents,
       notes: line.notes?.trim() || line.name,
@@ -174,6 +197,32 @@ export async function ingestMarketplaceOrder(
       },
     });
   });
+
+  void deductStockWithAlerts(
+    prisma,
+    businessId,
+    order.id,
+    order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
+  ).catch(err => console.error('[marketplace] stock deduct:', err));
+
+  try {
+    await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, null, {
+      paymentMethod: 'THIRD_PARTY',
+    });
+    void ensureLoyaltyCreditForPaidOrder(prisma, businessId, order.id);
+  } catch (fiscalErr) {
+    // Ne pas supprimer la commande : l'argent a déjà changé de main côté plateforme.
+    // On journalise l'échec pour rattrapage manuel plutôt que de perdre la vente.
+    const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
+    console.error(
+      `[marketplace/${provider}] ticket fiscal échoué pour #${order.orderNumber}:`,
+      msg
+    );
+    await touchMarketplaceIntegration(prisma, businessId, provider, {
+      lastError: `Ticket fiscal #${order.orderNumber}: ${msg}`,
+      lastWebhookAt: new Date().toISOString(),
+    });
+  }
 
   if (orderType === 'DELIVERY') {
     void geocodeDeliveryAddress(order.deliveryAddress, order.deliveryPostalCode, order.deliveryCity)

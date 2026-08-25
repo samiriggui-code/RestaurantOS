@@ -19,6 +19,7 @@ import {
   updateDriverLocation,
 } from '../lib/driver-actions';
 import { resolveDriverUserId } from '../lib/driver-access';
+import { getLoyaltyBalance } from '../lib/loyalty-order';
 import { randomBytes } from 'crypto';
 
 const router = Router();
@@ -154,6 +155,24 @@ router.get('/formules', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('[public/formules]', error);
     return res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+/**
+ * GET /api/public/loyalty/balance?phone=...
+ * Solde fidélité pour le checkout invité — lecture seule, sans auth staff.
+ */
+router.get('/loyalty/balance', async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const businessId = getBusinessId();
+    const phone = String(req.query.phone ?? '').trim();
+    if (!phone) return res.status(400).json({ error: 'phone requis' });
+    const balance = await getLoyaltyBalance(prisma, businessId, phone);
+    return res.json(balance);
+  } catch (error) {
+    console.error('[public/loyalty/balance]', error);
+    return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 

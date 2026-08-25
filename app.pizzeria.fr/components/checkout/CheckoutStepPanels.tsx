@@ -6,6 +6,8 @@ import { CartUpsellStrip } from '@/components/cart/CartUpsellStrip'
 import { MenuFormulePanel } from '@/components/cart/MenuFormulePanel'
 import { PanierLineCard } from '@/components/cart/PanierLineCard'
 import { CheckoutPayment } from '@/components/checkout/CheckoutPayment'
+import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice'
+import { LoyaltyBalanceHint } from '@/components/checkout/LoyaltyBalanceHint'
 import { formatPriceEUR } from '@/lib/menu-types'
 import type { DeliveryQuote } from '@/lib/delivery'
 import { deliveryZoneHint } from '@/lib/delivery'
@@ -317,6 +319,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           onChange={(e) => onSetCustomerPhone(e.target.value)}
           className={ic}
         />
+        <LoyaltyBalanceHint phone={customerPhone} />
         <input
           type="email"
           placeholder="Email (optionnel)"
@@ -420,6 +423,8 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
             </button>
           </div>
         </div>
+
+        <LegalCheckoutNotice compact={compact} />
 
         {/* Erreurs paiement = CheckoutPayment uniquement (pas de doublon avec `error` parent). */}
         <CheckoutPayment

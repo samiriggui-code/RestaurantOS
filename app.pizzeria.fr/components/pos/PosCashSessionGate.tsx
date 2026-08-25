@@ -2,25 +2,27 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Loader2, Wallet } from 'lucide-react'
-import { getStaffSession } from '@/lib/staff-auth'
+import { getStaffSession, type AuthScope } from '@/lib/staff-auth'
 import { fetchCurrentPosSession, type PosSession } from '@/lib/pos-session-api'
 import { PosOpeningDialog } from '@/components/pos/PosOpeningDialog'
 import { formatEUR } from '@/lib/money'
 
 type Props = {
   children: ReactNode
+  /** Scope de session staff à vérifier — 'device' (tablette comptoir) par défaut, 'crm' pour le moniteur admin. */
+  authScope?: AuthScope
 }
 
 /**
  * Gate caisse : bloque la prise de commande tant qu'aucune session OPEN
  * n'existe pour le caissier connecté (spec Phase E / URY).
  */
-export function PosCashSessionGate({ children }: Props) {
+export function PosCashSessionGate({ children, authScope = 'device' }: Props) {
   const [session, setSession] = useState<PosSession | null | undefined>(undefined)
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const reload = useCallback(async () => {
-    const staff = getStaffSession('device')
+    const staff = getStaffSession(authScope)
     if (!staff) {
       setSession(null)
       return
@@ -30,7 +32,7 @@ export function PosCashSessionGate({ children }: Props) {
     } catch {
       setSession(null)
     }
-  }, [])
+  }, [authScope])
 
   useEffect(() => {
     void reload()
@@ -66,6 +68,7 @@ export function PosCashSessionGate({ children }: Props) {
         </button>
         <PosOpeningDialog
           open={dialogOpen}
+          authScope={authScope}
           onClose={() => setDialogOpen(false)}
           onOpened={(s) => {
             setSession(s)

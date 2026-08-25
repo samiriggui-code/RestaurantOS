@@ -6,6 +6,8 @@ import { AuthRequest } from '../types';
 import { emitAdminLive } from '../lib/admin-live-events';
 import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseRecipeLines } from '../lib/stock-recipe-lines';
+import { importSumupArticlesSales, parseSumupVentesCsv } from '../lib/sumup-articles-import';
+import { createHash } from 'crypto';
 
 const router = Router();
 
@@ -216,6 +218,59 @@ router.post('/:id/move', ...stockWrite, async (req: AuthRequest, res: Response) 
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+/**
+ * POST /api/stock/import/sumup-articles
+ * Recale le stock à partir de l'export "Rapport-articles" SumUp (Rapports > Exports > Articles) —
+ * ventes comptoir tapées directement sur la Caisse SumUp, invisibles autrement côté RestaurantOS.
+ * Idempotent : rejouer le même fichier ne redéduit pas deux fois (référencé par hash du contenu).
+ */
+router.post('/import/sumup-articles', ...stockWrite, async (req: AuthRequest, res: Response) => {
+  try {
+    const { csvText } = req.body as { csvText?: string };
+    if (!csvText || typeof csvText !== 'string') {
+      return res.status(400).json({ error: 'csvText requis' });
+    }
+    const prisma: PrismaClient = req.app.get('prisma');
+    const batchRef = createHash('sha256').update(csvText).digest('hex').slice(0, 16);
+    const result = await importSumupArticlesSales(prisma, req.user!.businessId, csvText, batchRef);
+
+    const io: SocketIOServer = req.app.get('io');
+    emitAdminLive(io, req.user!.businessId, {
+      domain: 'stock',
+      action: 'import',
+      label: 'Import ventes Caisse SumUp',
+      detail: `${result.matched.length} articles recalés, ${result.unmatched.length} non trouvés`,
+    });
+
+    res.json(result);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Import impossible';
+    res.status(400).json({ error: msg });
+  }
+});
+
+/**
+ * POST /api/stock/import/sumup-ventes-summary
+ * Lecture seule — total par moyen de paiement de l'export "Rapport-ventes" SumUp, pour
+ * comparer au cash réellement compté en clôture de caisse (PosClosingDialog).
+ */
+router.post(
+  '/import/sumup-ventes-summary',
+  ...stockRead,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { csvText } = req.body as { csvText?: string };
+      if (!csvText || typeof csvText !== 'string') {
+        return res.status(400).json({ error: 'csvText requis' });
+      }
+      res.json(parseSumupVentesCsv(csvText));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Lecture impossible';
+      res.status(400).json({ error: msg });
+    }
+  }
+);
 
 router.put('/:id', ...stockWrite, async (req: AuthRequest, res: Response) => {
   try {

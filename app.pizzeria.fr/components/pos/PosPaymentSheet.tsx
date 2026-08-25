@@ -28,7 +28,7 @@ import { useAppFeedback } from '@/components/feedback/AppFeedbackProvider'
 
 export type PosPaymentLine = { id: string; label: string; detail?: string; amountCents?: number }
 
-type SheetStep = 'choose' | 'cash_confirm' | 'terminal' | 'terminal_result'
+type SheetStep = 'choose' | 'cash_confirm' | 'cash_sumup_confirm' | 'terminal' | 'terminal_result'
 
 type Props = {
   open: boolean
@@ -41,8 +41,11 @@ type Props = {
   lines?: PosPaymentLine[]
   busy?: boolean
   onClose: () => void
-  /** Appelé après paiement validé (espèces ou TPE OK) — créer commande / encaisser. */
-  onPaid: (method: 'CASH' | 'CARD', meta?: PaymentMeta) => Promise<void>
+  /** Appelé après paiement validé (espèces ou TPE OK) — créer commande / encaisser.
+   * CASH_SUMUP = déjà encaissé sur la caisse SumUp comptoir (pas un nouvel encaissement RestaurantOS). */
+  onPaid: (method: 'CASH' | 'CARD' | 'CASH_SUMUP', meta?: PaymentMeta) => Promise<void>
+  /** Affiche le 3ᵉ bouton "Déjà encaissé sur SumUp" — uniquement là où le comptoir SumUp existe. */
+  allowCashSumup?: boolean
 }
 
 export function PosPaymentSheet({
@@ -56,6 +59,7 @@ export function PosPaymentSheet({
   busy = false,
   onClose,
   onPaid,
+  allowCashSumup = false,
 }: Props) {
   const terminalMode = getPaymentTerminalMode()
   const [manualFallback, setManualFallback] = useState(false)
@@ -124,6 +128,19 @@ export function PosPaymentSheet({
     setSubmitting(true)
     try {
       await onPaid('CASH', buildPaymentMeta('CASH', amountCents, { terminalReference: reference }))
+      onClose()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function completeCashSumup() {
+    setSubmitting(true)
+    try {
+      await onPaid(
+        'CASH_SUMUP',
+        buildPaymentMeta('CASH', amountCents, { terminalReference: reference }),
+      )
       onClose()
     } finally {
       setSubmitting(false)
@@ -267,6 +284,17 @@ export function PosPaymentSheet({
                   Carte / TPE
                 </button>
               </div>
+              {allowCashSumup && (
+                <button
+                  type="button"
+                  disabled={submitting || busy}
+                  onClick={() => setStep('cash_sumup_confirm')}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 py-3 text-sm font-semibold text-teal-100 hover:bg-teal-500/20 disabled:opacity-50"
+                >
+                  <Banknote className="h-5 w-5" />
+                  Déjà encaissé sur la caisse SumUp (cash comptoir)
+                </button>
+              )}
               <p className="text-center text-[11px] text-cream/35">
                 TPE :{' '}
                 {cardPaymentPending
@@ -297,6 +325,37 @@ export function PosPaymentSheet({
                   <CheckCircle2 className="h-5 w-5" />
                 )}
                 Espèces reçues — envoyer en cuisine
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setStep('choose')}
+                className="w-full rounded-xl border border-white/15 py-2 text-sm text-cream/60"
+              >
+                Changer de mode
+              </button>
+            </>
+          )}
+
+          {step === 'cash_sumup_confirm' && (
+            <>
+              <p className="text-sm text-cream/60">
+                Confirmez que <strong>{formatEUR(amountCents)}</strong> a déjà été encaissé en
+                espèces sur la caisse SumUp — cette ressaisie sert uniquement à la cuisine, au
+                stock et à la fidélité, elle n&apos;émet pas de nouveau ticket fiscal.
+              </p>
+              <button
+                type="button"
+                disabled={submitting || busy}
+                onClick={() => void completeCashSumup()}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 py-3 font-semibold text-white disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5" />
+                )}
+                Confirmer — envoyer en cuisine
               </button>
               <button
                 type="button"

@@ -17,6 +17,7 @@ type Props = {
 
 export function PosClosingDialog({ open, session, onClose, onClosed }: Props) {
   const [amount, setAmount] = useState('')
+  const [sumupCashAmount, setSumupCashAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [closed, setClosed] = useState<PosSession | null>(null)
   const { notifyError, notifySuccess, confirm } = useAppFeedback()
@@ -39,9 +40,15 @@ export function PosClosingDialog({ open, session, onClose, onClosed }: Props) {
     })
     if (!ok) return
 
+    let notes: string | undefined
+    const sumupCents = Math.round(Number(sumupCashAmount.replace(',', '.')) * 100)
+    if (sumupCashAmount.trim() && Number.isFinite(sumupCents) && sumupCents >= 0) {
+      notes = `Cash relevé sur la caisse SumUp comptoir (hors suivi RestaurantOS) : ${formatEUR(sumupCents)}`
+    }
+
     setBusy(true)
     try {
-      const result = await closePosSession(staffSession.token, session.id, cents)
+      const result = await closePosSession(staffSession.token, session.id, cents, notes)
       notifySuccess('Session clôturée')
       setClosed(result)
     } catch (err) {
@@ -101,6 +108,11 @@ export function PosClosingDialog({ open, session, onClose, onClosed }: Props) {
                   {formatEUR(discrepancy)}
                 </span>
               </div>
+              {closed.notes && (
+                <p className="mt-3 border-t border-white/10 pt-3 text-xs text-cream/50">
+                  {closed.notes}
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -125,6 +137,23 @@ export function PosClosingDialog({ open, session, onClose, onClosed }: Props) {
                 className="mt-1 w-full rounded-xl border border-white/15 bg-charcoal px-3 py-2 text-lg text-cream"
                 placeholder="0.00"
               />
+            </label>
+            <label className="block text-sm text-cream/60">
+              Cash relevé sur la caisse SumUp comptoir (€, optionnel)
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                value={sumupCashAmount}
+                onChange={(e) => setSumupCashAmount(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-white/15 bg-charcoal px-3 py-2 text-lg text-cream"
+                placeholder="0.00"
+              />
+              <span className="mt-1 block text-xs text-cream/40">
+                Pour info uniquement — n&apos;entre pas dans le calcul de l&apos;écart ci-dessus
+                (ce cash n&apos;est pas dans le tiroir suivi par RestaurantOS).
+              </span>
             </label>
             <button
               type="submit"

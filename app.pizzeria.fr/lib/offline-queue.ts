@@ -15,7 +15,7 @@ export type OfflineCounterOrder = {
       selectedModifiers?: Record<string, unknown>
     }[]
     type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'
-    paymentMethod: 'CASH' | 'CARD'
+    paymentMethod: 'CASH' | 'CARD' | 'CASH_SUMUP'
     customerName?: string
     customerPhone?: string
     notes?: string

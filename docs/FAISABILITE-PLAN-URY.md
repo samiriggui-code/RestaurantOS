@@ -17,7 +17,7 @@
 | P0 PaymentProvider **SumUp only** | ✅ Fait    | guest-checkout + refund via `getPaymentProvider()`            |
 | P0 permissions centralisées       | ✅ Fait    | `lib/permissions.ts` + reports/loyalty                        |
 | Option B multi-entry              | ✅         | Plus tard                                                     |
-| Stock / Recipe                    | ⚠️         | Déjà MenuItemRecipe — UI/polish                               |
+| Stock / Recipe                    | ✅ Fait    | P2 — RBAC stock + BOM polish (`7f77adf`)                      |
 
 ## Stack paiement (cible)
 
@@ -35,7 +35,7 @@ PaymentProvider
 | guest-checkout / refund                            | Passent par `getPaymentProvider()`                     |
 | Suppression `StripePayment.tsx` + deps `@stripe/*` | OK                                                     |
 | Labels « Stripe (historique) »                     | Colonne `stripePaymentIntentId` = legacy lecture seule |
-| Retirer `STRIPE_*` des `.env` locaux / VPS         | Manuel ops                                             |
+| Retirer `STRIPE_*` des `.env` locaux / VPS         | ✅ Local fait ; VPS au prochain redeploy               |
 
 **Interdit** : réintroduire Stripe ; 2ᵉ PSP hors `PaymentProvider`.
 
@@ -61,7 +61,7 @@ PaymentProvider
 | **FE**    | DriverCourierView → `/api/driver/*` + auth PIN                                        | ✅ Clos                                          |
 | **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | ✅ Clos — PosSession + merge + gate commande     |
 | **F**     | POS avancé — transfert de commande entre tables/serveurs (stretch, dépend de E)       | Plus tard                                        |
-| **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | Plus tard                                        |
+| **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | ✅ Clos — RBAC + BOM (`7f77adf`)                 |
 | **P3**    | Option B multi-entry frontend                                                         | Plus tard                                        |
 | **P4–P5** | Selon skill (legacy client, Android)                                                  | Plus tard                                        |
 
@@ -78,7 +78,7 @@ PaymentProvider
 
 **Preuve :** `npm run typecheck` OK ; jest P1/orders **38** passed (2026-08-24).
 
-**Hors-scope respecté :** Option B, stock polish, URY.
+**Hors-scope respecté :** Option B, URY. (P2 stock livré séparément — `7f77adf`.)
 
 ### Mini-spec A — **CLOS** (permissions orders)
 
@@ -163,6 +163,12 @@ PaymentProvider
 **Preuve :** typecheck + jest Phase E verts
 
 **Hors-scope E :** transfert (→ F), aggregator selector POS
+
+### Mini-spec P2 — **CLOS** (stock RBAC + recettes BOM)
+
+**Livré (`7f77adf`) :** permissions stock, validation couverture recettes / BOM, polish UX admin stock.
+
+**Preuve :** tests stock + typecheck au ship P2.
 
 ### Mini-spec F — **PLUS TARD** (transfert de commande entre tables/serveurs)
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Loader2, Wallet, X } from 'lucide-react'
-import { getStaffSession } from '@/lib/staff-auth'
+import { getStaffSession, type AuthScope } from '@/lib/staff-auth'
 import { openPosSession, type PosSession } from '@/lib/pos-session-api'
 import { useAppFeedback } from '@/components/feedback/AppFeedbackProvider'
 
@@ -10,9 +10,10 @@ type Props = {
   open: boolean
   onClose: () => void
   onOpened: (session: PosSession) => void
+  authScope?: AuthScope
 }
 
-export function PosOpeningDialog({ open, onClose, onOpened }: Props) {
+export function PosOpeningDialog({ open, onClose, onOpened, authScope = 'device' }: Props) {
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const { notifyError, notifySuccess } = useAppFeedback()
@@ -21,7 +22,7 @@ export function PosOpeningDialog({ open, onClose, onOpened }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    const session = getStaffSession('device')
+    const session = getStaffSession(authScope)
     if (!session) return
     const cents = Math.round(Number(amount.replace(',', '.')) * 100)
     if (!Number.isFinite(cents) || cents < 0) {

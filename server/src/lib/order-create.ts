@@ -22,6 +22,13 @@ function generateTrackingToken(): string {
   return randomBytes(6).toString('hex');
 }
 
+/**
+ * Ventes déjà fiscalisées ailleurs (ex. caisse SumUp comptoir) : ressaisies dans RestaurantOS
+ * uniquement pour cuisine/stock/fidélité — ne doivent PAS émettre un 2e ticket fiscal ni une 2e
+ * facture pour la même vente (double comptabilisation du CA déclaré).
+ */
+const EXTERNALLY_FISCALIZED_PAYMENT_METHODS = new Set(['CASH_SUMUP']);
+
 /** Commande internet invité vs comptoir staff (isOnlineOrder: false). */
 export function isOnlineCheckout(isOnlineOrder: unknown, hasStaffUser: boolean): boolean {
   if (isOnlineOrder === false) return false;
@@ -194,23 +201,26 @@ export async function createOrder(
   }
 
   if (order.paymentStatus === 'PAID') {
-    try {
-      assertManualCardPaymentMeta(order.paymentMethod, body.paymentMeta);
-      await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, params.userId, {
-        paymentMethod: order.paymentMethod,
-      });
-    } catch (fiscalErr) {
+    const alreadyFiscalized = EXTERNALLY_FISCALIZED_PAYMENT_METHODS.has(order.paymentMethod ?? '');
+    if (!alreadyFiscalized) {
       try {
-        await prisma.order.delete({ where: { id: order.id } });
-      } catch {
-        /* ignore rollback delete */
+        assertManualCardPaymentMeta(order.paymentMethod, body.paymentMeta);
+        await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, params.userId, {
+          paymentMethod: order.paymentMethod,
+        });
+      } catch (fiscalErr) {
+        try {
+          await prisma.order.delete({ where: { id: order.id } });
+        } catch {
+          /* ignore rollback delete */
+        }
+        const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
+        return { ok: false, status: 500, error: msg };
       }
-      const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
-      return { ok: false, status: 500, error: msg };
+      void ensureInvoiceForPaidOrder(prisma, businessId, order.id, params.userId).catch(err =>
+        console.error('Auto invoice on create:', err)
+      );
     }
-    void ensureInvoiceForPaidOrder(prisma, businessId, order.id, params.userId).catch(err =>
-      console.error('Auto invoice on create:', err)
-    );
     void ensureLoyaltyCreditForPaidOrder(prisma, businessId, order.id);
   }
 

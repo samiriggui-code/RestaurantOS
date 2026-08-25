@@ -18,7 +18,7 @@ type StockDeduction = { stockItemId: string; quantity: number };
 
 /** Recettes BOM + lien direct menuItemId → stockItem */
 
-async function deductionsForMenuLine(
+export async function deductionsForMenuLine(
   tx: Tx,
 
   businessId: string,

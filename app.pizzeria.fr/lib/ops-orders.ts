@@ -882,7 +882,8 @@ export function createCounterOrder(
       selectedModifiers?: Record<string, unknown>
     }[]
     type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'
-    paymentMethod: 'CASH' | 'CARD'
+    /** CASH_SUMUP = déjà encaissé sur la caisse SumUp comptoir, ressaisi ici pour cuisine/stock/fidélité — pas un nouvel encaissement RestaurantOS. */
+    paymentMethod: 'CASH' | 'CARD' | 'CASH_SUMUP'
     customerName?: string
     customerPhone?: string
     notes?: string

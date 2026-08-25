@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Trash2,
   TrendingDown,
+  Upload,
   X,
 } from 'lucide-react'
 import { eurosToCents, formatEUR } from '@/lib/money'
@@ -34,6 +35,7 @@ import { staffFetch } from '@/lib/staff-api'
 import { AdminStatCard, ADMIN_STAT_GRID } from '@/components/admin/AdminStatCard'
 import { AdminPageHeader, AdminPageShell, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { AdminStockRecipesPanel } from '@/components/admin/AdminStockRecipesPanel'
+import { AdminSumupImportPanel } from '@/components/admin/AdminSumupImportPanel'
 import { adminFieldClass, adminSelectClass } from '@/lib/admin-ui'
 import {
   AdminDataGridShell,
@@ -106,7 +108,7 @@ function stockLevel(item: StockItem): 'ok' | 'low' | 'critical' {
   return 'ok'
 }
 
-type StockTab = 'inventory' | 'recipes'
+type StockTab = 'inventory' | 'recipes' | 'sumup-import'
 
 export function AdminStockView() {
   const { confirm, notifySuccess, notifyError } = useAdminFeedback()
@@ -425,6 +427,7 @@ export function AdminStockView() {
         tabs={[
           { id: 'inventory' as const, label: 'Inventaire', icon: Package },
           { id: 'recipes' as const, label: 'Recettes (BOM)', icon: ChefHat },
+          { id: 'sumup-import' as const, label: 'Import Caisse SumUp', icon: Upload },
         ]}
         active={tab}
         onChange={setTab}
@@ -467,6 +470,8 @@ export function AdminStockView() {
             stockItems={items.map((i) => ({ id: i.id, name: i.name, unit: i.unit, category: i.category }))}
           />
         </div>
+      ) : tab === 'sumup-import' ? (
+        <AdminSumupImportPanel />
       ) : (
         <>
       <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/25 px-4 py-2.5 text-sm text-emerald-100/90">

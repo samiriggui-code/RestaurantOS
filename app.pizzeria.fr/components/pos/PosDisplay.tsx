@@ -561,7 +561,10 @@ function PosScreen({
 
   const subtotal = cart.reduce((s, l) => s + lineUnitPriceCents(l) * l.quantity, 0)
 
-  async function placeCounterOrder(paymentMethod: 'CASH' | 'CARD', paymentMeta?: PaymentMeta) {
+  async function placeCounterOrder(
+    paymentMethod: 'CASH' | 'CARD' | 'CASH_SUMUP',
+    paymentMeta?: PaymentMeta,
+  ) {
     const session = getStaffSession(authScope)
     if (!session || !cart.length) return
     setSubmitting(true)
@@ -687,7 +690,12 @@ function PosScreen({
     setPaymentSheet({ kind: 'online', order })
   }
 
-  async function payOnlineOrder(orderId: string, method: 'CASH' | 'CARD', paymentMeta?: PaymentMeta) {
+  async function payOnlineOrder(
+    orderId: string,
+    method: 'CASH' | 'CARD' | 'CASH_SUMUP',
+    paymentMeta?: PaymentMeta,
+  ) {
+    if (method === 'CASH_SUMUP') return // pas de bouton dédié ici — commande internet, pas comptoir SumUp
     const session = getStaffSession(authScope)
     if (!session) return
     setSubmitting(true)
@@ -1159,6 +1167,7 @@ function PosScreen({
           busy={submitting}
           onClose={() => setPaymentSheet(null)}
           onPaid={(method, meta) => placeCounterOrder(method, meta)}
+          allowCashSumup
         />
       )}
 

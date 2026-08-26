@@ -258,8 +258,11 @@ export function AdminHome() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="font-semibold text-cream">Écrans opérationnels</h2>
-        <p className="text-sm text-cream/45">POS, cuisine — plein écran sur tablette ou SUNMI.</p>
+        <h2 className="font-semibold text-cream">Apps opérationnelles</h2>
+        <p className="text-sm text-cream/45">
+          Quatre apps isolées — caisse, cuisine, livreur, totem. Ouvrir en plein écran ou télécharger
+          l&apos;APK.
+        </p>
         <DeviceLaunchCards />
       </section>
 

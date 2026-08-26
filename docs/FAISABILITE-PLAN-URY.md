@@ -9,15 +9,15 @@
 
 ## Verdict exécutif
 
-| Décision                          | Faisable ? | Note repo                                                     |
-| --------------------------------- | ---------- | ------------------------------------------------------------- |
-| Ne pas migrer vers URY / ERPNext  | ✅         | Express+Prisma+React                                          |
-| P0 OrderNumberService + unique DB | ✅ Fait    | `allocateOrderNumber` + `@@unique([businessId, orderNumber])` |
-| P0 enums + state machine          | ✅ Fait    | Prisma enums + `lib/order-status.ts`                          |
-| P0 PaymentProvider **SumUp only** | ✅ Fait    | guest-checkout + refund via `getPaymentProvider()`            |
-| P0 permissions centralisées       | ✅ Fait    | `lib/permissions.ts` + reports/loyalty                        |
-| Option B multi-entry              | ✅         | Plus tard                                                     |
-| Stock / Recipe                    | ✅ Fait    | P2 — RBAC stock + BOM polish (`7f77adf`)                      |
+| Décision                          | Faisable ? | Note repo                                                                   |
+| --------------------------------- | ---------- | --------------------------------------------------------------------------- |
+| Ne pas migrer vers URY / ERPNext  | ✅         | Express+Prisma+React                                                        |
+| P0 OrderNumberService + unique DB | ✅ Fait    | `allocateOrderNumber` + `@@unique([businessId, orderNumber])`               |
+| P0 enums + state machine          | ✅ Fait    | Prisma enums + `lib/order-status.ts`                                        |
+| P0 PaymentProvider **SumUp only** | ✅ Fait    | guest-checkout + refund via `getPaymentProvider()`                          |
+| P0 permissions centralisées       | ✅ Fait    | `lib/permissions.ts` + reports/loyalty                                      |
+| Option B multi-entry              | ✅ Next    | **Remplacé** : 4 apps Next isolées (`lib/ops-apps.ts`) — pas de 4 HTML Vite |
+| Stock / Recipe                    | ✅ Fait    | P2 — RBAC stock + BOM polish (`7f77adf`)                                    |
 
 ## Stack paiement (cible)
 
@@ -62,8 +62,8 @@ PaymentProvider
 | **E**     | POS avancé — session caisse + fusion de notes (benchmark URY 2026-08-25)              | ✅ Clos — PosSession + merge + gate commande                                  |
 | **F**     | POS avancé — transfert de commande entre tables/serveurs (stretch, dépend de E)       | ✅ Clos — `lib/order-transfer.ts` + PATCH `/orders/:id/transfer` + dialog POS |
 | **P2**    | Stock / recettes polish (déjà MenuItemRecipe)                                         | ✅ Clos — RBAC + BOM (`7f77adf`)                                              |
-| **P3**    | Option B multi-entry frontend                                                         | Plus tard                                                                     |
-| **P4–P5** | Selon skill (legacy client, Android)                                                  | Plus tard                                                                     |
+| **P3**    | Multi-apps Next isolées (POS/KDS/livreur/totem) — **pas** Option B Vite 4 HTML        | ✅ Slice démo 2026-08-26 — `lib/ops-apps.ts`, middleware `/kiosk`, hub APK    |
+| **P4–P5** | Legacy client gelé + Android flavors                                                  | ⏳ APKs labo via `build-sunmi-lab.ps1`                                        |
 
 ### Mini-spec P1 — **CLOS**
 
@@ -180,3 +180,19 @@ PaymentProvider
 - FE : `OrderTransferDialog.tsx` (choix commande → table cible), tuile dédiée dans `PosSessionTab`.
 
 **Preuve :** `order-transfer.test.ts` (8 tests, dont un cas qui a attrapé un vrai bug avant livraison : le check de libération de table se déclenchait à tort quand seul le cashier changeait) + typecheck serveur/frontend propres + suite complète 187/188 tests verts (1 échec pré-existant sans rapport, `menu.test.ts`).
+
+### Mini-spec P3 — **CLOS (slice démo multi-apps Next)** (2026-08-26)
+
+**Décision :** abandon Option B Vite (`admin.html` / `pos.html` / `kds.html` / `driver.html`). Isolation = **1 URL = 1 app** sous Next.
+
+**Livré :**
+
+- `lib/ops-apps.ts` — catalogue POS / KDS / livreur / totem + URLs ops vs public + APK
+- Middleware : `/kiosk` dans `OPS_PREFIXES` ; ops `/` → `/admin` (plus de fuite vers site public)
+- `OpsLayoutClient` : totem traité comme appareil plein écran (`data-ops-device`)
+- `DeviceLaunchCards` : ouverture host correct + lien APK (totem = web only)
+- Hub admin : « Apps opérationnelles »
+
+**Hors-scope :** rewrite route groups CDC `(pos)/(kds)`, monorepo `apps/*`, 4 bundles séparés.
+
+**P5 démo :** `build-sunmi-lab.ps1` → `/downloads/*.apk` → `pack-for-vps.ps1`.

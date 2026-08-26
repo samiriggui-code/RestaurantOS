@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const OPS_PREFIXES = ['/pos', '/kitchen', '/admin', '/login', '/monitor']
+/** Surfaces ops isolées — jamais sur le host public (sauf redirect). */
+const OPS_PREFIXES = ['/pos', '/kitchen', '/kiosk', '/admin', '/login', '/monitor']
 
 function hostName(request: NextRequest): string {
   return request.headers.get('host')?.split(':')[0]?.toLowerCase() ?? ''
@@ -76,16 +77,16 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(opsUrl(request, pathname))
   }
 
+  // Ops host = CRM + appareils. Le site vitrine / livreur vivent sur le host public.
   if (
     isOpsHost(host) &&
-    (pathname === '/' ||
-      pathname.startsWith('/menu') ||
+    (pathname.startsWith('/menu') ||
       pathname.startsWith('/panier') ||
       pathname.startsWith('/commander') ||
       pathname.startsWith('/suivi') ||
       pathname.startsWith('/livreur'))
   ) {
-    return NextResponse.redirect(publicUrl(request, pathname === '/' ? '/' : pathname))
+    return NextResponse.redirect(publicUrl(request, pathname))
   }
 
   if (isOpsHost(host) && pathname === '/') {

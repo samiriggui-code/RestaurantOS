@@ -5,7 +5,6 @@ import { PrismaClient } from '@prisma/client';
 import { mockDeep, mockReset } from 'jest-mock-extended';
 import authRoutes from '../routes/auth';
 import { apiLimiter, authLimiter } from '../middleware/rateLimiter';
-import { sanitizeInput } from '../middleware/sanitize';
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn(),
@@ -22,7 +21,6 @@ function createApp(isProduction = false): express.Application {
     process.env.NODE_ENV = 'production';
   }
 
-  app.use('/api/', sanitizeInput);
   app.use('/api/', apiLimiter);
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth', authRoutes);

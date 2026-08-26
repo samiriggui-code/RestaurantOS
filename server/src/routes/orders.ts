@@ -178,19 +178,18 @@ router.get('/track-token/:token', async (req: AuthRequest, res: Response) => {
 
 /**
  * GET /api/orders/track/:orderNumber
- * Public endpoint to look up an order by its order number.
- * @query {businessId: string}
- * @returns {Order}
- * @throws 400 if invalid order number
- * @throws 404 if order not found
+ * Staff only — lookup par n° dans le tenant JWT.
+ * Suivi client public : GET /api/public/orders/track-token/:token (pas d’énumération).
  */
-router.get('/track/:orderNumber', async (req: AuthRequest, res: Response) => {
+router.get('/track/:orderNumber', ...ordersRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
-    const orderNumber = parseInt(req.params.orderNumber);
-    const businessId = req.query.businessId as string;
+    const orderNumber = parseInt(req.params.orderNumber, 10);
+    const businessId = req.user!.businessId;
 
-    if (!orderNumber) return res.status(400).json({ error: 'Invalid order number' });
+    if (!Number.isFinite(orderNumber) || orderNumber < 1) {
+      return res.status(400).json({ error: 'Invalid order number' });
+    }
 
     const order = await prisma.order.findFirst({
       where: { orderNumber, businessId },

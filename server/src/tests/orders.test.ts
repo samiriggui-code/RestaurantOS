@@ -493,19 +493,24 @@ describe('Order Routes', () => {
   });
 
   describe('GET /api/orders/track/:orderNumber', () => {
-    it('should return order details by order number', async () => {
+    it('should return order details by order number (staff tenant)', async () => {
       (prisma.order.findFirst as jest.Mock).mockResolvedValue(mockOrder);
 
-      const res = await request(app).get('/api/orders/track/1001?businessId=biz-1');
+      const res = await request(app).get('/api/orders/track/1001');
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('orderNumber', 1001);
+      expect(prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { orderNumber: 1001, businessId: 'biz-1' },
+        })
+      );
     });
 
     it('should return 404 when order is not found', async () => {
       (prisma.order.findFirst as jest.Mock).mockResolvedValue(null);
 
-      const res = await request(app).get('/api/orders/track/9999?businessId=biz-1');
+      const res = await request(app).get('/api/orders/track/9999');
       expect(res.status).toBe(404);
     });
   });

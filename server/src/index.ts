@@ -37,8 +37,7 @@ import stockRoutes from './routes/stock';
 import loyaltyRoutes from './routes/loyalty';
 import fiscalRoutes from './routes/fiscal';
 import { requireModule } from './lib/modules';
-import { apiLimiter, authLimiter } from './middleware/rateLimiter';
-import { sanitizeInput } from './middleware/sanitize';
+import { apiLimiter, authLimiter, waiterCallLimiter } from './middleware/rateLimiter';
 import { initSentry, setupSentryErrorHandler, isSentryEnabled } from './sentry';
 import { validateEnv } from './check-env';
 
@@ -96,8 +95,10 @@ const io = new SocketIOServer(httpServer, {
   },
 });
 
-// Trust proxy for correct IP behind reverse proxies
-app.set('trust proxy', 1);
+// Trust proxy uniquement derrière Traefik/Caddy (évite spoof X-Forwarded-For si exposé nu)
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
 
 // Compression
 app.use(compression());
@@ -152,13 +153,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Parameter pollution protection
 app.use(hpp());
 
-// Input sanitization (XSS prevention)
-app.use('/api/', sanitizeInput);
+// XSS : ne pas muter req.body (casse mdp/emails). Échapper à l'affichage / HTML emails uniquement.
 
 // Rate limiting
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/pin', authLimiter);
+app.use('/api/orders/call-waiter', waiterCallLimiter);
 
 // Serve uploaded images
 const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');

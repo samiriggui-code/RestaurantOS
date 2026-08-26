@@ -152,7 +152,7 @@ describe('Rate Limiters', () => {
 });
 
 describe('Sanitize Middleware', () => {
-  describe('sanitizeInput middleware', () => {
+  describe('sanitizeInput (deprecated — ne plus monter globalement)', () => {
     it('should escape HTML in req.body strings', () => {
       const req = {
         body: { name: '<script>alert("xss")</script>' },

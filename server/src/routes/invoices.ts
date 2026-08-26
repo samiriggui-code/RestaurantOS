@@ -442,6 +442,9 @@ router.patch(
       });
       if (!existing) return res.status(404).json({ error: 'Facture introuvable' });
 
+      const ISSUED_STATUSES = ['ISSUED', 'SENT', 'PAID', 'CANCELLED'];
+      const isIssued = ISSUED_STATUSES.includes(existing.status);
+
       const body = req.body as {
         clientName?: string;
         clientEmail?: string;
@@ -458,6 +461,17 @@ router.patch(
           taxRate?: number;
         }>;
       };
+
+      if (isIssued && Array.isArray(body.lines) && body.lines.length) {
+        return res.status(409).json({
+          error: 'Facture déjà émise — les lignes/montants sont figés, émettez un avoir.',
+        });
+      }
+      if (isIssued && body.status === 'DRAFT') {
+        return res
+          .status(409)
+          .json({ error: 'Impossible de repasser une facture émise en brouillon.' });
+      }
 
       let subtotalCents = existing.subtotalCents;
       let taxCents = existing.taxCents;

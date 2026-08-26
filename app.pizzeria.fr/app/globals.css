@@ -17,12 +17,12 @@
 
   :root {
     /* Header fixe : bandeau statut + logo/nav — marge de sécurité */
-    --site-header-offset: 8.5rem;
+    --site-header-offset: 9rem;
   }
 
   @media (min-width: 768px) {
     :root {
-      --site-header-offset: 8.75rem;
+      --site-header-offset: 9.25rem;
     }
   }
 }

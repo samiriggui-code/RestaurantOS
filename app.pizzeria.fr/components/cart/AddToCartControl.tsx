@@ -9,6 +9,7 @@ import {
   priceForPizzaSize,
   priceForSupplement,
   SUPPLEMENT_PRICE_KEY_BY_SLUG,
+  weeklyPromoPrice,
   type PizzaSizeId,
 } from '@/lib/pizza-sizes'
 import { formatPriceEUR } from '@/lib/menu-types'
@@ -33,6 +34,12 @@ export function AddToCartControl({ item, categoryId, className }: AddToCartContr
     : isSizedSupplement && supplementKey
       ? priceForSupplement(supplementKey, sizeId)
       : item.price
+
+  // Le mode (à emporter/livraison) n'est choisi qu'au checkout — pas encore connu ici.
+  // On affiche juste que la promo existe pour cette taille aujourd'hui, sans changer le
+  // prix ajouté au panier (évite un prix qui change tout seul en rouvrant le panier en
+  // mode livraison, qui est le mode par défaut du tunnel).
+  const promoIfPickup = isPizza ? weeklyPromoPrice(categoryId, sizeId, 'pickup') : null
 
   function handleAdd() {
     addItem({
@@ -76,28 +83,35 @@ export function AddToCartControl({ item, categoryId, className }: AddToCartContr
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleAdd}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition shadow-glow',
-            added
-              ? 'bg-emerald-600 text-white'
-              : 'bg-flame-gradient text-white hover:brightness-110',
+        <div className="flex flex-col items-end gap-1">
+          {promoIfPickup != null && promoIfPickup < unitPrice && (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+              {formatPriceEUR(promoIfPickup)} à emporter aujourd&apos;hui
+            </span>
           )}
-        >
-          {added ? (
-            <>
-              <Check className="h-3.5 w-3.5" />
-              Ajouté
-            </>
-          ) : (
-            <>
-              <Plus className="h-3.5 w-3.5" />
-              {formatPriceEUR(unitPrice)}
-            </>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={handleAdd}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition shadow-glow',
+              added
+                ? 'bg-emerald-600 text-white'
+                : 'bg-flame-gradient text-white hover:brightness-110',
+            )}
+          >
+            {added ? (
+              <>
+                <Check className="h-3.5 w-3.5" />
+                Ajouté
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" />
+                {formatPriceEUR(unitPrice)}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )

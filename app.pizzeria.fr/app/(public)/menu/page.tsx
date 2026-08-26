@@ -10,8 +10,8 @@ export default function MenuPage() {
   return (
     <>
       <LandingHeader />
-      <div className="min-h-screen bg-charcoal pb-8">
-        <div className={cn(SITE_MAIN_OFFSET, 'border-b border-white/5 bg-charcoal py-8')}>
+      <div className={cn(SITE_MAIN_OFFSET, 'min-h-screen bg-charcoal pb-8')}>
+        <div className="border-b border-white/5 bg-charcoal pb-8">
           <div className="mx-auto max-w-7xl px-4 md:px-6">
             <Link href="/" className="text-sm text-cream/55 hover:text-cream">
               ← Accueil

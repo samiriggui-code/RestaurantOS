@@ -307,7 +307,6 @@ Modèles complets : `server/.env.example`, `deploy/.env.production.example`.
 - **APK** : navigation WebView restreinte à l'hôte autorisé.
 - **Docker** : images multi-stage, utilisateur non-root.
 - **Fiscal** : chaîne de tickets vérifiable (`fiscal:verify-chain`), journal d'événements, archivage.
-- Politique de divulgation : [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -322,7 +321,6 @@ Modèles complets : `server/.env.example`, `deploy/.env.production.example`.
 | [docs/VPS-DEPLOIEMENT.md](docs/VPS-DEPLOIEMENT.md) · [deploy/README.md](deploy/README.md) | Déploiement production VPS + Traefik                                         |
 | [deploy/FISCAL-OPS.md](deploy/FISCAL-OPS.md)                                              | Exploitation du module fiscal                                                |
 | [android/README.md](android/README.md)                                                    | Build & installation des APK                                                 |
-| [CHANGELOG.md](CHANGELOG.md)                                                              | Historique des versions (Keep a Changelog)                                   |
 
 ---
 

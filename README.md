@@ -88,7 +88,7 @@ Stack Docker locale : `docker-compose up -d` (Postgres + API + web). Déploiemen
 
 ## Sécurité
 
-JWT (access/refresh + rotation), rôles (admin/caisse/cuisine/livreur), PIN employé, Helmet CSP, rate limiting par palier, sanitization XSS, protection HPP, CORS whitelist. Aucune donnée carte bancaire stockée côté plateforme ou APK — paiement via SumUp. Détails : [SECURITY.md](SECURITY.md).
+JWT (access/refresh + rotation), rôles (admin/caisse/cuisine/livreur), PIN employé, Helmet CSP, rate limiting par palier, sanitization XSS, protection HPP, CORS whitelist. Aucune donnée carte bancaire stockée côté plateforme ou APK — paiement via SumUp.
 
 ## Documents de référence
 
@@ -99,7 +99,6 @@ JWT (access/refresh + rotation), rôles (admin/caisse/cuisine/livreur), PIN empl
 | [docs/conformite-article-286-cgi.md](docs/conformite-article-286-cgi.md)   | Conformité fiscale (art. 286 CGI, critères ISCA)                |
 | [docs/VPS-DEPLOIEMENT.md](docs/VPS-DEPLOIEMENT.md)                         | Déploiement production                                          |
 | [android/README.md](android/README.md)                                     | Build & installation des APK                                    |
-| [CHANGELOG.md](CHANGELOG.md)                                               | Historique des versions                                         |
 
 ## Licence
 

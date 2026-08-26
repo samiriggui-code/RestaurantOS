@@ -16,6 +16,8 @@ import {
 } from '../lib/invoice-from-order';
 import { buildFacturXCiiXml } from '../lib/factur-x-cii';
 import { renderInvoiceDocumentHtml } from '../lib/invoice-document-service';
+import { isPennylaneConfigured } from '../lib/pennylane/pennylane-client';
+import { syncInvoiceToPennylane } from '../lib/pennylane/pennylane-sync';
 
 const router = Router();
 
@@ -405,6 +407,37 @@ router.get(
     } catch (error) {
       console.error('Invoice factur-x:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/** GET /invoices/pennylane/status — le bouton de sync est-il utilisable (token configuré) ? */
+router.get(
+  '/pennylane/status',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  (_req: AuthRequest, res: Response) => {
+    res.json({ configured: isPennylaneConfigured() });
+  }
+);
+
+/** POST /invoices/:id/pennylane-sync — pousse la facture vers Pennylane (pont comptable). */
+router.post(
+  '/:id/pennylane-sync',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const result = await syncInvoiceToPennylane(
+        req.app.get('prisma'),
+        req.user!.businessId,
+        req.params.id
+      );
+      res.json(result);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Synchronisation Pennylane impossible';
+      console.error('Invoice pennylane-sync:', error);
+      res.status(400).json({ error: msg });
     }
   }
 );

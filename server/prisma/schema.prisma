@@ -655,6 +655,7 @@ model Invoice {
   notes           String?
   /// Préparation facturation électronique (PDP / Factur-X)
   eInvoiceFormat  String?
+  /// Id de la facture côté Pennylane une fois synchronisée (pont comptable)
   pdpReference    String?
   sentAt          DateTime?
   paidAt          DateTime?
@@ -662,6 +663,10 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   lines           InvoiceLine[]
+  /// Id client Pennylane résolu/créé au premier envoi (cache — évite les doublons client)
+  pennylaneCustomerId Int?
+  pennylaneSyncedAt   DateTime?
+  pennylaneSyncError  String?
 
   @@unique([businessId, invoiceNumber])
   @@index([businessId, status])

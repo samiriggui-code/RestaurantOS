@@ -4,7 +4,7 @@ Stack cible : **PostgreSQL 16 + Express (API) + Next.js (UI)** derrière **Traef
 
 **Guide complet** : [`docs/VPS-DEPLOIEMENT.md`](../docs/VPS-DEPLOIEMENT.md) (labo → client, SumUp, SMTP, Sentry, WhatsApp, devices).
 
-**Cohabitation gsms-school** (même VPS, `gsms-security.com`) : [`deploy/COHABITATION-GSMS.md`](COHABITATION-GSMS.md) + template [`deploy/.env.gsms-security.example`](.env.gsms-security.example).
+**VPS labo partagé avec un autre projet** : ce VPS héberge une autre stack indépendante à côté de celle-ci (Postgres/Docker/réseau séparés, seul Traefik est commun) — voir template d'env dédié [`deploy/.env.gsms-security.example`](.env.gsms-security.example) pour les variables spécifiques à cet environnement de labo.
 
 ## Prérequis VPS
 

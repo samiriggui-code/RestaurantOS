@@ -8,17 +8,18 @@
 
 ## 0. Périmètre v2.4 (rappel)
 
-| Élément | Solution livrée |
-|---------|-----------------|
-| Site public | `pizzeria.fr` — menu, commande en ligne, Stripe, suivi |
-| Caisse (POS) | **APK WebView `posTablet`** sur tablette comptoir standard |
-| Cuisine (KDS) | **APK WebView `kds`** sur tablette cuisine |
-| Livreur | **APK WebView `livreur`** sur smartphone |
-| Impression | **Epson comptoir** (reçus) + **Epson cuisine** (tickets préparation), ePOS-Print / ESC-POS sur le LAN |
+| Élément         | Solution livrée                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Site public     | `pizzeria.fr` — menu, commande en ligne, Stripe, suivi                                                          |
+| Caisse (POS)    | **APK WebView `posTablet`** sur tablette comptoir standard                                                      |
+| Cuisine (KDS)   | **APK WebView `kds`** sur tablette cuisine                                                                      |
+| Livreur         | **APK WebView `livreur`** sur smartphone                                                                        |
+| Impression      | **Epson comptoir** (reçus) + **Epson cuisine** (tickets préparation), ePOS-Print / ESC-POS sur le LAN           |
 | Registre fiscal | API vers caisse certifiée (type Zelty) — module E ; option de repli ISCA en propre **conservée** au CDC §2bis.4 |
-| Back-office | `app.pizzeria.fr/admin` (accessible Internet, login staff) |
+| Back-office     | `app.pizzeria.fr/admin` (accessible Internet, login staff)                                                      |
 
 **Règles métier actées (07/2026)** :
+
 - **Livraison uniquement prépayée en ligne** (Stripe). Le livreur n'encaisse jamais ; pas de création de commande livraison au comptoir en V1.
 - POS/KDS accessibles **uniquement depuis l'IP publique du restaurant** (middleware Traefik `pizzeria-shop-ip@file`).
 
@@ -60,25 +61,25 @@
 - [ ] Copier le template : `cp deploy/.env.production.example .env` (à la racine, sur le VPS)
 - [ ] Renseigner — **secrets neufs, jamais ceux du labo** :
 
-| Variable | Valeur prod | Note |
-|----------|-------------|------|
-| `DB_PASSWORD` | fort, généré | |
-| `JWT_SECRET` / `REFRESH_SECRET` | `openssl rand -base64 32` chacun | Nouveaux |
-| `FISCAL_HMAC_SECRET` | généré, **distinct** de `JWT_SECRET` | ⚠️ **Ne jamais changer après mise en service** (rupture chaîne fiscale) |
-| `FISCAL_SOFTWARE_VERSION` | version livrée | |
-| `FISCAL_ALLOW_JET_REPAIR` | `false` | `true` = labo uniquement |
-| `FISCAL_REQUIRE_PRECLOSE` | `true` | |
-| `BUSINESS_ID` | UUID du seed Prisma client | |
-| `PUBLIC_HOST` / `OPS_HOST` / `API_HOST` | `pizzeria.fr` / `app.pizzeria.fr` / `api.pizzeria.fr` | |
-| `NEXT_PUBLIC_API_URL` | `https://api.pizzeria.fr/api` | |
-| `PUBLIC_SITE_URL` | `https://pizzeria.fr` | QR reçus |
-| `FRONTEND_URL` | `https://pizzeria.fr,https://app.pizzeria.fr` | |
-| `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `sk_live_…` / `pk_live_…` | Compte **client** |
-| `STRIPE_WEBHOOK_SECRET` | depuis Dashboard live (§3) | |
-| `EMAIL_SERVER_*` / `EMAIL_FROM` / `ADMIN_NOTIFICATION_EMAIL` | SMTP client | Reçus fiscaux web |
-| `ENABLED_MODULES` | `menu,pos,kitchen,orders,reports,users,settings` | V1 La Z Pizza (pas de salle) |
-| `DRIVER_ACCESS_PIN` | **nouveau PIN** | Voir §7 sécurité |
-| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | DSN prod | Optionnel |
+| Variable                                                     | Valeur prod                                           | Note                                                                    |
+| ------------------------------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| `DB_PASSWORD`                                                | fort, généré                                          |                                                                         |
+| `JWT_SECRET` / `REFRESH_SECRET`                              | `openssl rand -base64 32` chacun                      | Nouveaux                                                                |
+| `FISCAL_HMAC_SECRET`                                         | généré, **distinct** de `JWT_SECRET`                  | ⚠️ **Ne jamais changer après mise en service** (rupture chaîne fiscale) |
+| `FISCAL_SOFTWARE_VERSION`                                    | version livrée                                        |                                                                         |
+| `FISCAL_ALLOW_JET_REPAIR`                                    | `false`                                               | `true` = labo uniquement                                                |
+| `FISCAL_REQUIRE_PRECLOSE`                                    | `true`                                                |                                                                         |
+| `BUSINESS_ID`                                                | UUID du seed Prisma client                            |                                                                         |
+| `PUBLIC_HOST` / `OPS_HOST` / `API_HOST`                      | `pizzeria.fr` / `app.pizzeria.fr` / `api.pizzeria.fr` |                                                                         |
+| `NEXT_PUBLIC_API_URL`                                        | `https://api.pizzeria.fr/api`                         |                                                                         |
+| `PUBLIC_SITE_URL`                                            | `https://pizzeria.fr`                                 | QR reçus                                                                |
+| `FRONTEND_URL`                                               | `https://pizzeria.fr,https://app.pizzeria.fr`         |                                                                         |
+| `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`   | `sk_live_…` / `pk_live_…`                             | Compte **client**                                                       |
+| `STRIPE_WEBHOOK_SECRET`                                      | depuis Dashboard live (§3)                            |                                                                         |
+| `EMAIL_SERVER_*` / `EMAIL_FROM` / `ADMIN_NOTIFICATION_EMAIL` | SMTP client                                           | Reçus fiscaux web                                                       |
+| `ENABLED_MODULES`                                            | `menu,pos,kitchen,orders,reports,users,settings`      | V1 La Z Pizza (pas de salle)                                            |
+| `DRIVER_ACCESS_PIN`                                          | **nouveau PIN**                                       | Voir §7 sécurité                                                        |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`                      | DSN prod                                              | Optionnel                                                               |
 
 - [ ] Aucun secret committé ; `.env` uniquement sur le VPS.
 
@@ -206,7 +207,7 @@ Rappels APK : navigation verrouillée sur le host autorisé (`ALLOWED_HOST`), fi
 ### Site public (recommandé avant ouverture au référencement)
 
 - [ ] `robots.txt` + `sitemap.xml` présents (constat audit : absents sur le labo) ; disallow `/livreur`, `/commander`, `/pos`, `/kitchen`, `/admin`
-- [ ] `og:image` + canonicals + metadata uniques par page (voir `audit pizza.md`)
+- [ ] `og:image` + canonicals + metadata uniques par page
 - [ ] Fiche **Google Business Profile** créée et reliée à `pizzeria.fr`
 
 ---
@@ -240,14 +241,14 @@ Rappels APK : navigation verrouillée sur le host autorisé (`ALLOWED_HOST`), fi
 
 ## 9. Après la livraison
 
-| Situation | Procédure |
-|-----------|-----------|
-| Tablette / imprimante HS | CRM → Appareils → dissocier → jumeler la nouvelle → re-test impression |
-| Changement de box Internet (nouvelle IP WAN) | Sur place : « Utiliser l'IP de ce réseau » (ou `sync-traefik-shop-ip.mjs`) |
-| Mise à jour logiciel | `git pull` → rebuild → `up -d` → `prisma migrate deploy` → vérifier contrôle chaîne fiscal |
-| Restauration après incident | `restore-vps.sh` + archives fiscales ; même `FISCAL_HMAC_SECRET` |
-| Commandes Stripe bloquées | `deploy/scripts/sync-stuck-stripe-orders.sh` |
-| 2ᵉ boutique | Nouveau VPS + nouveau `.env` (1 déploiement = 1 boutique) |
+| Situation                                    | Procédure                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Tablette / imprimante HS                     | CRM → Appareils → dissocier → jumeler la nouvelle → re-test impression                     |
+| Changement de box Internet (nouvelle IP WAN) | Sur place : « Utiliser l'IP de ce réseau » (ou `sync-traefik-shop-ip.mjs`)                 |
+| Mise à jour logiciel                         | `git pull` → rebuild → `up -d` → `prisma migrate deploy` → vérifier contrôle chaîne fiscal |
+| Restauration après incident                  | `restore-vps.sh` + archives fiscales ; même `FISCAL_HMAC_SECRET`                           |
+| Commandes Stripe bloquées                    | `deploy/scripts/sync-stuck-stripe-orders.sh`                                               |
+| 2ᵉ boutique                                  | Nouveau VPS + nouveau `.env` (1 déploiement = 1 boutique)                                  |
 
 ---
 
@@ -267,4 +268,4 @@ Rappels APK : navigation verrouillée sur le host autorisé (`ALLOWED_HOST`), fi
 
 ---
 
-*Créé le 15/07/2026 — synthèse de `VPS-DEPLOIEMENT.md`, `deploy/README.md`, `deploy/FISCAL-OPS.md`, `checklist-remise-client-fiscal.md`, `android/README.md` et de l'audit SEO/sécurité du labo (07/2026), aligné CDC v2.4.*
+_Créé le 15/07/2026 — synthèse de `VPS-DEPLOIEMENT.md`, `deploy/README.md`, `deploy/FISCAL-OPS.md`, `checklist-remise-client-fiscal.md`, `android/README.md` et de l'audit SEO/sécurité du labo (07/2026), aligné CDC v2.4._

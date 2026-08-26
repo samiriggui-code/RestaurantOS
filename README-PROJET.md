@@ -106,7 +106,6 @@ RestaurantOS/
 ├── docker-compose.yml        # Stack locale : postgres + server + web
 ├── Caddyfile                 # Reverse proxy du socle d'origine (remplacé par Traefik en prod)
 ├── cahier-des-charges-pizzeria-v2.4.md   # ★ Spécifications de référence
-├── MIGRATION-ROADMAP.md  DESIGN.md  plan.md
 └── package.json              # Racine : scripts unifiés, husky, lint-staged, commitlint
 ```
 
@@ -317,7 +316,6 @@ Modèles complets : `server/.env.example`, `deploy/.env.production.example`.
 | Document                                                                                  | Contenu                                                                      |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [cahier-des-charges-pizzeria-v2.4.md](cahier-des-charges-pizzeria-v2.4.md)                | Spécifications contractuelles complètes (architecture, planning, conformité) |
-| [MIGRATION-ROADMAP.md](MIGRATION-ROADMAP.md)                                              | Feuille de route de migration du socle                                       |
 | [docs/conformite-article-286-cgi.md](docs/conformite-article-286-cgi.md)                  | Analyse légale (loi anti-fraude TVA, critères ISCA)                          |
 | [docs/attestation-logiciel-caisse-bofip.md](docs/attestation-logiciel-caisse-bofip.md)    | Attestation éditeur (BOFiP, LF 2026)                                         |
 | [docs/architecture-materiel-client.md](docs/architecture-materiel-client.md)              | Matériel : tablettes, imprimantes Epson, réseau                              |

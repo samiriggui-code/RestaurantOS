@@ -23,12 +23,12 @@ android/             # APK WebView SUNMI (à construire)
 
 ## Quatre interfaces (un seul Next.js : `app.pizzeria.fr/`)
 
-| Module | Rôle | Route group | Domaine prod |
-|--------|------|-------------|--------------|
-| **A — Site public** | Landing, menu, panier, paiement, suivi | `app/(public)/` | `pizzeria.fr` |
-| **B — POS SUNMI** | Commande comptoir, réception/impression web | `app/(pos)/` | `app.pizzeria.fr` |
-| **C — KDS** | Colonnes Nouvelles / En préparation / Prêtes | `app/(kds)/` | `app.pizzeria.fr` |
-| **D — Back-office** | Menu, horaires, historique, stats | `app/(admin)/` | `app.pizzeria.fr` |
+| Module              | Rôle                                         | Route group     | Domaine prod      |
+| ------------------- | -------------------------------------------- | --------------- | ----------------- |
+| **A — Site public** | Landing, menu, panier, paiement, suivi       | `app/(public)/` | `pizzeria.fr`     |
+| **B — POS SUNMI**   | Commande comptoir, réception/impression web  | `app/(pos)/`    | `app.pizzeria.fr` |
+| **C — KDS**         | Colonnes Nouvelles / En préparation / Prêtes | `app/(kds)/`    | `app.pizzeria.fr` |
+| **D — Back-office** | Menu, horaires, historique, stats            | `app/(admin)/`  | `app.pizzeria.fr` |
 
 L'API métier reste dans **Express** (`server/`) — pas de réécriture en routes Next.js.
 
@@ -62,4 +62,4 @@ Socle RestaurantOS + ajouts : `TimeSlot`, `DeliveryZone`, `PrintJob`, `trackingT
 2. UI → `app.pizzeria.fr/` ; API → `server/src/routes/`.
 3. Ne jamais ajouter de code dans `client/` (Vite legacy).
 4. Pas de données bancaires côté POS — Stripe en ligne, TPE physique au comptoir.
-5. **Roadmap priorisée :** `MIGRATION-ROADMAP.md` (P0 build → P1 menu BDD → P2 modules → P3/P4/P5).
+5. **Roadmap priorisée :** `docs/FAISABILITE-PLAN-URY.md` (P0 build → P1 menu BDD → P2 modules → P3/P4/P5).

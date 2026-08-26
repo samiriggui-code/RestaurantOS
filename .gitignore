@@ -73,3 +73,6 @@ android/app/build/
 # Root artifacts
 code.html
 screen.png
+
+# Tool scratch/cache (jamais commité)
+.firecrawl/

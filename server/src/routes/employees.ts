@@ -8,6 +8,7 @@ import { isValidStaffPin } from '../lib/pin';
 import {
   analyzeSchedule,
   buildSmartSchedulePlan,
+  checkScheduleWriteGuardrails,
   datesBetween,
   resolveScheduleGuardrails,
 } from '../lib/smart-schedule';
@@ -996,12 +997,58 @@ router.put(
     try {
       const prisma: PrismaClient = req.app.get('prisma');
       const businessId = req.user!.businessId;
-      const { userId, date, shiftId, startTime, endTime, roleLabel, notes } = req.body;
+      const { userId, date, shiftId, startTime, endTime, roleLabel, notes, force } = req.body;
 
       if (!userId || !date) return res.status(400).json({ error: 'userId et date obligatoires' });
 
       const user = await prisma.user.findFirst({ where: { id: userId, businessId } });
       if (!user) return res.status(404).json({ error: 'Employé introuvable' });
+
+      const isWorkingDay = Boolean(shiftId || startTime || endTime || roleLabel);
+      if (isWorkingDay) {
+        const windowStart = new Date(`${date}T12:00:00`);
+        windowStart.setDate(windowStart.getDate() - 7);
+        const windowEnd = new Date(`${date}T12:00:00`);
+        windowEnd.setDate(windowEnd.getDate() + 7);
+
+        const [business, nearbyEntries] = await Promise.all([
+          prisma.business.findUnique({ where: { id: businessId }, select: { settings: true } }),
+          prisma.employeeScheduleEntry.findMany({
+            where: {
+              userId,
+              date: {
+                gte: windowStart.toISOString().slice(0, 10),
+                lte: windowEnd.toISOString().slice(0, 10),
+                not: date,
+              },
+            },
+            select: { date: true, shiftId: true, startTime: true, endTime: true, roleLabel: true },
+          }),
+        ]);
+
+        const guardrails = resolveScheduleGuardrails(
+          parseBusinessSettings(business?.settings).planning
+        );
+        const otherWorkedDates = nearbyEntries
+          .filter(e => Boolean(e.shiftId || e.startTime || e.endTime || e.roleLabel))
+          .map(e => e.date);
+
+        const violations = checkScheduleWriteGuardrails({
+          employee: { role: user.role, planningMeta: user.planningMeta },
+          date,
+          isWorkingDay,
+          otherWorkedDates,
+          guardrails,
+        });
+
+        if (violations.length > 0 && !(force === true && req.user!.role === 'ADMIN')) {
+          return res.status(409).json({
+            error: 'Garde-fou planning violé',
+            violations,
+            hint: 'Un ADMIN peut forcer avec { force: true } si la dérogation est assumée.',
+          });
+        }
+      }
 
       const entry = await prisma.employeeScheduleEntry.upsert({
         where: { userId_date: { userId, date } },

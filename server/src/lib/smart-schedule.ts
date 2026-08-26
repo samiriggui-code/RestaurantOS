@@ -791,3 +791,71 @@ export function buildSmartSchedulePlan(input: {
     summary: 'Prévisualisation employé',
   };
 }
+
+export type ScheduleGuardrailViolation = { code: string; message: string };
+
+/**
+ * Vérifie qu'assigner (ou retirer) un employé sur une date ne viole pas les garde-fous
+ * (max jours/semaine, max jours consécutifs) — appelé à l'écriture manuelle
+ * (PUT /employees/schedule), contrairement à analyzeSchedule qui n'audite qu'a posteriori
+ * sur toute une grille déjà posée.
+ */
+export function checkScheduleWriteGuardrails(params: {
+  employee: { role: string; planningMeta?: unknown };
+  date: string;
+  isWorkingDay: boolean;
+  /** Dates (YYYY-MM-DD) déjà travaillées par cet employé, hors `date`, dans une fenêtre ±7j. */
+  otherWorkedDates: string[];
+  guardrails: ScheduleGuardrails;
+}): ScheduleGuardrailViolation[] {
+  if (!params.isWorkingDay) return [];
+
+  const violations: ScheduleGuardrailViolation[] = [];
+  const workedDates = new Set(params.otherWorkedDates);
+  workedDates.add(params.date);
+
+  const dayIdx = isoDayIndex(params.date);
+  const monday = new Date(`${params.date}T12:00:00`);
+  monday.setDate(monday.getDate() - dayIdx);
+  let daysThisWeek = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    if (workedDates.has(d.toISOString().slice(0, 10))) daysThisWeek++;
+  }
+
+  const maxDays = maxDaysForStaff(params.employee.planningMeta, params.employee.role, {
+    maxDaysPerWeek: params.guardrails.maxDaysPerWeek,
+    fullTimeDriverMaxDays: params.guardrails.fullTimeDriverMaxDays,
+    partTimeDriverMaxDays: params.guardrails.partTimeDriverMaxDays,
+  });
+  const effectiveMax = Math.min(maxDays, 7 - params.guardrails.minRestDaysPerWeek);
+  if (daysThisWeek > effectiveMax) {
+    violations.push({
+      code: 'MAX_DAYS_PER_WEEK',
+      message: `${daysThisWeek} jours travaillés cette semaine — maximum ${effectiveMax} (repos minimum ${params.guardrails.minRestDaysPerWeek} j/semaine).`,
+    });
+  }
+
+  let consecutive = 1;
+  const back = new Date(`${params.date}T12:00:00`);
+  for (;;) {
+    back.setDate(back.getDate() - 1);
+    if (!workedDates.has(back.toISOString().slice(0, 10))) break;
+    consecutive++;
+  }
+  const fwd = new Date(`${params.date}T12:00:00`);
+  for (;;) {
+    fwd.setDate(fwd.getDate() + 1);
+    if (!workedDates.has(fwd.toISOString().slice(0, 10))) break;
+    consecutive++;
+  }
+  if (consecutive > params.guardrails.maxConsecutiveDays) {
+    violations.push({
+      code: 'MAX_CONSECUTIVE_DAYS',
+      message: `${consecutive} jours consécutifs travaillés — maximum ${params.guardrails.maxConsecutiveDays}.`,
+    });
+  }
+
+  return violations;
+}

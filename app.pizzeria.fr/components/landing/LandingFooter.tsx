@@ -1,12 +1,6 @@
 import Link from 'next/link'
+import { LEGAL_FOOTER_LINKS } from '@/lib/legal-identity'
 import { PIZZERIA } from '@/lib/pizzeria-content'
-
-const LEGAL = [
-  { label: 'Mentions légales', href: '#' },
-  { label: 'Confidentialité', href: '#' },
-  { label: 'Livraison', href: '#livraison' },
-  { label: 'CGV', href: '#' },
-]
 
 export function LandingFooter() {
   return (
@@ -39,7 +33,7 @@ export function LandingFooter() {
           </div>
         </div>
         <div className="mt-12 flex flex-wrap gap-6 border-t border-white/5 pt-8 text-xs text-cream/40">
-          {LEGAL.map((l) => (
+          {LEGAL_FOOTER_LINKS.map((l) => (
             <Link key={l.label} href={l.href} className="hover:text-cream/70">
               {l.label}
             </Link>

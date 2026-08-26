@@ -35,6 +35,7 @@ import type { CheckoutDraft, OrderType } from '@/lib/cart-types'
 import { customerFullName } from '@/lib/cart-types'
 import { cn } from '@/lib/cn'
 import { CheckoutPayment } from '@/components/checkout/CheckoutPayment'
+import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice'
 import { SITE_STICKY_BELOW_HEADER } from '@/lib/site-layout'
 import { pizzaSubtotalFromLines } from '@/lib/pizza-subtotal'
 import { isOrderTestSlotsEnabled } from '@/lib/order-test-mode'
@@ -683,6 +684,8 @@ export function CheckoutWizard() {
                   </button>
                 </div>
               </div>
+
+              <LegalCheckoutNotice />
 
               <CheckoutPayment
                 lines={lines}

@@ -38,7 +38,10 @@ export function startReportingSyncScheduler(prisma: PrismaClient): void {
           await syncPennylaneSupplierInvoices(prisma, biz.id);
         } catch (err) {
           if (!(err instanceof PennylaneNotConfiguredError)) {
-            console.error(`[reporting-sync] Pennylane ${biz.id}:`, err);
+            // Message seul : un 403 (scope du token) reviendrait toutes les 15 min avec sa pile complète.
+            console.error(
+              `[reporting-sync] Pennylane ${biz.id}: ${err instanceof Error ? err.message : String(err)}`
+            );
           }
         }
       }

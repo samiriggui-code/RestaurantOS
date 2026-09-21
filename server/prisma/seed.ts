@@ -135,19 +135,26 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log('📦 Stock & dépenses pizzeria…');
-  const stock = await seedPizzeriaStock(prisma, business.id);
-  const expenses = await seedPizzeriaExpenses(prisma, business.id);
-  console.log(
-    `   Stock : ${stock.created} créés, ${stock.updated} mis à jour (${stock.total} articles)`
-  );
-  const recipes = await seedPizzeriaStockRecipes(prisma, business.id);
-  console.log(`   Recettes BOM : ${recipes.recipes} lignes, ${recipes.linked} boissons liées`);
-  console.log(
-    expenses.skipped
-      ? '   Dépenses démo déjà présentes — skip'
-      : `   Dépenses : ${expenses.created} charges démo ajoutées`
-  );
+  // Stock / recettes / dépenses de DÉMO : uniquement à la demande (SEED_DEMO_DATA=true).
+  // Sinon chaque déploiement injectait de faux articles et de fausses charges dans la prod/préprod
+  // (et dans le tableau ventes vs dépenses).
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    console.log('📦 Stock & dépenses pizzeria…');
+    const stock = await seedPizzeriaStock(prisma, business.id);
+    const expenses = await seedPizzeriaExpenses(prisma, business.id);
+    console.log(
+      `   Stock : ${stock.created} créés, ${stock.updated} mis à jour (${stock.total} articles)`
+    );
+    const recipes = await seedPizzeriaStockRecipes(prisma, business.id);
+    console.log(`   Recettes BOM : ${recipes.recipes} lignes, ${recipes.linked} boissons liées`);
+    console.log(
+      expenses.skipped
+        ? '   Dépenses démo déjà présentes — skip'
+        : `   Dépenses : ${expenses.created} charges démo ajoutées`
+    );
+  } else {
+    console.log('📦 Stock & dépenses démo ignorés (SEED_DEMO_DATA≠true)');
+  }
 
   const menuCount = await prisma.menuCategory.count({
     where: { businessId: business.id, slug: { not: null } },

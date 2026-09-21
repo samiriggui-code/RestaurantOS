@@ -1,6 +1,7 @@
 'use client'
 
 import { Bike, ChefHat, Download, ExternalLink, Store, Tablet } from 'lucide-react'
+import { isModuleEnabled } from '@/lib/modules'
 import {
   OPS_APPS,
   opsAppApkUrl,
@@ -29,7 +30,11 @@ export function DeviceLaunchCards({ compact }: { compact?: boolean }) {
         compact ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4' : 'grid gap-4 sm:grid-cols-2 lg:grid-cols-4'
       }
     >
-      {OPS_APPS.map((app) => {
+      {OPS_APPS.filter(
+        (app) =>
+          (app.id !== 'pos' || isModuleEnabled('pos')) &&
+          (app.id !== 'kiosk' || isModuleEnabled('kiosk')),
+      ).map((app) => {
         const Icon = ICONS[app.id]
         const openUrl = opsAppOpenUrl(app)
         const apkUrl = opsAppApkUrl(app)

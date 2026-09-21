@@ -85,7 +85,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2">
           {ADMIN_NAV_GROUPS.map((group) => {
-            const items = group.items.filter((item) => filterNavItem(item, role))
+            // Module désactivé (ex. tables, réservations, wifi) : l'entrée n'est pas affichée du tout.
+            const items = group.items.filter(
+              (item) => filterNavItem(item, role) && navEnabled(item.module),
+            )
             if (items.length === 0) return null
 
             return (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -17,39 +17,23 @@ import {
   Printer,
   RefreshCw,
   Scale,
-  ShoppingBag,
-  Tablet,
   Wallet,
   XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs'
 import { SideSheet } from '@/components/ui/side-sheet'
-import { getApiBase } from '@/lib/api-base'
 import { formatEUR } from '@/lib/money'
-import { opsSitePath, publicSitePath } from '@/lib/ops-apps'
+import { publicSitePath } from '@/lib/ops-apps'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { cn } from '@/lib/cn'
 
 type ProviderStatus = 'connected' | 'action' | 'disconnected'
 
-type MarketplaceRow = {
-  id: 'deliveroo' | 'ubereats'
-  configured: boolean
-  enabled: boolean
-  lastWebhookAt: string | null
-  lastOrderAt: string | null
-  lastError: string | null
-  orderCount: number
-  secretHint?: string | null
-  source?: 'settings' | 'env' | null
-}
-
 type IntegrationsPayload = {
   sumupOnlineConfigured?: boolean
   sumupWebhookUrl?: string | null
-  marketplaces?: MarketplaceRow[]
   sumup?: {
     configured?: boolean
     source?: 'settings' | 'env' | null
@@ -68,13 +52,10 @@ type IntegrationsPayload = {
 }
 
 type IntegrationId =
-  | 'deliveroo'
-  | 'ubereats'
   | 'sumup-online'
   | 'sumup-csv'
   | 'epson'
   | 'sumup-reader'
-  | 'totem'
   | 'fiscal'
   | 'backups'
   | 'pennylane'
@@ -88,8 +69,6 @@ type SheetContent = {
   steps: string[]
   links: { href: string; label: string; external?: boolean }[]
   webhookUrl?: string | null
-  stats?: MarketplaceRow
-  samplePayload?: string
 }
 
 const fieldClass =
@@ -120,42 +99,6 @@ function StatusBadge({ status }: { status: ProviderStatus }) {
     </span>
   )
 }
-
-function marketplaceStatus(row: MarketplaceRow | undefined): ProviderStatus {
-  if (!row) return 'disconnected'
-  if (row.configured && row.orderCount > 0) return 'connected'
-  if (row.configured) return 'action'
-  return 'disconnected'
-}
-
-function formatFr(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  try {
-    return new Date(iso).toLocaleString('fr-FR')
-  } catch {
-    return null
-  }
-}
-
-function webhookOrigin(): string {
-  return getApiBase().replace(/\/api\/?$/, '')
-}
-
-const MARKETPLACE_SAMPLE = `{
-  "event": "order.new",
-  "externalId": "dro-123",
-  "order": {
-    "type": "DELIVERY",
-    "customerName": "…",
-    "customerPhone": "…",
-    "addressLine": "…",
-    "postalCode": "…",
-    "city": "…",
-    "lines": [{ "name": "Margherita", "quantity": 1, "unitCents": 1200 }],
-    "deliveryFeeCents": 250,
-    "totalCents": 1450
-  }
-}`
 
 function IntegrationCard({
   icon: Icon,
@@ -216,7 +159,6 @@ function ConfigBox({
 }
 
 export function AdminIntegrationsView() {
-  const [marketplaces, setMarketplaces] = useState<MarketplaceRow[]>([])
   const [sumupConfigured, setSumupConfigured] = useState(false)
   const [sumupOnlineConfigured, setSumupOnlineConfigured] = useState(false)
   const [sumupWebhookUrl, setSumupWebhookUrl] = useState<string | null>(null)
@@ -242,10 +184,6 @@ export function AdminIntegrationsView() {
   const [sumupTxnSyncing, setSumupTxnSyncing] = useState(false)
   const [sumupTxnMsg, setSumupTxnMsg] = useState<string | null>(null)
 
-  const [mpSecretInput, setMpSecretInput] = useState('')
-  const [mpGeneratedOnce, setMpGeneratedOnce] = useState<string | null>(null)
-  const [mpSaving, setMpSaving] = useState(false)
-  const [mpMsg, setMpMsg] = useState<string | null>(null)
 
   const [backupsOk, setBackupsOk] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -260,7 +198,6 @@ export function AdminIntegrationsView() {
       const data = await staffFetch<IntegrationsPayload>('/settings/integrations', {
         token: session.token,
       })
-      setMarketplaces(data.marketplaces ?? [])
       const su = data.sumup
       setSumupConfigured(Boolean(su?.configured ?? data.sumupOnlineConfigured))
       setSumupOnlineConfigured(Boolean(su?.onlineConfigured ?? data.sumupOnlineConfigured))
@@ -273,7 +210,6 @@ export function AdminIntegrationsView() {
       setPennylaneDraft(pl?.invoiceDraft !== false)
       setBackupsOk(Boolean(data.backups?.configured))
     } catch {
-      setMarketplaces([])
       setSumupConfigured(false)
       setSumupOnlineConfigured(false)
       setPennylaneConfigured(false)
@@ -288,51 +224,9 @@ export function AdminIntegrationsView() {
   }, [load])
 
   useEffect(() => {
-    setMpSecretInput('')
-    setMpGeneratedOnce(null)
-    setMpMsg(null)
     setSumupMsg(null)
     setPennylaneMsg(null)
   }, [active])
-
-  async function saveMarketplace(
-    provider: 'deliveroo' | 'ubereats',
-    opts: { generate?: boolean; clear?: boolean; secret?: string },
-  ) {
-    const session = getStaffSession()
-    if (!session) return
-    setMpSaving(true)
-    setMpMsg(null)
-    setMpGeneratedOnce(null)
-    try {
-      const body: { generate?: boolean; clear?: boolean; webhookSecret?: string } = {}
-      if (opts.clear) body.clear = true
-      else if (opts.generate) body.generate = true
-      else if (opts.secret?.trim()) body.webhookSecret = opts.secret.trim()
-      else {
-        setMpMsg('Saisis un secret ou génère-en un.')
-        setMpSaving(false)
-        return
-      }
-      const res = await staffFetch<{
-        configured: boolean
-        secretHint: string | null
-        webhookSecret?: string
-      }>(`/settings/integrations/marketplace/${provider}`, {
-        token: session.token,
-        method: 'PUT',
-        body: JSON.stringify(body),
-      })
-      if (res.webhookSecret) setMpGeneratedOnce(res.webhookSecret)
-      setMpSecretInput('')
-      setMpMsg(opts.clear ? 'Secret supprimé.' : 'Secret enregistré.')
-      await load()
-    } catch (e) {
-      setMpMsg(e instanceof Error ? e.message : 'Enregistrement impossible')
-    } finally {
-      setMpSaving(false)
-    }
-  }
 
   async function saveSumup(opts?: { clear?: boolean }) {
     const session = getStaffSession()
@@ -464,54 +358,7 @@ export function AdminIntegrationsView() {
     }
   }
 
-  const base = useMemo(() => webhookOrigin(), [])
-  const webhookBase = `${base}/api/public/webhooks`
-  const deliveroo = marketplaces.find((m) => m.id === 'deliveroo')
-  const ubereats = marketplaces.find((m) => m.id === 'ubereats')
-
   const sheets: Record<IntegrationId, SheetContent> = {
-    deliveroo: {
-      id: 'deliveroo',
-      subtitle: 'Marketplace',
-      title: 'Deliveroo',
-      status: marketplaceStatus(deliveroo),
-      summary:
-        'Les commandes Deliveroo arrivent dans la même file que le site et le POS. Tout se configure ici — tu n’as pas besoin d’accéder au serveur.',
-      steps: [
-        'Génère ou colle un secret webhook ci-dessous, puis enregistre.',
-        'Copie l’URL webhook et déclare-la dans le portail partenaire Deliveroo (avec le même secret).',
-        'Envoie une commande test : le statut passe à Connecté dès la 1ʳᵉ réception.',
-        'Contrôle le flux dans Commandes et sur le KDS.',
-      ],
-      links: [
-        { href: '/admin/orders', label: 'Voir les commandes' },
-        { href: '/kitchen', label: 'Ouvrir le KDS', external: true },
-      ],
-      webhookUrl: `${webhookBase}/deliveroo`,
-      stats: deliveroo,
-      samplePayload: MARKETPLACE_SAMPLE,
-    },
-    ubereats: {
-      id: 'ubereats',
-      subtitle: 'Marketplace',
-      title: 'Uber Eats',
-      status: marketplaceStatus(ubereats),
-      summary:
-        'Même pipeline que Deliveroo : webhook → commande → cuisine / tickets. Configuration 100 % backoffice.',
-      steps: [
-        'Génère ou colle un secret webhook ci-dessous.',
-        'Enregistre l’URL dans le portail Uber Eats avec ce secret.',
-        'Teste une commande ; vérifie le canal UBER_EATS.',
-        'Suis la préparation sur le KDS.',
-      ],
-      links: [
-        { href: '/admin/orders', label: 'Voir les commandes' },
-        { href: '/kitchen', label: 'Ouvrir le KDS', external: true },
-      ],
-      webhookUrl: `${webhookBase}/ubereats`,
-      stats: ubereats,
-      samplePayload: MARKETPLACE_SAMPLE,
-    },
     'sumup-online': {
       id: 'sumup-online',
       subtitle: 'Paiement web',
@@ -558,44 +405,22 @@ export function AdminIntegrationsView() {
       ],
       links: [
         { href: '/admin/devices', label: 'Devices & boutiques' },
-        { href: '/pos', label: 'Ouvrir la caisse', external: true },
       ],
     },
     'sumup-reader': {
       id: 'sumup-reader',
       subtitle: 'Terminal CB',
-      title: 'Lecteur SumUp (POS / Totem)',
+      title: 'Lecteur SumUp (terminal boutique)',
       status: sumupConfigured ? 'action' : 'action',
       summary:
-        'Lecteur SumUp Solo Wi‑Fi pour la caisse et le totem. D’abord les clés SumUp (carte ci-dessus), puis jumelage dans Devices.',
+        'Lecteur SumUp Solo Wi‑Fi pour l’encaissement en boutique. D’abord les clés SumUp (carte ci-dessus), puis jumelage dans Devices.',
       steps: [
         'Enregistre les clés SumUp dans « SumUp — site public » (même compte).',
         'Dans Devices, jumelle le lecteur SumUp.',
-        'Sur POS ou Totem : Paiement carte → le client présente la carte.',
+        'À l’encaissement : Paiement carte → le client présente la carte.',
       ],
       links: [
         { href: '/admin/devices', label: 'Jumeler le lecteur' },
-        { href: '/pos', label: 'Tester sur la caisse', external: true },
-        { href: opsSitePath('/kiosk'), label: 'Tester sur le totem', external: true },
-      ],
-    },
-    totem: {
-      id: 'totem',
-      subtitle: 'Self-service boutique',
-      title: 'Totem kiosque',
-      status: 'connected',
-      summary:
-        'Écran client libre (sans PIN) : veille promo → commande → CB / espèces / comptoir → ticket + cuisine.',
-      steps: [
-        'Ouvre le totem sur une tablette (réseau boutique).',
-        'Le client touche l’écran de veille pour commander.',
-        'Paiement CB (SumUp), espèces ou règlement au comptoir.',
-        'Suivi présence dans Devices → Parc périphériques.',
-      ],
-      links: [
-        { href: opsSitePath('/kiosk'), label: 'Ouvrir le totem', external: true },
-        { href: '/admin/devices', label: 'Parc & imprimantes' },
-        { href: '/kitchen', label: 'Vérifier le KDS', external: true },
       ],
     },
     fiscal: {
@@ -653,8 +478,6 @@ export function AdminIntegrationsView() {
     setTimeout(() => setCopied(null), 1500)
   }
 
-  const activeMarketplace =
-    active === 'deliveroo' || active === 'ubereats' ? active : null
 
   return (
     <AdminPageShell>
@@ -677,23 +500,6 @@ export function AdminIntegrationsView() {
         Clique une carte : tu colles ton token / secret, tu copies l’URL si besoin, et tu suis les étapes.
         Matériel (imprimantes, lecteur) se jumelle dans Devices.
       </p>
-
-      <Section title="Marketplaces">
-        <IntegrationCard
-          icon={ShoppingBag}
-          title="Deliveroo"
-          blurb="Secret + URL webhook — commandes vers KDS."
-          status={marketplaceStatus(deliveroo)}
-          onOpen={() => setActive('deliveroo')}
-        />
-        <IntegrationCard
-          icon={ShoppingBag}
-          title="Uber Eats"
-          blurb="Même file cuisine que le site et le comptoir."
-          status={marketplaceStatus(ubereats)}
-          onOpen={() => setActive('ubereats')}
-        />
-      </Section>
 
       <Section title="Paiements">
         <IntegrationCard
@@ -720,13 +526,6 @@ export function AdminIntegrationsView() {
       </Section>
 
       <Section title="Parc boutique">
-        <IntegrationCard
-          icon={Tablet}
-          title="Totem kiosque"
-          blurb="Self-service : veille, panier, CB, cuisine."
-          status="connected"
-          onOpen={() => setActive('totem')}
-        />
         <IntegrationCard
           icon={Printer}
           title="Imprimantes Epson"
@@ -853,102 +652,6 @@ export function AdminIntegrationsView() {
                 {copied === sheet.id && <p className="mt-1 text-[10px] text-emerald-400">Copié</p>}
               </div>
             ) : null}
-
-            {sheet.stats ? (
-              <dl className="grid grid-cols-2 gap-2 rounded-xl border border-white/5 bg-black/25 p-3 text-xs">
-                <div>
-                  <dt className="text-cream/40">Commandes reçues</dt>
-                  <dd className="font-mono text-lg text-cream">{sheet.stats.orderCount}</dd>
-                </div>
-                <div>
-                  <dt className="text-cream/40">Dernière commande</dt>
-                  <dd className="text-cream/80">{formatFr(sheet.stats.lastOrderAt) ?? '—'}</dd>
-                </div>
-                <div className="col-span-2">
-                  <dt className="text-cream/40">Secret</dt>
-                  <dd className="font-mono text-cream/80">
-                    {sheet.stats.secretHint ?? 'non configuré'}
-                  </dd>
-                </div>
-                {sheet.stats.lastError ? (
-                  <div className="col-span-2 text-amber-300">Erreur : {sheet.stats.lastError}</div>
-                ) : null}
-              </dl>
-            ) : null}
-
-            {activeMarketplace && (
-              <ConfigBox title="Secret webhook (backoffice)">
-                {sheet.stats?.configured && sheet.stats.secretHint ? (
-                  <p className="text-sm text-emerald-300/90">
-                    Secret enregistré : <code className="font-mono text-cream">{sheet.stats.secretHint}</code>
-                  </p>
-                ) : (
-                  <p className="text-sm text-amber-200/90">Aucun secret — génère-en un ou colle celui du portail.</p>
-                )}
-                {mpGeneratedOnce && (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-                    <p className="mb-1 font-semibold">Copie ce secret maintenant (affiché une seule fois) :</p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 break-all font-mono text-xs">{mpGeneratedOnce}</code>
-                      <button
-                        type="button"
-                        onClick={() => copy(mpGeneratedOnce, 'mp-gen')}
-                        className="rounded-lg bg-white/10 p-2"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                    </div>
-                    {copied === 'mp-gen' && <p className="mt-1 text-[10px] text-emerald-400">Copié</p>}
-                  </div>
-                )}
-                <label className="block text-xs text-cream/50">
-                  Coller un secret existant
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={mpSecretInput}
-                    onChange={(e) => setMpSecretInput(e.target.value)}
-                    placeholder="Optionnel si tu génères"
-                    className={fieldClass}
-                  />
-                </label>
-                {mpMsg && (
-                  <p className={mpMsg.includes('impossible') ? 'text-sm text-red-300' : 'text-sm text-emerald-300'}>
-                    {mpMsg}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={mpSaving}
-                    onClick={() => void saveMarketplace(activeMarketplace, { generate: true })}
-                    className="rounded-xl bg-tomato px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-                  >
-                    {mpSaving ? '…' : 'Générer un secret'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={mpSaving || !mpSecretInput.trim()}
-                    onClick={() =>
-                      void saveMarketplace(activeMarketplace, { secret: mpSecretInput })
-                    }
-                    className="rounded-xl border border-white/15 px-4 py-2.5 text-sm text-cream disabled:opacity-40"
-                  >
-                    Enregistrer le secret collé
-                  </button>
-                  {sheet.stats?.configured && (
-                    <button
-                      type="button"
-                      disabled={mpSaving}
-                      onClick={() => void saveMarketplace(activeMarketplace, { clear: true })}
-                      className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-cream/50"
-                    >
-                      Supprimer
-                    </button>
-                  )}
-                </div>
-              </ConfigBox>
-            )}
 
             {sheet.id === 'sumup-online' && (
               <ConfigBox title="Clés SumUp (backoffice)">
@@ -1155,25 +858,14 @@ export function AdminIntegrationsView() {
               </ConfigBox>
             )}
 
-            {(sheet.id === 'totem' || sheet.id === 'sumup-reader') && (
+            {sheet.id === 'sumup-reader' && (
               <div className="rounded-xl border border-tomato/25 bg-tomato/5 p-3 text-xs text-cream/70">
                 <p className="mb-1 flex items-center gap-1.5 font-semibold text-tomato-light">
                   <ChefHat className="h-3.5 w-3.5" /> Chaîne boutique
                 </p>
-                Totem / POS → paiement → ticket → KDS.
+                Lecteur SumUp → paiement → ticket → cuisine.
               </div>
             )}
-
-            {sheet.samplePayload ? (
-              <div>
-                <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-cream/40">
-                  Exemple de payload (test partenaire)
-                </h3>
-                <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-[10px] leading-relaxed text-cream/55">
-                  {sheet.samplePayload}
-                </pre>
-              </div>
-            ) : null}
           </div>
         )}
       </SideSheet>

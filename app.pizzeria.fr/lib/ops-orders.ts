@@ -120,7 +120,8 @@ export type OpsOrder = {
 
 
 
-export const KITCHEN_STATUSES = 'CONFIRMED,PENDING,PREPARING,READY,OUT_FOR_DELIVERY,DELIVERY_ISSUE'
+/** Statuts de l'enum serveur OrderStatus — `PENDING` n'existe plus (→ 500 côté API). */
+export const KITCHEN_STATUSES = 'CONFIRMED,PREPARING,READY,OUT_FOR_DELIVERY,DELIVERY_ISSUE'
 
 /** Commande visible sur le KDS (à emporter READY = file POS uniquement). */
 export function isKitchenVisibleOrder(order: OpsOrder): boolean {

@@ -26,6 +26,7 @@ import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
 import { DeviceFleetOverview } from '@/components/admin/DeviceFleetOverview'
 import { AdminPageHeader, AdminPageShell, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { getStaffSession, getStaffUser } from '@/lib/staff-auth'
+import { isModuleEnabled } from '@/lib/modules'
 import {
   captureWanIp,
   completeOnboarding,
@@ -420,9 +421,15 @@ function DevicesHubPanel({
   pairedForSlot: (slot: DeviceSlot) => PairedDevice[]
   isSlotFull: (slot: DeviceSlot) => boolean
 }) {
+  // Version une-tablette : sans module POS, seul le slot KDS est jumelable.
+  const posEnabled = isModuleEnabled('pos')
   const SLOTS: { slot: DeviceSlot; icon: LucideIcon; testHref: string }[] = [
-    { slot: 'pos-sunmi', icon: Store, testHref: '/pos' },
-    { slot: 'pos-tablet', icon: Tablet, testHref: '/pos' },
+    ...(posEnabled
+      ? [
+          { slot: 'pos-sunmi' as DeviceSlot, icon: Store, testHref: '/pos' },
+          { slot: 'pos-tablet' as DeviceSlot, icon: Tablet, testHref: '/pos' },
+        ]
+      : []),
     { slot: 'kds', icon: ChefHat, testHref: '/kitchen' },
   ]
 
@@ -688,7 +695,9 @@ function SetupPanel({
       <section className="space-y-3 border-t border-white/10 pt-4">
         <h3 className="text-sm font-medium text-cream">Inventaire matériel jumelé</h3>
         <p className="text-xs text-cream/50">
-          Quotas : 1× SUNMI · 1× tablette caisse · 1× KDS · 2 imprimantes Epson (IP LAN, onglet Réseau).
+          {isModuleEnabled('pos')
+            ? 'Quotas : 1× SUNMI · 1× tablette caisse · 1× KDS · 2 imprimantes Epson (IP LAN, onglet Réseau).'
+            : 'Quotas : 1× tablette boutique (KDS) · imprimantes Epson (IP LAN, onglet Réseau).'}
         </p>
         <div className="overflow-x-auto rounded-xl border border-white/10">
           <table className="w-full min-w-[520px] text-left text-xs">
@@ -696,8 +705,8 @@ function SetupPanel({
               <tr>
                 <th className="px-3 py-2 font-medium">Magasin</th>
                 <th className="px-3 py-2 font-medium">IP boutique</th>
-                <th className="px-3 py-2 font-medium">SUNMI</th>
-                <th className="px-3 py-2 font-medium">Tablette</th>
+                {isModuleEnabled('pos') && <th className="px-3 py-2 font-medium">SUNMI</th>}
+                {isModuleEnabled('pos') && <th className="px-3 py-2 font-medium">Tablette</th>}
                 <th className="px-3 py-2 font-medium">KDS</th>
                 <th className="px-3 py-2 font-medium">Imprimantes LAN</th>
               </tr>
@@ -706,12 +715,16 @@ function SetupPanel({
               <tr>
                 <td className="px-3 py-2">{inventory?.businessName ?? 'La Z Pizza'}</td>
                 <td className="px-3 py-2 font-mono">{inventory?.wanIp?.split('/')[0] ?? '—'}</td>
-                <td className="px-3 py-2">
-                  {state?.slotCapacity?.find((s) => s.slot === 'pos-sunmi')?.used ?? 0} / 1
-                </td>
-                <td className="px-3 py-2">
-                  {state?.slotCapacity?.find((s) => s.slot === 'pos-tablet')?.used ?? 0} / 1
-                </td>
+                {isModuleEnabled('pos') && (
+                  <td className="px-3 py-2">
+                    {state?.slotCapacity?.find((s) => s.slot === 'pos-sunmi')?.used ?? 0} / 1
+                  </td>
+                )}
+                {isModuleEnabled('pos') && (
+                  <td className="px-3 py-2">
+                    {state?.slotCapacity?.find((s) => s.slot === 'pos-tablet')?.used ?? 0} / 1
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   {state?.slotCapacity?.find((s) => s.slot === 'kds')?.used ?? 0} / 1
                 </td>

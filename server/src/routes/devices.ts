@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseBusinessSettings } from '../lib/business-settings';
 import { getBusinessId } from '../lib/business';
+import { isModuleEnabled } from '../lib/modules';
 import {
   canGeneratePairingCode,
   canAccessDeviceApps,
@@ -395,9 +396,12 @@ router.get('/fleet', ...devicesRead, async (req: AuthRequest, res: Response) => 
       };
     };
 
+    // Version une-tablette : POS et totem n'existent pas → pas de cartes « hors ligne » fantômes.
+    const posEnabled = isModuleEnabled('pos');
+    const kioskEnabled = isModuleEnabled('kiosk');
     const [posSunmi, posTablet, kds] = await Promise.all([
-      pairedSurface('pos-sunmi'),
-      pairedSurface('pos-tablet'),
+      posEnabled ? pairedSurface('pos-sunmi') : null,
+      posEnabled ? pairedSurface('pos-tablet') : null,
       pairedSurface('kds'),
     ]);
 
@@ -419,24 +423,28 @@ router.get('/fleet', ...devicesRead, async (req: AuthRequest, res: Response) => 
     const kioskOnline = isPresenceFresh(kioskPresence?.lastSeenAt);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const kioskOrdersToday = await prisma.order.count({
-      where: {
-        businessId,
-        channel: 'KIOSK',
-        createdAt: { gte: startOfDay },
-        status: { not: 'CANCELLED' },
-      },
-    });
-    const lastKioskOrder = await prisma.order.findFirst({
-      where: { businessId, channel: 'KIOSK' },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true, orderNumber: true },
-    });
+    const kioskOrdersToday = kioskEnabled
+      ? await prisma.order.count({
+          where: {
+            businessId,
+            channel: 'KIOSK',
+            createdAt: { gte: startOfDay },
+            status: { not: 'CANCELLED' },
+          },
+        })
+      : 0;
+    const lastKioskOrder = kioskEnabled
+      ? await prisma.order.findFirst({
+          where: { businessId, channel: 'KIOSK' },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true, orderNumber: true },
+        })
+      : null;
 
     res.json({
       surfaces: [
-        posSunmi,
-        posTablet,
+        ...(posSunmi ? [posSunmi] : []),
+        ...(posTablet ? [posTablet] : []),
         kds,
         {
           id: 'livreur',
@@ -452,22 +460,27 @@ router.get('/fleet', ...devicesRead, async (req: AuthRequest, res: Response) => 
           driversOnDuty: driversOnDuty.map(d => ({ id: d.id, name: d.name })),
           activeNames: livreurNames,
         },
-        {
-          id: 'kiosk',
-          label: 'Totem kiosque',
-          kind: 'app',
-          status: kioskOnline ? 'online' : kioskOrdersToday > 0 ? 'idle' : 'offline',
-          detail: kioskOnline
-            ? 'Écran actif'
-            : kioskOrdersToday > 0
-              ? `${kioskOrdersToday} commande(s) aujourd’hui`
-              : lastKioskOrder
-                ? `Dernière #${lastKioskOrder.orderNumber} · ${new Date(lastKioskOrder.createdAt).toLocaleString('fr-FR')}`
-                : 'Aucune activité',
-          lastSeenAt: kioskPresence?.lastSeenAt ?? lastKioskOrder?.createdAt?.toISOString() ?? null,
-          ordersToday: kioskOrdersToday,
-          lastIp: kioskPresence?.lastIp ?? null,
-        },
+        ...(kioskEnabled
+          ? [
+              {
+                id: 'kiosk',
+                label: 'Totem kiosque',
+                kind: 'app',
+                status: kioskOnline ? 'online' : kioskOrdersToday > 0 ? 'idle' : 'offline',
+                detail: kioskOnline
+                  ? 'Écran actif'
+                  : kioskOrdersToday > 0
+                    ? `${kioskOrdersToday} commande(s) aujourd’hui`
+                    : lastKioskOrder
+                      ? `Dernière #${lastKioskOrder.orderNumber} · ${new Date(lastKioskOrder.createdAt).toLocaleString('fr-FR')}`
+                      : 'Aucune activité',
+                lastSeenAt:
+                  kioskPresence?.lastSeenAt ?? lastKioskOrder?.createdAt?.toISOString() ?? null,
+                ordersToday: kioskOrdersToday,
+                lastIp: kioskPresence?.lastIp ?? null,
+              },
+            ]
+          : []),
       ],
       onlineWindowMs: APP_ONLINE_WINDOW_MS,
       at: new Date().toISOString(),

@@ -61,25 +61,25 @@
 - [ ] Copier le template : `cp deploy/.env.production.example .env` (à la racine, sur le VPS)
 - [ ] Renseigner — **secrets neufs, jamais ceux du labo** :
 
-| Variable                                                     | Valeur prod                                            | Note                                                                    |
-| ------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `DB_PASSWORD`                                                | fort, généré                                           |                                                                         |
-| `JWT_SECRET` / `REFRESH_SECRET`                              | `openssl rand -base64 32` chacun                       | Nouveaux                                                                |
-| `FISCAL_HMAC_SECRET`                                         | généré, **distinct** de `JWT_SECRET`                   | ⚠️ **Ne jamais changer après mise en service** (rupture chaîne fiscale) |
-| `FISCAL_SOFTWARE_VERSION`                                    | version livrée                                         |                                                                         |
-| `FISCAL_ALLOW_JET_REPAIR`                                    | `false`                                                | `true` = labo uniquement                                                |
-| `FISCAL_REQUIRE_PRECLOSE`                                    | `true`                                                 |                                                                         |
-| `BUSINESS_ID`                                                | UUID du seed Prisma client                             |                                                                         |
-| `PUBLIC_HOST` / `OPS_HOST` / `API_HOST`                      | `pizzeria.fr` / `app.pizzeria.fr` / `api.pizzeria.fr`  |                                                                         |
-| `NEXT_PUBLIC_API_URL`                                        | `https://api.pizzeria.fr/api`                          |                                                                         |
-| `PUBLIC_SITE_URL`                                            | `https://pizzeria.fr`                                  | QR reçus                                                                |
-| `FRONTEND_URL`                                               | `https://pizzeria.fr,https://app.pizzeria.fr`          |                                                                         |
-| `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`   | `sk_live_…` / `pk_live_…`                              | Compte **client**                                                       |
-| `STRIPE_WEBHOOK_SECRET`                                      | depuis Dashboard live (§3)                             |                                                                         |
-| `EMAIL_SERVER_*` / `EMAIL_FROM` / `ADMIN_NOTIFICATION_EMAIL` | SMTP client                                            | Reçus fiscaux web                                                       |
-| `ENABLED_MODULES`                                            | `menu,pos,kiosk,kitchen,orders,reports,users,settings` | V1 La Z Pizza (pas de salle)                                            |
-| `DRIVER_ACCESS_PIN`                                          | **nouveau PIN**                                        | Voir §7 sécurité                                                        |
-| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`                      | DSN prod                                               | Optionnel                                                               |
+| Variable                                                     | Valeur prod                                                          | Note                                                                    |
+| ------------------------------------------------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `DB_PASSWORD`                                                | fort, généré                                                         |                                                                         |
+| `JWT_SECRET` / `REFRESH_SECRET`                              | `openssl rand -base64 32` chacun                                     | Nouveaux                                                                |
+| `FISCAL_HMAC_SECRET`                                         | généré, **distinct** de `JWT_SECRET`                                 | ⚠️ **Ne jamais changer après mise en service** (rupture chaîne fiscale) |
+| `FISCAL_SOFTWARE_VERSION`                                    | version livrée                                                       |                                                                         |
+| `FISCAL_ALLOW_JET_REPAIR`                                    | `false`                                                              | `true` = labo uniquement                                                |
+| `FISCAL_REQUIRE_PRECLOSE`                                    | `true`                                                               |                                                                         |
+| `BUSINESS_ID`                                                | UUID du seed Prisma client                                           |                                                                         |
+| `PUBLIC_HOST` / `OPS_HOST` / `API_HOST`                      | `pizzeria.fr` / `app.pizzeria.fr` / `api.pizzeria.fr`                |                                                                         |
+| `NEXT_PUBLIC_API_URL`                                        | `https://api.pizzeria.fr/api`                                        |                                                                         |
+| `PUBLIC_SITE_URL`                                            | `https://pizzeria.fr`                                                | QR reçus                                                                |
+| `FRONTEND_URL`                                               | `https://pizzeria.fr,https://app.pizzeria.fr`                        |                                                                         |
+| `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`   | `sk_live_…` / `pk_live_…`                                            | Compte **client**                                                       |
+| `STRIPE_WEBHOOK_SECRET`                                      | depuis Dashboard live (§3)                                           |                                                                         |
+| `EMAIL_SERVER_*` / `EMAIL_FROM` / `ADMIN_NOTIFICATION_EMAIL` | SMTP client                                                          | Reçus fiscaux web                                                       |
+| `ENABLED_MODULES`                                            | `menu,kitchen,orders,reports,users,settings,expenses,loyalty,shifts` | V1 La Z Pizza (pas de salle)                                            |
+| `DRIVER_ACCESS_PIN`                                          | **nouveau PIN**                                                      | Voir §7 sécurité                                                        |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN`                      | DSN prod                                                             | Optionnel                                                               |
 
 - [ ] Aucun secret committé ; `.env` uniquement sur le VPS.
 

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { Prisma, PrismaClient } from '@prisma/client';
 import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { authenticate, requireRole } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import {
@@ -12,6 +13,17 @@ import {
 import { syncPizzaSizeModifiers } from '../lib/sync-pizza-modifiers';
 import { syncMenuFormules } from '../lib/sync-menu-formules';
 import { logFiscalEvent } from '../lib/fiscal/events';
+
+/** Contrainte FK violée (produit/catégorie encore référencé). Prisma mappe la violation
+ * Postgres "23503" (foreign_key_violation) sur son propre code P2003, mais nos FK
+ * `ON DELETE RESTRICT` déclenchent "23001" (restrict_violation) que Prisma ne reconnaît
+ * pas — l'erreur remonte en PrismaClientUnknownRequestError avec le message Postgres brut. */
+function isForeignKeyRestrictError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') return true;
+  if (error instanceof Error && /foreign key constraint|restrict_violation/i.test(error.message))
+    return true;
+  return false;
+}
 
 const storage = multer.diskStorage({
   destination: (
@@ -190,9 +202,15 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
+      const cat = await prisma.menuCategory.findFirst({
+        where: { id: req.params.id, businessId: req.user!.businessId },
+      });
+      if (!cat) return res.status(404).json({ error: 'Category not found' });
+      // On ne prend que les champs modifiables — jamais businessId depuis req.body.
+      const { name, nameAr, description, sortOrder } = req.body as Prisma.MenuCategoryUpdateInput;
       const category = await prisma.menuCategory.update({
-        where: { id: req.params.id },
-        data: req.body,
+        where: { id: cat.id },
+        data: { name, nameAr, description, sortOrder },
       });
       res.json(category);
     } catch (error) {
@@ -213,9 +231,19 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
-      await prisma.menuCategory.delete({ where: { id: req.params.id } });
+      const cat = await prisma.menuCategory.findFirst({
+        where: { id: req.params.id, businessId: req.user!.businessId },
+      });
+      if (!cat) return res.status(404).json({ error: 'Category not found' });
+      await prisma.menuCategory.delete({ where: { id: cat.id } });
       res.json({ message: 'Category deleted' });
     } catch (error) {
+      if (isForeignKeyRestrictError(error)) {
+        return res.status(409).json({
+          error:
+            'Cette catégorie contient encore des produits. Supprimez-les ou déplacez-les vers une autre catégorie avant de la supprimer.',
+        });
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -242,8 +270,14 @@ router.post(
         }
         body.vatRateBps = bps;
       }
+      // La catégorie doit appartenir à l'entreprise de l'appelant, sinon un ADMIN/MANAGER
+      // d'une autre entreprise pourrait y rattacher un produit (IDOR cross-tenant).
+      const category = await prisma.menuCategory.findFirst({
+        where: { id: req.body.categoryId, businessId: req.user!.businessId },
+      });
+      if (!category) return res.status(400).json({ error: 'Catégorie introuvable' });
       const item = await prisma.menuItem.create({
-        data: { ...body, categoryId: req.body.categoryId } as Prisma.MenuItemUncheckedCreateInput,
+        data: { ...body, categoryId: category.id } as Prisma.MenuItemUncheckedCreateInput,
       });
       res.status(201).json(item);
     } catch (error) {
@@ -265,7 +299,9 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
-      const existing = await prisma.menuItem.findUnique({ where: { id: req.params.id } });
+      const existing = await prisma.menuItem.findFirst({
+        where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+      });
       if (!existing) return res.status(404).json({ error: 'Item not found' });
 
       const data = { ...req.body } as Record<string, unknown>;
@@ -276,8 +312,15 @@ router.put(
         }
         data.vatRateBps = bps;
       }
+      if (data.categoryId !== undefined) {
+        // Empêche de rattacher le produit à une catégorie d'une autre entreprise.
+        const targetCategory = await prisma.menuCategory.findFirst({
+          where: { id: data.categoryId as string, businessId: req.user!.businessId },
+        });
+        if (!targetCategory) return res.status(400).json({ error: 'Catégorie introuvable' });
+      }
       const item = await prisma.menuItem.update({
-        where: { id: req.params.id },
+        where: { id: existing.id },
         data,
       });
 
@@ -316,9 +359,19 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
-      await prisma.menuItem.delete({ where: { id: req.params.id } });
+      const item = await prisma.menuItem.findFirst({
+        where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+      });
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+      await prisma.menuItem.delete({ where: { id: item.id } });
       res.json({ message: 'Item deleted' });
     } catch (error) {
+      if (isForeignKeyRestrictError(error)) {
+        return res.status(409).json({
+          error:
+            "Ce produit a déjà été commandé et ne peut pas être supprimé (historique des commandes). Utilisez « Masquer » pour le retirer du site sans perdre l'historique.",
+        });
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -336,10 +389,12 @@ router.patch(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
-      const item = await prisma.menuItem.findUnique({ where: { id: req.params.id } });
+      const item = await prisma.menuItem.findFirst({
+        where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+      });
       if (!item) return res.status(404).json({ error: 'Item not found' });
       const updated = await prisma.menuItem.update({
-        where: { id: req.params.id },
+        where: { id: item.id },
         data: { isAvailable: !item.isAvailable },
       });
       res.json(updated);
@@ -447,9 +502,16 @@ router.post(
 
       try {
         const prisma: PrismaClient = req.app.get('prisma');
+        const existing = await prisma.menuItem.findFirst({
+          where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+        });
+        if (!existing) {
+          fs.unlink(req.file.path, () => {});
+          return res.status(404).json({ error: 'Item not found' });
+        }
         const imageUrl = `/api/uploads/${req.file.filename}`;
         const item = await prisma.menuItem.update({
-          where: { id: req.params.id },
+          where: { id: existing.id },
           data: { image: imageUrl },
         });
         res.json(item);
@@ -473,8 +535,12 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
+      const item = await prisma.menuItem.findFirst({
+        where: { id: req.params.id, category: { businessId: req.user!.businessId } },
+      });
+      if (!item) return res.status(404).json({ error: 'Item not found' });
       const modifier = await prisma.menuModifier.create({
-        data: { ...req.body, menuItemId: req.params.id },
+        data: { ...req.body, menuItemId: item.id },
         include: { options: true },
       });
       res.status(201).json(modifier);
@@ -497,9 +563,16 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
+      const existing = await prisma.menuModifier.findFirst({
+        where: { id: req.params.id, menuItem: { category: { businessId: req.user!.businessId } } },
+      });
+      if (!existing) return res.status(404).json({ error: 'Modifier not found' });
+      // menuItemId n'est jamais modifiable ici — pas de rattachement cross-tenant.
+      const body = { ...(req.body as Record<string, unknown>) };
+      delete body.menuItemId;
       const modifier = await prisma.menuModifier.update({
-        where: { id: req.params.id },
-        data: req.body,
+        where: { id: existing.id },
+        data: body,
         include: { options: true },
       });
       res.json(modifier);
@@ -521,7 +594,11 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const prisma: PrismaClient = req.app.get('prisma');
-      await prisma.menuModifier.delete({ where: { id: req.params.id } });
+      const existing = await prisma.menuModifier.findFirst({
+        where: { id: req.params.id, menuItem: { category: { businessId: req.user!.businessId } } },
+      });
+      if (!existing) return res.status(404).json({ error: 'Modifier not found' });
+      await prisma.menuModifier.delete({ where: { id: existing.id } });
       res.json({ message: 'Modifier deleted' });
     } catch (error) {
       res.status(500).json({ error: 'Internal server error' });

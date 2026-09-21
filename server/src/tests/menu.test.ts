@@ -119,6 +119,10 @@ describe('Menu Routes', () => {
 
   describe('PUT /api/menu/categories/:id', () => {
     it('should update a category', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue({
+        id: 'cat-1',
+        businessId: 'biz-1',
+      });
       (prisma.menuCategory.update as jest.Mock).mockResolvedValue({
         id: 'cat-1',
         name: 'Updated Coffee',
@@ -132,10 +136,24 @@ describe('Menu Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Updated Coffee');
     });
+
+    it('returns 404 for a category from another business', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app)
+        .put('/api/menu/categories/cat-other-biz')
+        .send({ name: 'Hijacked' });
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('DELETE /api/menu/categories/:id', () => {
     it('should delete a category', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue({
+        id: 'cat-1',
+        businessId: 'biz-1',
+      });
       (prisma.menuCategory.delete as jest.Mock).mockResolvedValue({ id: 'cat-1' });
 
       const res = await request(app).delete('/api/menu/categories/cat-1');
@@ -143,10 +161,22 @@ describe('Menu Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('message');
     });
+
+    it('returns 404 for a category from another business', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app).delete('/api/menu/categories/cat-other-biz');
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('POST /api/menu/items', () => {
     it('should create a menu item', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue({
+        id: 'cat-1',
+        businessId: 'biz-1',
+      });
       (prisma.menuItem.create as jest.Mock).mockImplementation(
         ({ data }: { data: Record<string, unknown> }) =>
           Promise.resolve({
@@ -178,10 +208,25 @@ describe('Menu Routes', () => {
       expect(res.body).toHaveProperty('id');
       expect(res.body.name).toBe('Latte');
     });
+
+    it('returns 400 when categoryId belongs to another business', async () => {
+      (prisma.menuCategory.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app)
+        .post('/api/menu/items')
+        .send({ name: 'Latte', price: 18, categoryId: 'cat-other-biz' });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('PUT /api/menu/items/:id', () => {
     it('should update a menu item', async () => {
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue({
+        id: 'item-1',
+        name: 'Espresso',
+        price: 12,
+      });
       (prisma.menuItem.update as jest.Mock).mockResolvedValue({
         id: 'item-1',
         name: 'Double Espresso',
@@ -195,10 +240,19 @@ describe('Menu Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Double Espresso');
     });
+
+    it('returns 404 when the item does not exist', async () => {
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app).put('/api/menu/items/missing').send({ name: 'Nope' });
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('DELETE /api/menu/items/:id', () => {
     it('should delete a menu item', async () => {
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue({ id: 'item-1' });
       (prisma.menuItem.delete as jest.Mock).mockResolvedValue({ id: 'item-1' });
 
       const res = await request(app).delete('/api/menu/items/item-1');
@@ -206,11 +260,19 @@ describe('Menu Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('message');
     });
+
+    it('returns 404 for an item from another business', async () => {
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app).delete('/api/menu/items/item-other-biz');
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('PATCH /api/menu/items/:id/toggle', () => {
     it('should toggle item availability', async () => {
-      (prisma.menuItem.findUnique as jest.Mock).mockResolvedValue({
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue({
         id: 'item-1',
         name: 'Espresso',
         isAvailable: true,
@@ -228,7 +290,7 @@ describe('Menu Routes', () => {
     });
 
     it('should return 404 when item not found', async () => {
-      (prisma.menuItem.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue(null);
 
       const res = await request(app).patch('/api/menu/items/nonexistent/toggle');
 
@@ -238,6 +300,7 @@ describe('Menu Routes', () => {
 
   describe('POST /api/menu/items/:id/modifiers', () => {
     it('should create a modifier for a menu item', async () => {
+      (prisma.menuItem.findFirst as jest.Mock).mockResolvedValue({ id: 'item-1' });
       (prisma.menuModifier.create as jest.Mock).mockResolvedValue({
         id: 'mod-1',
         menuItemId: 'item-1',
@@ -283,6 +346,7 @@ describe('Menu Routes', () => {
 
   describe('PUT /api/menu/modifiers/:id', () => {
     it('should update a modifier', async () => {
+      (prisma.menuModifier.findFirst as jest.Mock).mockResolvedValue({ id: 'mod-1' });
       (prisma.menuModifier.update as jest.Mock).mockResolvedValue({
         id: 'mod-1',
         name: 'Size Updated',
@@ -295,15 +359,34 @@ describe('Menu Routes', () => {
 
       expect(res.status).toBe(200);
     });
+
+    it('returns 404 for a modifier from another business', async () => {
+      (prisma.menuModifier.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app)
+        .put('/api/menu/modifiers/mod-other-biz')
+        .send({ name: 'Hijacked' });
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('DELETE /api/menu/modifiers/:id', () => {
     it('should delete a modifier', async () => {
+      (prisma.menuModifier.findFirst as jest.Mock).mockResolvedValue({ id: 'mod-1' });
       (prisma.menuModifier.delete as jest.Mock).mockResolvedValue({ id: 'mod-1' });
 
       const res = await request(app).delete('/api/menu/modifiers/mod-1');
 
       expect(res.status).toBe(200);
+    });
+
+    it('returns 404 for a modifier from another business', async () => {
+      (prisma.menuModifier.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const res = await request(app).delete('/api/menu/modifiers/mod-other-biz');
+
+      expect(res.status).toBe(404);
     });
   });
 });

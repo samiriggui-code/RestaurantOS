@@ -1,6 +1,7 @@
 version: '3.8'
 
 # Stack local / préprod sans Traefik (ports exposés)
+# Prod (deploy/docker-compose.prod.yml) : ports postgres/api !reset [] — réseau Docker interne only.
 name: pizzeria
 
 networks:
@@ -46,7 +47,7 @@ services:
       NODE_ENV: production
       PORT: 3001
       BUSINESS_ID: ${BUSINESS_ID:-}
-      ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kitchen,orders,reports,users,settings,expenses,wifi,tables,reservations,loyalty,shifts}
+      ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kiosk,kitchen,orders,reports,users,settings,expenses,loyalty,shifts}
       TRAEFIK_DYNAMIC_DIR: ${TRAEFIK_DYNAMIC_DIR:-/traefik-dynamic}
       EMAIL_SERVER_HOST: ${EMAIL_SERVER_HOST:-}
       EMAIL_SERVER_PORT: ${EMAIL_SERVER_PORT:-465}
@@ -90,7 +91,7 @@ services:
         NEXT_PUBLIC_PUBLIC_HOST: ${PUBLIC_HOST:-}
         NEXT_PUBLIC_OPS_HOST: ${OPS_HOST:-}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
-        NEXT_PUBLIC_ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kitchen,orders,reports,users,settings}
+        NEXT_PUBLIC_ENABLED_MODULES: ${ENABLED_MODULES:-menu,pos,kiosk,kitchen,orders,reports,users,settings,expenses,loyalty,shifts}
     container_name: pizzeria-web
     ports:
       - '${WEB_PORT:-3000}:3000'

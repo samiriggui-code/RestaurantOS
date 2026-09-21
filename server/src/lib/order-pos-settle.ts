@@ -1,8 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Server as SocketIOServer } from 'socket.io';
 import { assertOrderStatusTransition, assertPaymentStatusTransition } from './order-status';
-import { ensureInvoiceForPaidOrder } from './invoice-from-order';
-import { ensureLoyaltyCreditForPaidOrder } from './loyalty-order';
+import { runPaidOrderSideEffects } from './paid-order-side-effects';
 import { requireFiscalTicketForPaidOrder } from './fiscal/hook-paid-order';
 import { emitOrderTrackUpdate } from './order-track-events';
 
@@ -76,10 +75,6 @@ export async function posSettleOrder(
   emitOrderTrackUpdate(io, order);
 
   if (action === 'pay') {
-    void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, params.userId).catch(err =>
-      console.error('Auto invoice on pos-settle:', err)
-    );
-    void ensureLoyaltyCreditForPaidOrder(prisma, order.businessId, order.id);
     try {
       await requireFiscalTicketForPaidOrder(prisma, order.businessId, order.id, params.userId, {
         paymentMethod: order.paymentMethod,
@@ -91,6 +86,20 @@ export async function posSettleOrder(
       });
       const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
       return { ok: false, status: 500, error: msg };
+    }
+    try {
+      await runPaidOrderSideEffects(prisma, {
+        businessId: order.businessId,
+        orderId: order.id,
+        userId: params.userId,
+      });
+    } catch (sideErr) {
+      console.error('[pos-settle] facture:', sideErr);
+      return {
+        ok: false,
+        status: 500,
+        error: sideErr instanceof Error ? sideErr.message : 'Facture impossible',
+      };
     }
   }
 

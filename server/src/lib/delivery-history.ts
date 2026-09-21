@@ -1,67 +1,92 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
-import { deliveryIssueLabel } from './delivery-handover'
+import type { Prisma, PrismaClient } from '@prisma/client';
+import { deliveryIssueLabel } from './delivery-handover';
 
-export type DeliveryHistoryPeriod = 'day' | 'week' | 'month' | 'year' | 'all'
+export type DeliveryHistoryPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 
 export type DeliveryHistoryRow = {
-  id: string
-  orderNumber: number
-  status: string
-  customerName: string | null
-  customerPhone: string | null
-  deliveryAddress: string | null
-  deliveryPostalCode: string | null
-  deliveryCity: string | null
-  total: number
-  paymentStatus: string
-  paymentMethod: string | null
-  isOnlineOrder: boolean
-  driverName: string | null
-  completedAt: string | null
-  createdAt: string
-  issueReason: string | null
-}
+  id: string;
+  orderNumber: number;
+  status: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryAddress: string | null;
+  deliveryPostalCode: string | null;
+  deliveryCity: string | null;
+  total: number;
+  paymentStatus: string;
+  paymentMethod: string | null;
+  isOnlineOrder: boolean;
+  driverName: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  issueReason: string | null;
+};
 
-export function deliveryHistoryDateRange(period: DeliveryHistoryPeriod): { from?: Date; to?: Date } {
-  if (period === 'all') return {}
-  const now = new Date()
-  const from = new Date(now)
+export function deliveryHistoryDateRange(period: DeliveryHistoryPeriod): {
+  from?: Date;
+  to?: Date;
+} {
+  if (period === 'all') return {};
+  const now = new Date();
+  const from = new Date(now);
   if (period === 'day') {
-    from.setHours(0, 0, 0, 0)
+    from.setHours(0, 0, 0, 0);
   } else if (period === 'week') {
-    from.setDate(from.getDate() - 7)
+    from.setDate(from.getDate() - 7);
   } else if (period === 'month') {
-    from.setMonth(from.getMonth() - 1)
+    from.setMonth(from.getMonth() - 1);
   } else if (period === 'year') {
-    from.setFullYear(from.getFullYear() - 1)
+    from.setFullYear(from.getFullYear() - 1);
   }
-  return { from, to: now }
+  return { from, to: now };
 }
 
 export async function fetchDeliveryHistory(
   prisma: PrismaClient,
   businessId: string,
   options: {
-    period?: DeliveryHistoryPeriod
-    driverName?: string
-    search?: string
-    limit?: number
-  } = {},
+    period?: DeliveryHistoryPeriod;
+    driverName?: string;
+    search?: string;
+    limit?: number;
+  } = {}
 ): Promise<{ rows: DeliveryHistoryRow[]; total: number; period: DeliveryHistoryPeriod }> {
-  const period = options.period ?? 'month'
-  const { from, to } = deliveryHistoryDateRange(period)
-  const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000)
+  const period = options.period ?? 'month';
+  const { from, to } = deliveryHistoryDateRange(period);
+  const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000);
 
   const where: Prisma.OrderWhereInput = {
     businessId,
     type: 'DELIVERY',
     status: { in: ['DELIVERED', 'DELIVERY_ISSUE', 'COMPLETED', 'CANCELLED', 'OUT_FOR_DELIVERY'] },
-  }
+  };
 
   if (from || to) {
-    where.updatedAt = {}
-    if (from) where.updatedAt.gte = from
-    if (to) where.updatedAt.lte = to
+    where.updatedAt = {};
+    if (from) where.updatedAt.gte = from;
+    if (to) where.updatedAt.lte = to;
+  }
+
+  const driverFilter = options.driverName?.trim();
+  if (driverFilter) {
+    where.driver = { name: { contains: driverFilter, mode: 'insensitive' } };
+  }
+
+  // Filtrer en base AVANT le `take` : sinon une recherche sur une période à fort volume
+  // (> limit lignes) ne porte que sur les commandes les plus récentes et rate silencieusement
+  // les résultats plus anciens, au lieu de dire honnêtement "aucun résultat".
+  const search = options.search?.trim();
+  if (search) {
+    const orConditions: Prisma.OrderWhereInput[] = [
+      { customerName: { contains: search, mode: 'insensitive' } },
+      { customerPhone: { contains: search, mode: 'insensitive' } },
+      { deliveryAddress: { contains: search, mode: 'insensitive' } },
+      { deliveryCity: { contains: search, mode: 'insensitive' } },
+      { deliveryPostalCode: { contains: search, mode: 'insensitive' } },
+    ];
+    const asNumber = Number(search);
+    if (Number.isInteger(asNumber)) orConditions.push({ orderNumber: asNumber });
+    where.OR = orConditions;
   }
 
   const orders = await prisma.order.findMany({
@@ -86,10 +111,10 @@ export async function fetchDeliveryHistory(
       updatedAt: true,
       driver: { select: { name: true } },
     },
-  })
+  });
 
-  let rows: DeliveryHistoryRow[] = orders.map((o) => {
-    const terminal = ['DELIVERED', 'DELIVERY_ISSUE', 'COMPLETED'].includes(o.status)
+  const rows: DeliveryHistoryRow[] = orders.map(o => {
+    const terminal = ['DELIVERED', 'DELIVERY_ISSUE', 'COMPLETED'].includes(o.status);
     return {
       id: o.id,
       orderNumber: o.orderNumber,
@@ -106,34 +131,9 @@ export async function fetchDeliveryHistory(
       driverName: o.driver?.name ?? null,
       completedAt: terminal ? o.updatedAt.toISOString() : null,
       createdAt: o.createdAt.toISOString(),
-      issueReason:
-        o.status === 'DELIVERY_ISSUE' ? deliveryIssueLabel(o.deliveryIssueReason) : null,
-    }
-  })
+      issueReason: o.status === 'DELIVERY_ISSUE' ? deliveryIssueLabel(o.deliveryIssueReason) : null,
+    };
+  });
 
-  const search = options.search?.trim().toLowerCase()
-  if (search) {
-    rows = rows.filter((r) => {
-      const blob = [
-        String(r.orderNumber),
-        r.customerName,
-        r.customerPhone,
-        r.deliveryAddress,
-        r.deliveryCity,
-        r.deliveryPostalCode,
-        r.driverName,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return blob.includes(search)
-    })
-  }
-
-  const driverFilter = options.driverName?.trim().toLowerCase()
-  if (driverFilter) {
-    rows = rows.filter((r) => r.driverName?.toLowerCase().includes(driverFilter))
-  }
-
-  return { rows, total: rows.length, period }
+  return { rows, total: rows.length, period };
 }

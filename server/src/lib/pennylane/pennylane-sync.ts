@@ -7,6 +7,7 @@ import {
   findPennylaneInvoiceByExternalReference,
   isPennylaneConfigured,
 } from './pennylane-client';
+import { resolvePennylaneConfig, runWithPennylaneToken } from './pennylane-config';
 import { parseFrenchAddressForPennylane, splitClientName } from './pennylane-address';
 import { frVatRateCode } from './pennylane-vat';
 
@@ -14,7 +15,7 @@ type InvoiceWithLines = Invoice & { lines: InvoiceLine[] };
 
 export class PennylaneNotConfiguredError extends Error {
   constructor() {
-    super('PENNYLANE_API_TOKEN non configuré — pont Pennylane désactivé');
+    super('Pennylane non configuré — colle le token API dans Admin → Intégrations → Pennylane');
     this.name = 'PennylaneNotConfiguredError';
   }
 }
@@ -80,21 +81,24 @@ export type PennylaneSyncResult = { pennylaneInvoiceId: number; created: boolean
 
 /**
  * Pousse une facture RestaurantOS (déjà ISSUED) vers Pennylane comme facture client.
- * Idempotent : rejoue en toute sécurité, ne recrée jamais un doublon (Pennylane ne le fait pas
- * lui-même — cf. doc API, pas de dédoublonnage serveur côté customer_invoices).
- * Poussée en brouillon par défaut (PENNYLANE_INVOICE_DRAFT=false pour émettre directement) —
- * le comptable relit/finalise dans Pennylane avant émission légale.
+ * Idempotent. Brouillon par défaut (réglable dans Intégrations).
  */
 export async function syncInvoiceToPennylane(
   prisma: PrismaClient,
   businessId: string,
   invoiceId: string
 ): Promise<PennylaneSyncResult> {
-  if (!isPennylaneConfigured()) throw new PennylaneNotConfiguredError();
+  const config = await resolvePennylaneConfig(prisma, businessId);
+  if (!config.token || !isPennylaneConfigured(config.token)) {
+    throw new PennylaneNotConfiguredError();
+  }
 
   const invoice = await prisma.invoice.findFirst({
     where: { id: invoiceId, businessId },
-    include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    include: {
+      lines: { orderBy: { sortOrder: 'asc' } },
+      order: { select: { channel: true } },
+    },
   });
   if (!invoice) throw new Error('Facture introuvable');
   if (invoice.status === 'DRAFT') {
@@ -105,52 +109,59 @@ export async function syncInvoiceToPennylane(
   if (invoice.lines.length === 0) {
     throw new Error('Facture sans lignes — rien à synchroniser');
   }
+  if (invoice.order?.channel === 'DELIVEROO' || invoice.order?.channel === 'UBER_EATS') {
+    throw new Error(
+      'Vente Deliveroo/Uber Eats — déjà comptabilisée par le connecteur natif de la marketplace dans Pennylane, ne pas la pousser en double.'
+    );
+  }
 
   const externalReference = `ros-invoice-${invoice.id}`;
+  const token = config.token;
 
-  try {
-    const existing = await findPennylaneInvoiceByExternalReference(externalReference);
-    if (existing) {
+  return runWithPennylaneToken(token, async () => {
+    try {
+      const existing = await findPennylaneInvoiceByExternalReference(externalReference);
+      if (existing) {
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            pdpReference: String(existing.id),
+            pennylaneSyncedAt: new Date(),
+            pennylaneSyncError: null,
+          },
+        });
+        return { pennylaneInvoiceId: existing.id, created: false };
+      }
+
+      const customerId = await resolveOrCreatePennylaneCustomer(prisma, invoice);
+
+      const created = await createPennylaneCustomerInvoice({
+        customerId,
+        date: toDateOnly(invoice.issueDate),
+        deadline: toDateOnly(invoice.dueDate ?? invoice.issueDate),
+        externalReference,
+        draft: config.invoiceDraft,
+        lines: buildInvoiceLines(invoice.lines),
+        label: `Facture ${invoice.invoiceNumber} — La Z Pizza`,
+      });
+
       await prisma.invoice.update({
         where: { id: invoice.id },
         data: {
-          pdpReference: String(existing.id),
+          pennylaneCustomerId: customerId,
+          pdpReference: String(created.id),
           pennylaneSyncedAt: new Date(),
           pennylaneSyncError: null,
         },
       });
-      return { pennylaneInvoiceId: existing.id, created: false };
+
+      return { pennylaneInvoiceId: created.id, created: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur Pennylane inconnue';
+      await prisma.invoice
+        .update({ where: { id: invoice.id }, data: { pennylaneSyncError: message.slice(0, 1000) } })
+        .catch(() => undefined);
+      throw err;
     }
-
-    const customerId = await resolveOrCreatePennylaneCustomer(prisma, invoice);
-
-    const draft = process.env.PENNYLANE_INVOICE_DRAFT !== 'false';
-    const created = await createPennylaneCustomerInvoice({
-      customerId,
-      date: toDateOnly(invoice.issueDate),
-      deadline: toDateOnly(invoice.dueDate ?? invoice.issueDate),
-      externalReference,
-      draft,
-      lines: buildInvoiceLines(invoice.lines),
-      label: `Facture ${invoice.invoiceNumber} — La Z Pizza`,
-    });
-
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: {
-        pennylaneCustomerId: customerId,
-        pdpReference: String(created.id),
-        pennylaneSyncedAt: new Date(),
-        pennylaneSyncError: null,
-      },
-    });
-
-    return { pennylaneInvoiceId: created.id, created: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Erreur Pennylane inconnue';
-    await prisma.invoice
-      .update({ where: { id: invoice.id }, data: { pennylaneSyncError: message.slice(0, 1000) } })
-      .catch(() => undefined);
-    throw err;
-  }
+  });
 }

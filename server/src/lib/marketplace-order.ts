@@ -6,9 +6,8 @@ import { generateDeliveryHandoverCode } from './delivery-handover';
 import { geocodeDeliveryAddress } from './geocode';
 import { enqueueConfirmedOrderPrints } from './enqueue-order-prints';
 import { ensureSnapshotMenuItem } from './online-order';
-import { deductStockWithAlerts } from './stock-deduct-alerts';
+import { runPaidOrderSideEffects } from './paid-order-side-effects';
 import { requireFiscalTicketForPaidOrder } from './fiscal/hook-paid-order';
-import { ensureLoyaltyCreditForPaidOrder } from './loyalty-order';
 import type { MarketplaceProvider } from './marketplace-integrations';
 import {
   marketplaceChannel,
@@ -198,21 +197,12 @@ export async function ingestMarketplaceOrder(
     });
   });
 
-  void deductStockWithAlerts(
-    prisma,
-    businessId,
-    order.id,
-    order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-  ).catch(err => console.error('[marketplace] stock deduct:', err));
-
   try {
     await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, null, {
       paymentMethod: 'THIRD_PARTY',
     });
-    void ensureLoyaltyCreditForPaidOrder(prisma, businessId, order.id);
   } catch (fiscalErr) {
     // Ne pas supprimer la commande : l'argent a déjà changé de main côté plateforme.
-    // On journalise l'échec pour rattrapage manuel plutôt que de perdre la vente.
     const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
     console.error(
       `[marketplace/${provider}] ticket fiscal échoué pour #${order.orderNumber}:`,
@@ -222,6 +212,16 @@ export async function ingestMarketplaceOrder(
       lastError: `Ticket fiscal #${order.orderNumber}: ${msg}`,
       lastWebhookAt: new Date().toISOString(),
     });
+  }
+
+  try {
+    await runPaidOrderSideEffects(prisma, {
+      businessId,
+      orderId: order.id,
+      stockItems: order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+    });
+  } catch (sideErr) {
+    console.error(`[marketplace/${provider}] stock/facture #${order.orderNumber}:`, sideErr);
   }
 
   if (orderType === 'DELIVERY') {

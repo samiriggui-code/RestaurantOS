@@ -14,9 +14,14 @@ import {
   orderLinesToInvoiceLines,
   allocateInvoiceNumber,
 } from '../lib/invoice-from-order';
+import {
+  createInvoiceFromSumupTransaction,
+  SumupTransactionNotFoundError,
+} from '../lib/invoice-from-sumup-transaction';
 import { buildFacturXCiiXml } from '../lib/factur-x-cii';
 import { renderInvoiceDocumentHtml } from '../lib/invoice-document-service';
 import { isPennylaneConfigured } from '../lib/pennylane/pennylane-client';
+import { resolvePennylaneConfig, savePennylaneSettings } from '../lib/pennylane/pennylane-config';
 import { syncInvoiceToPennylane } from '../lib/pennylane/pennylane-sync';
 
 const router = Router();
@@ -139,7 +144,7 @@ router.get(
         where: { businessId: req.user!.businessId },
         include: {
           lines: { orderBy: { sortOrder: 'asc' } },
-          order: { select: { orderNumber: true } },
+          order: { select: { orderNumber: true, channel: true } },
         },
         orderBy: { issueDate: 'desc' },
         take: 100,
@@ -261,6 +266,51 @@ router.post(
       });
     } catch (error) {
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/**
+ * POST /api/invoices/from-sumup-transaction/:cacheId — facturation à la demande
+ * depuis une vente comptoir SumUp (cacheId = SumupTransaction.id, pas l'id SumUp brut).
+ * Idempotent : rejouer sur une transaction déjà facturée renvoie la facture existante.
+ */
+router.post(
+  '/from-sumup-transaction/:cacheId',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER', 'CASHIER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const body = req.body as {
+        clientName?: string;
+        clientEmail?: string;
+        clientPhone?: string;
+        clientSiret?: string;
+        clientVatNumber?: string;
+        clientAddress?: string;
+        status?: 'DRAFT' | 'ISSUED';
+      };
+      if (!body.clientName?.trim())
+        return res.status(400).json({ error: 'Nom client obligatoire' });
+
+      const result = await createInvoiceFromSumupTransaction(
+        prisma,
+        req.user!.businessId,
+        req.params.cacheId,
+        { ...body, clientName: body.clientName.trim(), createdById: req.user!.userId }
+      );
+      res.status(result.created ? 201 : 200).json({
+        ...result.invoice,
+        _existing: !result.created,
+      });
+    } catch (error) {
+      if (error instanceof SumupTransactionNotFoundError) {
+        return res.status(404).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Create invoice from SumUp transaction:', error);
+      res.status(400).json({ error: message });
     }
   }
 );
@@ -411,13 +461,61 @@ router.get(
   }
 );
 
-/** GET /invoices/pennylane/status — le bouton de sync est-il utilisable (token configuré) ? */
+/** GET /invoices/pennylane/status — token configuré (backoffice ou env) ? */
 router.get(
   '/pennylane/status',
   authenticate,
   requireRole('ADMIN', 'MANAGER'),
-  (_req: AuthRequest, res: Response) => {
-    res.json({ configured: isPennylaneConfigured() });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const config = await resolvePennylaneConfig(prisma, req.user!.businessId);
+      res.json({
+        configured: isPennylaneConfigured(config.token),
+        tokenHint: config.tokenHint,
+        source: config.source,
+        invoiceDraft: config.invoiceDraft,
+      });
+    } catch (error) {
+      console.error('Invoice pennylane/status:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/** PUT /invoices/pennylane/config — enregistre le token depuis le backoffice (pas de .env VPS). */
+router.put(
+  '/pennylane/config',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const body = req.body as {
+        apiToken?: string | null;
+        invoiceDraft?: boolean;
+        clearToken?: boolean;
+      };
+      const patch: { apiToken?: string | null; invoiceDraft?: boolean } = {};
+      if (body.clearToken) patch.apiToken = null;
+      else if (typeof body.apiToken === 'string') patch.apiToken = body.apiToken;
+      if (typeof body.invoiceDraft === 'boolean') patch.invoiceDraft = body.invoiceDraft;
+
+      if (patch.apiToken === undefined && patch.invoiceDraft === undefined) {
+        return res.status(400).json({ error: 'Aucun paramètre à enregistrer' });
+      }
+
+      const config = await savePennylaneSettings(prisma, req.user!.businessId, patch);
+      res.json({
+        configured: isPennylaneConfigured(config.token),
+        tokenHint: config.tokenHint,
+        source: config.source,
+        invoiceDraft: config.invoiceDraft,
+      });
+    } catch (error) {
+      console.error('Invoice pennylane/config:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 );
 

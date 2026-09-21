@@ -342,12 +342,18 @@ router.patch(
     try {
       const prisma: PrismaClient = req.app.get('prisma');
       const io: SocketIOServer = req.app.get('io');
-      const { status } = req.body;
+      const { status, forceDelivered } = req.body as {
+        status?: string;
+        forceDelivered?: boolean;
+      };
 
       const result = await updateOrderStatus(prisma, io, {
         orderId: req.params.id,
         businessId: req.user!.businessId,
-        status,
+        status: status!,
+        forceDelivered: forceDelivered === true,
+        actorRole: req.user!.role,
+        actorUserId: req.user!.userId,
       });
       if (!result.ok) {
         return res.status(result.status).json({ error: result.error });

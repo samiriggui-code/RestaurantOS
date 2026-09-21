@@ -112,15 +112,32 @@ function baseInvoice(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+function prismaWithBusiness(
+  invoice: { findFirst: jest.Mock; update?: jest.Mock },
+  pennylaneToken: string | null = 'test-token-pennylane'
+) {
+  return {
+    business: {
+      findUnique: jest.fn().mockResolvedValue({
+        settings: pennylaneToken
+          ? { integrations: { pennylane: { apiToken: pennylaneToken } } }
+          : {},
+      }),
+    },
+    invoice,
+  };
+}
+
 describe('pennylane/sync — syncInvoiceToPennylane', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    pennylaneClient.isPennylaneConfigured.mockReturnValue(true);
+    pennylaneClient.isPennylaneConfigured.mockImplementation((t?: string | null) =>
+      t === undefined ? true : Boolean(t?.trim())
+    );
   });
 
-  it('refuses to run when PENNYLANE_API_TOKEN is not configured', async () => {
-    pennylaneClient.isPennylaneConfigured.mockReturnValue(false);
-    const prisma = { invoice: { findFirst: jest.fn() } };
+  it('refuses to run when no Pennylane token is configured', async () => {
+    const prisma = prismaWithBusiness({ findFirst: jest.fn() }, null);
     await expect(syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1')).rejects.toBeInstanceOf(
       PennylaneNotConfiguredError
     );
@@ -128,35 +145,61 @@ describe('pennylane/sync — syncInvoiceToPennylane', () => {
   });
 
   it('404s when the invoice is not found', async () => {
-    const prisma = { invoice: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const prisma = prismaWithBusiness({ findFirst: jest.fn().mockResolvedValue(null) });
     await expect(syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1')).rejects.toThrow(
       'Facture introuvable'
     );
   });
 
   it('refuses a DRAFT invoice — must be finalized in RestaurantOS first', async () => {
-    const prisma = {
-      invoice: { findFirst: jest.fn().mockResolvedValue(baseInvoice({ status: 'DRAFT' })) },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice({ status: 'DRAFT' })),
+    });
     await expect(syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1')).rejects.toThrow(
       /brouillon/
     );
   });
 
   it('refuses an invoice with no lines', async () => {
-    const prisma = {
-      invoice: { findFirst: jest.fn().mockResolvedValue(baseInvoice({ lines: [] })) },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice({ lines: [] })),
+    });
     await expect(syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1')).rejects.toThrow(
       /sans lignes/
     );
   });
 
+  it.each(['DELIVEROO', 'UBER_EATS'])(
+    "refuses a %s invoice — already booked by Pennylane's own marketplace connector",
+    async channel => {
+      const prisma = prismaWithBusiness({
+        findFirst: jest.fn().mockResolvedValue(baseInvoice({ order: { channel } })),
+      });
+      await expect(syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1')).rejects.toThrow(
+        /connecteur natif/
+      );
+      expect(pennylaneClient.createPennylaneCustomerInvoice).not.toHaveBeenCalled();
+    }
+  );
+
+  it('allows a WEB-channel invoice through (no marketplace conflict)', async () => {
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice({ order: { channel: 'WEB' } })),
+      update: jest.fn().mockResolvedValue({}),
+    });
+    pennylaneClient.findPennylaneInvoiceByExternalReference.mockResolvedValue({ id: 999 });
+
+    const result = await syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1');
+
+    expect(result).toEqual({ pennylaneInvoiceId: 999, created: false });
+  });
+
   it('is idempotent: reuses an already-synced Pennylane invoice instead of creating a duplicate', async () => {
     const update = jest.fn().mockResolvedValue({});
-    const prisma = {
-      invoice: { findFirst: jest.fn().mockResolvedValue(baseInvoice()), update },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice()),
+      update,
+    });
     pennylaneClient.findPennylaneInvoiceByExternalReference.mockResolvedValue({ id: 999 });
 
     const result = await syncInvoiceToPennylane(prisma as never, 'b1', 'inv-1');
@@ -171,9 +214,10 @@ describe('pennylane/sync — syncInvoiceToPennylane', () => {
 
   it('creates an individual customer + invoice for a consumer client (no SIRET)', async () => {
     const update = jest.fn().mockResolvedValue({});
-    const prisma = {
-      invoice: { findFirst: jest.fn().mockResolvedValue(baseInvoice()), update },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice()),
+      update,
+    });
     pennylaneClient.findPennylaneInvoiceByExternalReference.mockResolvedValue(null);
     pennylaneClient.findPennylaneCustomerByExternalReference.mockResolvedValue(null);
     pennylaneClient.createPennylaneIndividualCustomer.mockResolvedValue({ id: 55 });
@@ -203,12 +247,10 @@ describe('pennylane/sync — syncInvoiceToPennylane', () => {
   });
 
   it('creates a company customer for a B2B client (SIRET present)', async () => {
-    const prisma = {
-      invoice: {
-        findFirst: jest.fn().mockResolvedValue(baseInvoice({ clientSiret: '12345678900012' })),
-        update: jest.fn().mockResolvedValue({}),
-      },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice({ clientSiret: '12345678900012' })),
+      update: jest.fn().mockResolvedValue({}),
+    });
     pennylaneClient.findPennylaneInvoiceByExternalReference.mockResolvedValue(null);
     pennylaneClient.findPennylaneCustomerByExternalReference.mockResolvedValue(null);
     pennylaneClient.createPennylaneCompanyCustomer.mockResolvedValue({ id: 66 });
@@ -224,9 +266,10 @@ describe('pennylane/sync — syncInvoiceToPennylane', () => {
 
   it('records the error on the invoice and re-throws when Pennylane rejects the push', async () => {
     const update = jest.fn().mockResolvedValue({});
-    const prisma = {
-      invoice: { findFirst: jest.fn().mockResolvedValue(baseInvoice()), update },
-    };
+    const prisma = prismaWithBusiness({
+      findFirst: jest.fn().mockResolvedValue(baseInvoice()),
+      update,
+    });
     pennylaneClient.findPennylaneInvoiceByExternalReference.mockResolvedValue(null);
     pennylaneClient.findPennylaneCustomerByExternalReference.mockResolvedValue({ id: 55 });
     pennylaneClient.createPennylaneCustomerInvoice.mockRejectedValue(

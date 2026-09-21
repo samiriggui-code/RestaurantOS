@@ -2,17 +2,23 @@
  * Client HTTP minimal pour l'API Pennylane v2 (self-intégration — token de société,
  * pas le flow OAuth2 réservé aux apps publiques du marketplace).
  * Doc : https://pennylane.readme.io/reference
+ *
+ * Token : backoffice (Business.settings) en priorité, repli legacy PENNYLANE_API_TOKEN env.
  */
+
+import { getActivePennylaneToken } from './pennylane-config';
 
 const PENNYLANE_BASE_URL = 'https://app.pennylane.com/api/external/v2';
 
-export function isPennylaneConfigured(): boolean {
-  return Boolean(process.env.PENNYLANE_API_TOKEN?.trim());
+/** true si un token est fourni / actif / présent en env (repli). */
+export function isPennylaneConfigured(tokenOverride?: string | null): boolean {
+  if (tokenOverride !== undefined) return Boolean(tokenOverride?.trim());
+  return Boolean(getActivePennylaneToken() || process.env.PENNYLANE_API_TOKEN?.trim());
 }
 
 function pennylaneToken(): string {
-  const token = process.env.PENNYLANE_API_TOKEN?.trim();
-  if (!token) throw new Error('PENNYLANE_API_TOKEN manquant côté serveur');
+  const token = getActivePennylaneToken() || process.env.PENNYLANE_API_TOKEN?.trim() || '';
+  if (!token) throw new Error('Token Pennylane manquant — configure-le dans Intégrations');
   return token;
 }
 
@@ -153,4 +159,45 @@ export async function createPennylaneCustomerInvoice(
       invoice_lines: input.lines,
     }),
   });
+}
+
+// ─── Factures fournisseurs (dépenses — lecture seule) ──────────────────────
+
+export type PennylaneSupplierInvoice = {
+  id: number;
+  external_reference?: string | null;
+  supplier?: { id: number; url?: string } | null;
+  amount: string;
+  tax: string;
+  currency: string;
+  date: string | null;
+  deadline: string | null;
+  payment_status: string;
+  paid: boolean;
+  accounting_status: string | null;
+  invoice_number: string | null;
+  label: string | null;
+};
+
+export type ListSupplierInvoicesParams = {
+  cursor?: string;
+  limit?: number;
+  sort?: string;
+};
+
+export type ListSupplierInvoicesResult = {
+  items: PennylaneSupplierInvoice[];
+  has_more: boolean;
+  next_cursor: string | null;
+};
+
+/** GET /supplier_invoices — nécessite le scope "Factures fournisseur" (lecture) côté token Pennylane. */
+export async function listPennylaneSupplierInvoices(
+  params: ListSupplierInvoicesParams = {}
+): Promise<ListSupplierInvoicesResult> {
+  const query = new URLSearchParams();
+  if (params.cursor) query.set('cursor', params.cursor);
+  query.set('limit', String(params.limit ?? 100));
+  query.set('sort', params.sort ?? '-date');
+  return pennylaneFetch<ListSupplierInvoicesResult>(`/supplier_invoices?${query.toString()}`);
 }

@@ -9,14 +9,13 @@ import {
   type OrderVatLine,
 } from '../lib/order-vat';
 import { enqueueConfirmedOrderPrints } from '../lib/enqueue-order-prints';
-import { deductStockWithAlerts } from '../lib/stock-deduct-alerts';
-import { ensureInvoiceForPaidOrder } from '../lib/invoice-from-order';
-import { ensureLoyaltyCreditForPaidOrder } from '../lib/loyalty-order';
+import { runPaidOrderSideEffects } from '../lib/paid-order-side-effects';
 import { requireFiscalTicketForPaidOrder } from '../lib/fiscal/hook-paid-order';
 import { allocateOrderNumber } from '../lib/order-number';
 import { randomBytes } from 'crypto';
 import { PERMISSION, requirePermission } from '../lib/permissions';
 import { openPosSession, closePosSession, getCurrentPosSession } from '../lib/pos-session';
+import { emitAdminLive } from '../lib/admin-live-events';
 
 const router = Router();
 
@@ -150,20 +149,8 @@ router.post(
           });
         });
 
-        void deductStockWithAlerts(
-          prisma,
-          businessId,
-          order.id,
-          order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-        ).catch(err => console.error('Stock deduct on sync:', err));
-
         io.to(`business:${businessId}`).emit('order:new', order);
         void enqueueConfirmedOrderPrints(prisma, io, businessId, order.id);
-
-        void ensureInvoiceForPaidOrder(prisma, businessId, order.id, req.user!.userId).catch(err =>
-          console.error('Auto invoice on pos sync:', err)
-        );
-        void ensureLoyaltyCreditForPaidOrder(prisma, businessId, order.id);
 
         const offlineSoldAt = payload.offlineSoldAt ? new Date(payload.offlineSoldAt) : undefined;
         try {
@@ -174,8 +161,29 @@ router.post(
             paymentMethod: order.paymentMethod,
           });
         } catch (fiscalErr) {
-          await prisma.order.delete({ where: { id: order.id } }).catch(() => {});
-          throw fiscalErr;
+          // Ne jamais supprimer une vente déjà créée / éventuellement imprimée localement.
+          console.error('[pos/sync] fiscal CRITICAL — commande conservée', order.id, fiscalErr);
+          emitAdminLive(io, businessId, {
+            domain: 'orders',
+            action: 'fiscal_error',
+            label: 'Ticket fiscal sync offline',
+            detail: `Commande #${order.orderNumber} (offline) — ticket non émis, vente conservée`,
+          });
+        }
+
+        try {
+          await runPaidOrderSideEffects(prisma, {
+            businessId,
+            orderId: order.id,
+            stockItems: order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+            userId: req.user!.userId,
+          });
+        } catch (sideErr) {
+          console.error(
+            '[pos/sync] stock/facture CRITICAL — commande conservée',
+            order.id,
+            sideErr
+          );
         }
 
         results.push({ offlineRef: payload.offlineRef, orderId: order.id, created: true });

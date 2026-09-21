@@ -127,6 +127,17 @@ export async function splitOrder(
         total,
       },
     });
+  } else if (movedItemIds.length > 0) {
+    // Tous les items déplacés — totaux à zéro (évite subtotal orphelin)
+    await prisma.order.update({
+      where: { id: originalOrder.id },
+      data: {
+        subtotal: 0,
+        tax: 0,
+        serviceCharge: 0,
+        total: 0,
+      },
+    });
   }
 
   const updatedOriginal = await prisma.order.findUnique({

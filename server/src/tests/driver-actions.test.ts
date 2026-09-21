@@ -1,5 +1,11 @@
 import { assertDriverMayAct, acceptDelivery, confirmDeliveryHandover } from '../lib/driver-actions';
 
+jest.mock('../lib/invoice-from-order');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const invoiceFromOrder = jest.requireMock('../lib/invoice-from-order') as {
+  ensureInvoiceForPaidOrder: jest.Mock;
+};
+
 describe('assertDriverMayAct', () => {
   it('requires identity when asked', () => {
     expect(assertDriverMayAct({ driverId: null }, null, { requireIdentity: true })).toEqual({
@@ -87,6 +93,13 @@ describe('acceptDelivery', () => {
 });
 
 describe('confirmDeliveryHandover', () => {
+  beforeEach(() => {
+    invoiceFromOrder.ensureInvoiceForPaidOrder.mockReset().mockResolvedValue({
+      invoice: { id: 'inv-1' },
+      created: true,
+    });
+  });
+
   it('rejects wrong code', async () => {
     const prisma = {
       order: {
@@ -109,5 +122,38 @@ describe('confirmDeliveryHandover', () => {
       requireIdentity: true,
     });
     expect(result).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it('generates the CRM invoice on successful handover (livraison, pas paiement)', async () => {
+    const updated = {
+      id: 'o1',
+      businessId: 'b1',
+      status: 'DELIVERED',
+      driverId: 'd1',
+      orderNumber: 1,
+    };
+    const prisma = {
+      order: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'o1',
+          businessId: 'b1',
+          type: 'DELIVERY',
+          status: 'OUT_FOR_DELIVERY',
+          driverId: 'd1',
+          deliveryHandoverCode: '1234',
+          orderNumber: 1,
+        }),
+        update: jest.fn().mockResolvedValue(updated),
+      },
+    };
+    const result = await confirmDeliveryHandover(prisma as never, undefined, {
+      businessId: 'b1',
+      orderId: 'o1',
+      driverUserId: 'd1',
+      code: '1234',
+      requireIdentity: true,
+    });
+    expect(result).toMatchObject({ ok: true, order: { status: 'DELIVERED' } });
+    expect(invoiceFromOrder.ensureInvoiceForPaidOrder).toHaveBeenCalledWith(prisma, 'b1', 'o1');
   });
 });

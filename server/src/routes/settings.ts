@@ -6,9 +6,18 @@ import { AuthRequest } from '../types';
 import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseBusinessSettings, type BusinessSettingsJson } from '../lib/business-settings';
 import { logFiscalEvent } from '../lib/fiscal/events';
-import { getIntegrationsStatus } from '../lib/marketplace-integrations';
+import {
+  getIntegrationsStatus,
+  generateMarketplaceWebhookSecret,
+  saveMarketplaceWebhookSecret,
+  type MarketplaceProvider,
+} from '../lib/marketplace-integrations';
 import { isSumupOnlineConfigured } from '../lib/device-settings';
 import { sumupWebhookUrl } from '../lib/sumup-online-config';
+import { isPennylaneConfigured } from '../lib/pennylane/pennylane-client';
+import { resolvePennylaneConfig } from '../lib/pennylane/pennylane-config';
+import { getSumupPublicStatus } from '../lib/sumup-config';
+import { saveSumupCredentials } from '../lib/sumup-settings';
 
 const router = Router();
 
@@ -253,18 +262,99 @@ router.put(
   }
 );
 
-/** GET /api/settings/integrations — statut marketplaces + SumUp en ligne (admin intégrations) */
+/** GET /api/settings/integrations — statut marketplaces + SumUp + Pennylane */
 router.get('/integrations', ...settingsRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const status = await getIntegrationsStatus(prisma, req.user!.businessId);
+    const pennylane = await resolvePennylaneConfig(prisma, req.user!.businessId);
+    const sumup = getSumupPublicStatus();
     res.json({
       ...status,
       sumupOnlineConfigured: isSumupOnlineConfigured(),
       sumupWebhookUrl: sumupWebhookUrl(),
+      sumup: {
+        ...sumup,
+        onlineConfigured: isSumupOnlineConfigured(),
+        webhookUrl: sumupWebhookUrl(),
+      },
+      pennylane: {
+        configured: isPennylaneConfigured(pennylane.token),
+        tokenHint: pennylane.tokenHint,
+        source: pennylane.source,
+        invoiceDraft: pennylane.invoiceDraft,
+      },
+      backups: {
+        configured: process.env.MINIO_ENABLED === 'true',
+        managedByHost: true,
+      },
     });
   } catch (error) {
     console.error('[settings/integrations]', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** PUT /api/settings/integrations/marketplace/:provider — secret webhook (backoffice) */
+router.put(
+  '/integrations/marketplace/:provider',
+  ...settingsWrite,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const provider = req.params.provider as MarketplaceProvider;
+      if (provider !== 'deliveroo' && provider !== 'ubereats') {
+        return res.status(400).json({ error: 'Fournisseur inconnu' });
+      }
+      const prisma: PrismaClient = req.app.get('prisma');
+      const body = req.body as {
+        webhookSecret?: string | null;
+        generate?: boolean;
+        clear?: boolean;
+      };
+      let secret: string | null = null;
+      if (body.clear) secret = null;
+      else if (body.generate) secret = generateMarketplaceWebhookSecret();
+      else if (typeof body.webhookSecret === 'string') secret = body.webhookSecret;
+      else return res.status(400).json({ error: 'webhookSecret, generate ou clear requis' });
+
+      const result = await saveMarketplaceWebhookSecret(
+        prisma,
+        req.user!.businessId,
+        provider,
+        secret
+      );
+      res.json({
+        ...result,
+        /** Renvoyé une seule fois si généré — à copier dans le portail partenaire */
+        webhookSecret: body.generate && secret ? secret : undefined,
+      });
+    } catch (error) {
+      console.error('[settings/integrations/marketplace]', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+/** PUT /api/settings/integrations/sumup — clés API SumUp (backoffice) */
+router.put('/integrations/sumup', ...settingsWrite, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const body = req.body as {
+      apiKey?: string | null;
+      merchantCode?: string | null;
+      clear?: boolean;
+    };
+    if (!body.clear && body.apiKey === undefined && body.merchantCode === undefined) {
+      return res.status(400).json({ error: 'Aucun paramètre SumUp' });
+    }
+    const result = await saveSumupCredentials(prisma, req.user!.businessId, body);
+    res.json({
+      ...result,
+      onlineConfigured: isSumupOnlineConfigured(),
+      webhookUrl: sumupWebhookUrl(),
+    });
+  } catch (error) {
+    console.error('[settings/integrations/sumup]', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

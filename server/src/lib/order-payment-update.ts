@@ -2,9 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { Server as SocketIOServer } from 'socket.io';
 import { assertPaymentStatusTransition, InvalidPaymentTransitionError } from './order-status';
 import { assertOrderFiscallyMutable } from './fiscal/guards';
-import { deductStockWithAlerts } from './stock-deduct-alerts';
-import { ensureInvoiceForPaidOrder } from './invoice-from-order';
-import { ensureLoyaltyCreditForPaidOrder } from './loyalty-order';
+import { runPaidOrderSideEffects } from './paid-order-side-effects';
 import { requireFiscalTicketForPaidOrder } from './fiscal/hook-paid-order';
 
 export type UpdateOrderPaymentResult =
@@ -81,18 +79,6 @@ export async function updateOrderPayment(
   io.to(`business:${order.businessId}`).emit('order:paymentUpdate', order);
 
   if (nextPaymentStatus === 'PAID') {
-    if (existing.paymentStatus !== 'PAID' && order.status === 'CONFIRMED') {
-      void deductStockWithAlerts(
-        prisma,
-        order.businessId,
-        order.id,
-        order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-      ).catch(err => console.error('Stock deduct on payment:', err));
-    }
-    void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, params.userId).catch(err =>
-      console.error('Auto invoice on payment:', err)
-    );
-    void ensureLoyaltyCreditForPaidOrder(prisma, order.businessId, order.id);
     try {
       await requireFiscalTicketForPaidOrder(prisma, order.businessId, order.id, params.userId, {
         paymentMethod: order.paymentMethod,
@@ -100,6 +86,24 @@ export async function updateOrderPayment(
     } catch (fiscalErr) {
       const msg = fiscalErr instanceof Error ? fiscalErr.message : 'Ticket fiscal impossible';
       return { ok: false, status: 500, error: msg };
+    }
+    try {
+      await runPaidOrderSideEffects(prisma, {
+        businessId: order.businessId,
+        orderId: order.id,
+        stockItems:
+          existing.paymentStatus !== 'PAID' && order.status === 'CONFIRMED'
+            ? order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
+            : undefined,
+        userId: params.userId,
+      });
+    } catch (sideErr) {
+      console.error('[payment-update] stock/facture:', sideErr);
+      return {
+        ok: false,
+        status: 500,
+        error: sideErr instanceof Error ? sideErr.message : 'Stock / facture impossible',
+      };
     }
   }
 

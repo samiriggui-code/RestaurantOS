@@ -24,6 +24,7 @@ import expenseRoutes from './routes/expenses';
 import licenseRoutes from './routes/licenses';
 import backupRoutes from './routes/backups';
 import invoiceRoutes from './routes/invoices';
+import pennylaneRoutes from './routes/pennylane';
 import sumupRoutes from './routes/sumup';
 import sumupCheckoutRoutes from './routes/sumup-checkout';
 import printJobRoutes from './routes/print-jobs';
@@ -176,7 +177,7 @@ app.use('/api/public', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', requireModule('menu'), menuRoutes);
 app.use('/api/orders', requireModule('orders'), orderRoutes);
-app.use('/api/print-jobs', requireModule('pos'), printJobRoutes);
+app.use('/api/print-jobs', requireModule('kitchen'), printJobRoutes);
 app.use('/api/pos', requireModule('pos'), posRoutes);
 app.use('/api/tables', requireModule('tables'), tableRoutes);
 app.use('/api/wifi', requireModule('wifi'), wifiRoutes);
@@ -192,6 +193,7 @@ app.use('/api/expenses', requireModule('expenses'), expenseRoutes);
 app.use('/api/licenses', requireModule('licenses'), licenseRoutes);
 app.use('/api/backups', backupRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/pennylane', pennylaneRoutes);
 app.use('/api/payments/sumup', sumupRoutes);
 app.use('/api/payments/sumup-checkout', sumupCheckoutRoutes);
 app.use('/api/loyalty', requireModule('loyalty'), loyaltyRoutes);
@@ -270,12 +272,20 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 API Express → http://localhost:${PORT}`);
   console.log(`   (Landing/CRM/KDS/POS → http://localhost:3000)`);
   if (process.env.NODE_ENV !== 'test') {
+    void import('./lib/sumup-settings').then(({ loadSumupCredentialsFromDb }) =>
+      loadSumupCredentialsFromDb(prisma).catch(err =>
+        console.error('[sumup] chargement credentials BDD:', err)
+      )
+    );
     void import('./lib/fiscal/startup').then(
       ({ ensureFiscalChainHealthy, logFiscalSoftwareStart }) =>
         ensureFiscalChainHealthy(prisma).then(() => logFiscalSoftwareStart(prisma))
     );
     void import('./lib/fiscal/scheduler').then(({ startFiscalScheduler }) =>
       startFiscalScheduler(prisma)
+    );
+    void import('./lib/reporting-sync-scheduler').then(({ startReportingSyncScheduler }) =>
+      startReportingSyncScheduler(prisma)
     );
   }
 });

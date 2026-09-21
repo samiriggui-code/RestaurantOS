@@ -1,7 +1,12 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Server as SocketIOServer } from 'socket.io';
 import { getBusinessId } from './business';
-import { createOnlineOrder, validateOnlineOrderBody, type OnlineOrderBody } from './online-order';
+import {
+  createOnlineOrder,
+  validateOnlineOrderBody,
+  validateOrderFeasibility,
+  type OnlineOrderBody,
+} from './online-order';
 import { eurosToCents } from './money';
 import { runOnlineCardPaymentHooks } from './online-payment-finalize';
 import { getPaymentProvider, assertPaymentConfigured } from './payment-provider';
@@ -17,6 +22,14 @@ export async function createGuestCheckoutDraft(
   const validationError = validateOnlineOrderBody(body);
   if (validationError) {
     return { error: validationError, status: 400 as const };
+  }
+
+  // Vérifié AVANT de créer le paiement SumUp — sinon un créneau fermé, une zone de
+  // livraison désactivée ou un article devenu indisponible entre l'ajout au panier (qui
+  // reste en localStorage indéfiniment) et le paiement facturait le client pour rien.
+  const feasibilityError = await validateOrderFeasibility(prisma, businessId, body);
+  if (feasibilityError) {
+    return { error: feasibilityError, status: 400 as const };
   }
 
   try {
@@ -131,6 +144,30 @@ export async function completeGuestCheckout(
     cardPaid: { sumupCheckoutId: id },
   });
   if ('error' in created && created.error) {
+    // Le paiement SumUp est déjà confirmé (checkout.paid ci-dessus) — la pré-vérification
+    // dans createGuestCheckoutDraft réduit ce cas au minimum mais ne l'élimine pas (fenêtre
+    // de course entre la préparation du paiement et sa capture par le client). Le client a
+    // payé : on rembourse automatiquement plutôt que de le laisser débité sans commande.
+    if (!draft.refundedAt) {
+      const refund = await getPaymentProvider().refund({
+        checkoutId: id,
+        amountCents: draft.totalCents,
+      });
+      if (refund.ok) {
+        await prisma.guestCheckoutDraft.update({
+          where: { id: draft.id },
+          data: { refundedAt: new Date() },
+        });
+      } else {
+        console.error('[guest-checkout] remboursement automatique échoué', draft.id, refund.error);
+      }
+      return {
+        error: refund.ok
+          ? `${created.error} — votre paiement a été remboursé automatiquement.`
+          : `${created.error} — le remboursement automatique a échoué, contactez-nous pour être remboursé.`,
+        status: created.status ?? 400,
+      };
+    }
     return { error: created.error, status: created.status ?? 400 };
   }
   const { order, trackingToken, orderNumber } = created;

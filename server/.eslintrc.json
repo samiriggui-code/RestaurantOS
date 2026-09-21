@@ -4,10 +4,7 @@
     "node": true,
     "es2022": true
   },
-  "extends": [
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
-  ],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",
@@ -20,5 +17,15 @@
     "@typescript-eslint/explicit-function-return-type": "warn",
     "no-console": "off"
   },
+  "overrides": [
+    {
+      "files": ["src/tests/**/*.ts"],
+      "env": { "jest": true },
+      "rules": {
+        "@typescript-eslint/explicit-function-return-type": "off",
+        "@typescript-eslint/no-explicit-any": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist", "node_modules", "prisma/migrations"]
 }

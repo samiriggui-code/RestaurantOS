@@ -3,6 +3,7 @@ export const ORDER_TYPE_CHART_LABEL: Record<string, string> = {
   TAKEAWAY: 'À emporter',
   PICKUP: 'Retrait',
   DINE_IN: 'Sur place',
+  COMPTOIR: 'Comptoir SumUp',
 }
 
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {

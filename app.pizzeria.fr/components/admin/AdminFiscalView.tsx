@@ -1,6 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import {
@@ -47,6 +57,7 @@ import {
   type FiscalBackupRow,
 } from '@/lib/fiscal-api'
 import { FiscalDailyCloseWizard } from '@/components/admin/FiscalDailyCloseWizard'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 
 type FiscalTab = 'overview' | 'tickets' | 'journal' | 'closures' | 'archives'
 
@@ -204,6 +215,182 @@ export function AdminFiscalView() {
     () => new Set(tickets.filter((t) => t.kind === 'VOID' && t.voidOfId).map((t) => t.voidOfId!)),
     [tickets],
   )
+
+  const [ticketsSearch, setTicketsSearch] = useState('')
+  const [ticketsSorting, setTicketsSorting] = useState<SortingState>([{ id: 'issuedAt', desc: true }])
+  const [ticketsPagination, setTicketsPagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  const ticketColumns = useMemo<ColumnDef<FiscalTicketRow>[]>(
+    () => [
+      {
+        accessorKey: 'serialNumber',
+        header: ({ column }) => <DataGridColumnHeader title="N°" column={column} />,
+        cell: ({ row }) => <span className="font-mono text-cream">{row.original.serialNumber}</span>,
+      },
+      {
+        accessorKey: 'kind',
+        header: ({ column }) => <DataGridColumnHeader title="Type" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/80">{KIND_LABEL[row.original.kind] ?? row.original.kind}</span>
+        ),
+      },
+      {
+        id: 'issuedAt',
+        accessorFn: (row) => new Date(row.issuedAt).getTime(),
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/70">{new Date(row.original.issuedAt).toLocaleString('fr-FR')}</span>
+        ),
+      },
+      {
+        accessorKey: 'totalCents',
+        header: ({ column }) => <DataGridColumnHeader title="Montant" column={column} />,
+        cell: ({ row }) => <span className="tabular-nums text-cream">{formatEUR(row.original.totalCents)}</span>,
+      },
+      {
+        accessorKey: 'paymentMethod',
+        header: ({ column }) => <DataGridColumnHeader title="Paiement" column={column} />,
+        cell: ({ row }) => <span className="text-cream/60">{row.original.paymentMethod ?? '—'}</span>,
+      },
+      {
+        id: 'order',
+        header: () => <span className="text-xs font-medium uppercase tracking-wide text-cream/45">Commande</span>,
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.orderId ? (
+            <Link
+              href={`/admin/orders?order=${row.original.orderId}`}
+              className="text-xs text-tomato/90 hover:underline"
+            >
+              Voir cmd.
+            </Link>
+          ) : row.original.offlineRef ? (
+            <span className="font-mono text-xs text-amber-300/90">{row.original.offlineRef}</span>
+          ) : (
+            '—'
+          ),
+      },
+      {
+        id: 'hash',
+        header: () => <span className="text-xs font-medium uppercase tracking-wide text-cream/45">Empreinte</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-cream/50">{hashPreview(row.original.recordHash)}</span>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const t = row.original
+          const canVoid = t.kind === 'SALE' && !voidedSaleIds.has(t.id) && busy !== `void-${t.id}`
+          return (
+            <div className="flex justify-end">
+              {canVoid ? (
+                <button
+                  type="button"
+                  disabled={busy === `void-${t.id}`}
+                  onClick={() => openVoidModal(t)}
+                  className="rounded-lg border border-red-500/30 px-2.5 py-1 text-xs text-red-200 hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  Avoir
+                </button>
+              ) : t.kind === 'SALE' && voidedSaleIds.has(t.id) ? (
+                <span className="text-xs text-cream/35">Annulé</span>
+              ) : null}
+            </div>
+          )
+        },
+      },
+    ],
+    [voidedSaleIds, busy],
+  )
+
+  const ticketsTable = useReactTable({
+    data: tickets,
+    columns: ticketColumns,
+    state: { pagination: ticketsPagination, sorting: ticketsSorting, globalFilter: ticketsSearch },
+    onPaginationChange: setTicketsPagination,
+    onSortingChange: setTicketsSorting,
+    onGlobalFilterChange: setTicketsSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
+
+  const [backupsSearch, setBackupsSearch] = useState('')
+  const [backupsSorting, setBackupsSorting] = useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [backupsPagination, setBackupsPagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  const backupColumns = useMemo<ColumnDef<FiscalBackupRow>[]>(
+    () => [
+      {
+        id: 'createdAt',
+        accessorFn: (row) => new Date(row.createdAt).getTime(),
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/80">{new Date(row.original.createdAt).toLocaleString('fr-FR')}</span>
+        ),
+      },
+      {
+        accessorKey: 'kindLabel',
+        header: ({ column }) => <DataGridColumnHeader title="Type" column={column} />,
+        cell: ({ row }) => <span className="text-cream/80">{row.original.kindLabel}</span>,
+      },
+      {
+        accessorKey: 'filename',
+        header: ({ column }) => <DataGridColumnHeader title="Fichier" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-cream/70">{row.original.filename}</span>
+        ),
+      },
+      {
+        accessorKey: 'sizeBytes',
+        header: ({ column }) => <DataGridColumnHeader title="Taille" column={column} />,
+        cell: ({ row }) => <span className="tabular-nums text-cream/70">{row.original.sizeLabel}</span>,
+      },
+      {
+        accessorKey: 'source',
+        header: ({ column }) => <DataGridColumnHeader title="Emplacement" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/60">
+            {row.original.source === 'minio' ? 'Coffre MinIO' : 'Copie locale VPS'}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        header: () => <span className="text-xs font-medium uppercase tracking-wide text-cream/45">Statut</span>,
+        enableSorting: false,
+        cell: () => (
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-300/90">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            OK
+          </span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const backupsTable = useReactTable({
+    data: backups,
+    columns: backupColumns,
+    state: { pagination: backupsPagination, sorting: backupsSorting, globalFilter: backupsSearch },
+    onPaginationChange: setBackupsPagination,
+    onSortingChange: setBackupsSorting,
+    onGlobalFilterChange: setBackupsSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   function openCloseWizard(dayKey?: string) {
     setError(null)
@@ -587,74 +774,19 @@ export function AdminFiscalView() {
           {tab === 'tickets' && (
             <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5">
               <h2 className="mb-4 font-semibold text-cream">Tickets fiscaux</h2>
-              {tickets.length === 0 ? (
-                <p className="text-sm text-cream/45">Aucun ticket émis — les ventes encaissées apparaîtront ici.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-white/10 text-xs text-cream/45">
-                        <th className="pb-2 pr-3">N°</th>
-                        <th className="pb-2 pr-3">Type</th>
-                        <th className="pb-2 pr-3">Date</th>
-                        <th className="pb-2 pr-3">Montant</th>
-                        <th className="pb-2 pr-3">Paiement</th>
-                        <th className="pb-2 pr-3">Commande</th>
-                        <th className="pb-2 pr-3">Empreinte</th>
-                        <th className="pb-2 pr-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {tickets.map((t) => {
-                        const canVoid =
-                          t.kind === 'SALE' && !voidedSaleIds.has(t.id) && busy !== `void-${t.id}`
-                        return (
-                        <tr key={t.id}>
-                          <td className="py-2.5 pr-3 font-mono text-cream">{t.serialNumber}</td>
-                          <td className="py-2.5 pr-3 text-cream/80">{KIND_LABEL[t.kind] ?? t.kind}</td>
-                          <td className="py-2.5 pr-3 text-cream/70">
-                            {new Date(t.issuedAt).toLocaleString('fr-FR')}
-                          </td>
-                          <td className="py-2.5 pr-3 tabular-nums text-cream">{formatEUR(t.totalCents)}</td>
-                          <td className="py-2.5 pr-3 text-cream/60">{t.paymentMethod ?? '—'}</td>
-                          <td className="py-2.5 pr-3">
-                            {t.orderId ? (
-                              <Link
-                                href={`/admin/orders?order=${t.orderId}`}
-                                className="text-xs text-tomato/90 hover:underline"
-                              >
-                                Voir cmd.
-                              </Link>
-                            ) : t.offlineRef ? (
-                              <span className="font-mono text-xs text-amber-300/90">{t.offlineRef}</span>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="py-2.5 pr-3 font-mono text-xs text-cream/50">
-                            {hashPreview(t.recordHash)}
-                          </td>
-                          <td className="py-2.5 pr-3 text-right">
-                            {canVoid ? (
-                              <button
-                                type="button"
-                                disabled={busy === `void-${t.id}`}
-                                onClick={() => openVoidModal(t)}
-                                className="rounded-lg border border-red-500/30 px-2.5 py-1 text-xs text-red-200 hover:bg-red-500/10 disabled:opacity-50"
-                              >
-                                Avoir
-                              </button>
-                            ) : t.kind === 'SALE' && voidedSaleIds.has(t.id) ? (
-                              <span className="text-xs text-cream/35">Annulé</span>
-                            ) : null}
-                          </td>
-                        </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <AdminDataGridShell
+                title="Tickets"
+                table={ticketsTable}
+                recordCount={ticketsTable.getFilteredRowModel().rows.length}
+                search={ticketsSearch}
+                onSearchChange={setTicketsSearch}
+                searchPlaceholder="N°, montant, commande…"
+                emptyMessage={
+                  tickets.length === 0
+                    ? 'Aucun ticket émis — les ventes encaissées apparaîtront ici.'
+                    : 'Aucun résultat pour ce filtre'
+                }
+              />
             </section>
           )}
 
@@ -839,41 +971,15 @@ export function AdminFiscalView() {
                     Aucune sauvegarde enregistrée pour {backupMonth} (cron quotidien à 04h00).
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[720px] text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-white/10 text-xs text-cream/45">
-                          <th className="pb-2 pr-3">Date</th>
-                          <th className="pb-2 pr-3">Type</th>
-                          <th className="pb-2 pr-3">Fichier</th>
-                          <th className="pb-2 pr-3">Taille</th>
-                          <th className="pb-2 pr-3">Emplacement</th>
-                          <th className="pb-2 pr-3">Statut</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {backups.map((b) => (
-                          <tr key={b.id}>
-                            <td className="py-2.5 pr-3 text-cream/80">
-                              {new Date(b.createdAt).toLocaleString('fr-FR')}
-                            </td>
-                            <td className="py-2.5 pr-3 text-cream/80">{b.kindLabel}</td>
-                            <td className="py-2.5 pr-3 font-mono text-xs text-cream/70">{b.filename}</td>
-                            <td className="py-2.5 pr-3 tabular-nums text-cream/70">{b.sizeLabel}</td>
-                            <td className="py-2.5 pr-3 text-cream/60">
-                              {b.source === 'minio' ? 'Coffre MinIO' : 'Copie locale VPS'}
-                            </td>
-                            <td className="py-2.5 pr-3">
-                              <span className="inline-flex items-center gap-1 text-xs text-emerald-300/90">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                OK
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <AdminDataGridShell
+                    title="Sauvegardes"
+                    table={backupsTable}
+                    recordCount={backupsTable.getFilteredRowModel().rows.length}
+                    search={backupsSearch}
+                    onSearchChange={setBackupsSearch}
+                    searchPlaceholder="Fichier, type…"
+                    emptyMessage="Aucun résultat pour ce filtre"
+                  />
                 )}
               </div>
             </section>

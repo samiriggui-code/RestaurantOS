@@ -1,21 +1,33 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import {
+  ChevronLeft,
+  ChevronRight,
   Globe,
   Loader2,
   ShoppingBag,
-  Store,
   TrendingUp,
   UtensilsCrossed,
   Wallet,
 } from 'lucide-react'
-import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
+import { SalesVsExpensesCards } from '@/components/admin/SalesVsExpensesCards'
 import { AdminStatCard, ADMIN_STAT_GRID } from '@/components/admin/AdminStatCard'
-import { DonutChart, type DonutSlice } from '@/components/admin/charts/DonutChart'
-import { MiniBarChart } from '@/components/admin/charts/MiniBarChart'
+import { AdminDataGridShell, DataGridColumnHeader } from '@/components/ui/data-grid'
+import { ApexDonutChart, type DonutSlice } from '@/components/admin/charts/ApexDonutChart'
+import { ApexBarChart } from '@/components/admin/charts/ApexBarChart'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import {
@@ -27,8 +39,32 @@ import {
 } from '@/lib/ops-orders'
 import { formatEUR } from '@/lib/money'
 import { CHART_COLORS, orderTypeLabel, paymentMethodLabel } from '@/lib/report-labels'
+import { orderChannelDisplayLabel } from '@/lib/admin-nav'
 import { cn } from '@/lib/cn'
 import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
+import { PeriodPicker, defaultCustomRange } from '@/components/admin/PeriodPicker'
+import { periodToDateRange, type ArchivePeriod, type CustomRange } from '@/lib/order-period'
+
+/** Heures d'ouverture du comptoir — cadre par défaut du graphique "Commandes par heure". */
+const OPENING_HOUR = 18
+const CLOSING_HOUR = 23
+
+const PERIOD_LABEL: Record<ArchivePeriod, string> = {
+  today: "aujourd'hui",
+  week: '7 derniers jours',
+  month: '30 derniers jours',
+  custom: 'période sélectionnée',
+  all: 'toute la période',
+}
+
+type RecentCounterSale = {
+  id: string
+  transactionCode: string | null
+  amountCents: number
+  paymentType: string
+  occurredAt: string
+  productSummary: string | null
+}
 
 type DashboardData = {
   todayOrders: number
@@ -42,9 +78,15 @@ type DashboardData = {
   hourlyToday: { hour: number; count: number; revenue: number }[]
   orderTypes: Record<string, { count: number; revenue: number }>
   paymentMethods: Record<string, { count: number; revenue: number }>
+  channelsToday: Record<string, { count: number; revenue: number }>
   salesByDay: { date: string; count: number; total: number }[]
   recentOrders: OpsOrder[]
+  recentCounterSales: RecentCounterSale[]
 }
+
+type RecentRow =
+  | { kind: 'order'; date: string; order: OpsOrder }
+  | { kind: 'counter'; date: string; sale: RecentCounterSale }
 
 function recordToDonut(
   record: Record<string, { count: number; revenue: number }>,
@@ -84,20 +126,36 @@ export function AdminHome() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const { error, setError } = useFeedbackState()
+  const [period, setPeriod] = useState<ArchivePeriod>('today')
+  const [custom, setCustom] = useState<CustomRange>(() => defaultCustomRange())
+  const [topItemsPage, setTopItemsPage] = useState(0)
+  const TOP_ITEMS_PAGE_SIZE = 5
+
+  const range = useMemo(
+    () => periodToDateRange(period, period === 'custom' ? custom : undefined),
+    [period, custom],
+  )
 
   const load = useCallback(() => {
     const session = getStaffSession()
     if (!session) return
     setLoading(true)
-    staffFetch<DashboardData>('/reports/dashboard', { token: session.token })
+    const params = new URLSearchParams()
+    if (range.dateFrom) params.set('from', range.dateFrom)
+    if (range.dateTo) params.set('to', range.dateTo)
+    staffFetch<DashboardData>(`/reports/dashboard?${params.toString()}`, { token: session.token })
       .then(setData)
       .catch((err) => setError(err instanceof Error ? err.message : 'Chargement impossible'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [range, setError])
 
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    setTopItemsPage(0)
+  }, [range])
 
   useAdminRefresh(['dashboard', 'orders'], load)
 
@@ -109,33 +167,163 @@ export function AdminHome() {
     () => (data ? recordToDonut(data.paymentMethods, paymentMethodLabel, true) : []),
     [data]
   )
+  // Détail réel par canal (Web/Deliveroo/Uber Eats/Comptoir SumUp) — avant, la carte
+  // "Canaux" ne montrait qu'un ratio "X en ligne / Y comptoir" en nombre de commandes qui
+  // pouvait sembler contredire "Commandes" (0 commande app + 14 ventes comptoir = confus).
+  const channelSlices = useMemo(
+    () => (data ? recordToDonut(data.channelsToday, (k) => orderChannelDisplayLabel(k), false) : []),
+    [data]
+  )
 
   const weekBars = useMemo(() => {
-    if (!data) return []
-    return data.salesByDay.map((d) => ({
-      label: new Date(d.date).toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 3),
-      value: d.total,
-      color: '#E85D4C',
-    }))
+    if (!data) return { categories: [] as string[], series: [] as number[] }
+    return {
+      categories: data.salesByDay.map((d) =>
+        new Date(d.date).toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 3)
+      ),
+      series: data.salesByDay.map((d) => d.total),
+    }
   }, [data])
 
+  // Fenêtre par défaut = heures d'ouverture (18h-23h) — pas besoin d'afficher 24h pleines
+  // pour un comptoir qui n'ouvre que le soir. S'élargit automatiquement si une vente
+  // apparaît en dehors (jamais de donnée cachée, juste un cadrage par défaut réaliste).
   const hourlyBars = useMemo(() => {
-    if (!data) return []
-    return data.hourlyToday.map((h) => ({
-      label: `${h.hour}h`,
-      value: h.count,
-      color: '#2A9D8F',
-    }))
+    if (!data) return { categories: [] as string[], series: [] as number[] }
+    const activeHours = data.hourlyToday.filter((h) => h.count > 0).map((h) => h.hour)
+    const start = Math.min(OPENING_HOUR, ...activeHours)
+    const end = Math.max(CLOSING_HOUR, ...activeHours)
+    const slice = data.hourlyToday.slice(start, end + 1)
+    return {
+      categories: slice.map((h) => `${h.hour}h`),
+      series: slice.map((h) => h.count),
+    }
   }, [data])
 
-  const topItemSlices: DonutSlice[] = useMemo(() => {
-    if (!data?.topItemsToday.length) return []
-    return data.topItemsToday.slice(0, 6).map((item, i) => ({
-      label: item.name.length > 22 ? `${item.name.slice(0, 20)}…` : item.name,
-      value: item.quantity,
-      color: CHART_COLORS[i % CHART_COLORS.length],
+  // Fusionne commandes (Order) et ventes comptoir SumUp (pas de Order) — sans ça, le
+  // comptoir n'apparaît jamais dans "Dernières commandes" alors que c'est un canal réel.
+  const recentRows: RecentRow[] = useMemo(() => {
+    if (!data) return []
+    const orderRows: RecentRow[] = data.recentOrders.map((order) => ({
+      kind: 'order',
+      date: order.createdAt,
+      order,
     }))
+    const counterRows: RecentRow[] = data.recentCounterSales.map((sale) => ({
+      kind: 'counter',
+      date: sale.occurredAt,
+      sale,
+    }))
+    return [...orderRows, ...counterRows].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    )
   }, [data])
+
+  const [recentSearch, setRecentSearch] = useState('')
+  const [recentSorting, setRecentSorting] = useState<SortingState>([{ id: 'date', desc: true }])
+  const [recentPagination, setRecentPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
+
+  const recentColumns = useMemo<ColumnDef<RecentRow>[]>(
+    () => [
+      {
+        id: 'number',
+        header: ({ column }) => <DataGridColumnHeader title="N°" column={column} />,
+        accessorFn: (row) => (row.kind === 'order' ? `#${row.order.orderNumber}` : row.sale.transactionCode ?? ''),
+        cell: ({ row }) =>
+          row.original.kind === 'order' ? (
+            <span className="font-semibold text-cream">#{row.original.order.orderNumber}</span>
+          ) : (
+            <span className="font-mono text-xs text-cream/40">{row.original.sale.transactionCode ?? '—'}</span>
+          ),
+      },
+      {
+        id: 'client',
+        header: ({ column }) => <DataGridColumnHeader title="Client" column={column} />,
+        accessorFn: (row) => (row.kind === 'order' ? orderCustomerLine(row.order) : 'Comptoir'),
+        cell: ({ row }) => (
+          <span className="text-cream/80">
+            {row.original.kind === 'order' ? orderCustomerLine(row.original.order) : 'Comptoir'}
+          </span>
+        ),
+      },
+      {
+        id: 'mode',
+        header: ({ column }) => <DataGridColumnHeader title="Mode" column={column} />,
+        accessorFn: (row) => (row.kind === 'order' ? ORDER_TYPE_LABEL[row.order.type] ?? row.order.type : 'SumUp'),
+        cell: ({ row }) =>
+          row.original.kind === 'order' ? (
+            <span className="text-cream/60">
+              {ORDER_TYPE_LABEL[row.original.order.type] ?? row.original.order.type}
+              {row.original.order.isOnlineOrder && <span className="ml-1 text-[10px] text-sky-400">web</span>}
+            </span>
+          ) : (
+            <span className="text-[10px] text-amber-400">SumUp</span>
+          ),
+      },
+      {
+        id: 'date',
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        accessorFn: (row) => new Date(row.date).getTime(),
+        cell: ({ row }) => (
+          <span className="text-cream/60">{new Date(row.original.date).toLocaleString('fr-FR')}</span>
+        ),
+      },
+      {
+        id: 'status',
+        header: ({ column }) => <DataGridColumnHeader title="Statut" column={column} />,
+        accessorFn: (row) => (row.kind === 'order' ? ORDER_STATUS_LABEL[row.order.status] ?? row.order.status : 'Payée'),
+        cell: ({ row }) =>
+          row.original.kind === 'order' ? (
+            <StatusBadge status={row.original.order.status} />
+          ) : (
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
+              Payée
+            </span>
+          ),
+      },
+      {
+        id: 'payment',
+        header: ({ column }) => <DataGridColumnHeader title="Paiement" column={column} />,
+        accessorFn: (row) =>
+          row.kind === 'order'
+            ? PAYMENT_STATUS_LABEL[row.order.paymentStatus] ?? row.order.paymentStatus
+            : row.sale.paymentType === 'CASH' ? 'Espèces' : 'Carte',
+        cell: ({ row }) => (
+          <span className="text-cream/60">
+            {row.original.kind === 'order'
+              ? PAYMENT_STATUS_LABEL[row.original.order.paymentStatus] ?? row.original.order.paymentStatus
+              : row.original.sale.paymentType === 'CASH' ? 'Espèces' : 'Carte'}
+          </span>
+        ),
+      },
+      {
+        id: 'total',
+        header: ({ column }) => <DataGridColumnHeader title="Total" column={column} />,
+        accessorFn: (row) => (row.kind === 'order' ? row.order.total : row.sale.amountCents),
+        cell: ({ row }) => (
+          <span className="font-medium tabular-nums text-tomato-light">
+            {formatEUR(row.original.kind === 'order' ? row.original.order.total : row.original.sale.amountCents)}
+          </span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const recentTable = useReactTable({
+    data: recentRows,
+    columns: recentColumns,
+    state: { pagination: recentPagination, sorting: recentSorting, globalFilter: recentSearch },
+    onPaginationChange: setRecentPagination,
+    onSortingChange: setRecentSorting,
+    onGlobalFilterChange: setRecentSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => (row.kind === 'order' ? `order-${row.order.id}` : `counter-${row.sale.id}`),
+  })
 
   if (loading) {
     return (
@@ -145,21 +333,22 @@ export function AdminHome() {
     )
   }
 
-  const orders = data?.recentOrders ?? []
-
   return (
     <div className="mx-auto max-w-7xl space-y-8 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold text-cream">Tableau de bord</h1>
-          <p className="text-sm text-cream/50">Activité du jour — La Z Pizza</p>
+          <p className="text-sm text-cream/50">La Z Pizza — {PERIOD_LABEL[period]}</p>
         </div>
-        <Link
-          href="/admin/reports"
-          className="rounded-xl border border-white/15 px-4 py-2 text-sm text-cream/70 hover:bg-white/5"
-        >
-          Rapports détaillés →
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodPicker period={period} custom={custom} onPeriodChange={setPeriod} onCustomChange={setCustom} />
+          <Link
+            href="/admin/reports"
+            className="rounded-xl border border-white/15 px-4 py-2 text-sm text-cream/70 hover:bg-white/5"
+          >
+            Rapports détaillés →
+          </Link>
+        </div>
       </div>
 
       {error && (
@@ -177,151 +366,153 @@ export function AdminHome() {
           tone="text-tomato-light"
         />
         <AdminStatCard
-          label="Commandes aujourd'hui"
+          label="Commandes"
           value={data?.todayOrders ?? 0}
           sub={`${data?.todayPaidCount ?? 0} payées`}
           icon={ShoppingBag}
         />
         <AdminStatCard
-          label="CA du jour"
+          label="CA"
           value={formatEUR(data?.todayRevenue ?? 0)}
-          sub={`Panier moy. ${formatEUR(data?.avgBasketToday ?? 0)}`}
           icon={Wallet}
           tone="text-emerald-300"
         />
         <AdminStatCard
-          label="Canaux"
-          value={`${data?.onlineToday ?? 0} / ${data?.counterToday ?? 0}`}
-          sub="En ligne · Comptoir"
+          label="Panier moyen"
+          value={formatEUR(data?.avgBasketToday ?? 0)}
+          sub="Toutes ventes confondues"
           icon={Globe}
           tone="text-sky-300"
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5 lg:col-span-1">
-          <h2 className="mb-4 text-sm font-semibold text-cream">CA — 7 derniers jours</h2>
-          <MiniBarChart data={weekBars} height={120} formatValue={(v) => formatEUR(v)} />
+      <div className="grid gap-4 lg:grid-cols-4">
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5">
+          <h2 className="mb-4 text-sm font-semibold text-cream">Commandes par heure</h2>
+          <div className="flex flex-1 items-end">
+            <ApexBarChart
+              categories={hourlyBars.categories}
+              series={hourlyBars.series}
+              color="#2A9D8F"
+              height={180}
+              className="w-full"
+            />
+          </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5">
-          <h2 className="mb-4 text-sm font-semibold text-cream">Modes de commande (jour)</h2>
-          <DonutChart
-            slices={orderTypeSlices}
-            centerLabel="CA"
-            valueFormat="eur"
-            size={140}
-          />
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5">
+          <h2 className="mb-4 text-sm font-semibold text-cream">Modes de commande</h2>
+          <div className="flex flex-1 items-center">
+            <ApexDonutChart slices={orderTypeSlices} centerLabel="CA" valueFormat="eur" size={130} className="w-full" />
+          </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5">
-          <h2 className="mb-4 text-sm font-semibold text-cream">Paiements (jour)</h2>
-          <DonutChart slices={paymentSlices} centerLabel="CA" valueFormat="eur" size={140} />
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5">
+          <h2 className="mb-4 text-sm font-semibold text-cream">Paiements</h2>
+          <div className="flex flex-1 items-center">
+            <ApexDonutChart slices={paymentSlices} centerLabel="CA" valueFormat="eur" size={130} className="w-full" />
+          </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5">
-          <h2 className="mb-4 text-sm font-semibold text-cream">Commandes par heure (18h–23h)</h2>
-          <MiniBarChart data={hourlyBars} height={100} />
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5">
+          <h2 className="mb-4 text-sm font-semibold text-cream">Canaux</h2>
+          <div className="flex flex-1 items-center">
+            <ApexDonutChart slices={channelSlices} centerLabel="Ventes" valueFormat="number" size={130} className="w-full" />
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5 lg:col-span-2">
+          <h2 className="mb-4 text-sm font-semibold text-cream">CA par jour</h2>
+          <div className="flex flex-1 items-end">
+            <ApexBarChart
+              categories={weekBars.categories}
+              series={weekBars.series}
+              color="#E85D4C"
+              height={180}
+              formatValue={(v) => formatEUR(v)}
+              className="w-full"
+            />
+          </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5 lg:col-span-2">
+        <section className="flex min-h-[220px] flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-5">
           <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-cream">
             <TrendingUp className="h-4 w-4 text-tomato-light" />
-            Top articles vendus aujourd&apos;hui
+            Top articles vendus
           </h2>
-          {topItemSlices.length > 0 ? (
-            <div className="grid gap-6 md:grid-cols-2">
-              <DonutChart slices={topItemSlices} centerLabel="Unités" valueFormat="number" size={150} />
+          {data && data.topItemsToday.length > 0 ? (
+            <>
               <ul className="space-y-2">
-                {data?.topItemsToday.slice(0, 8).map((item, i) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2 text-sm"
-                  >
-                    <span className="flex items-center gap-2 text-cream/80">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-cream/40">
-                        {i + 1}
+                {data.topItemsToday
+                  .slice(topItemsPage * TOP_ITEMS_PAGE_SIZE, topItemsPage * TOP_ITEMS_PAGE_SIZE + TOP_ITEMS_PAGE_SIZE)
+                  .map((item, i) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.03] px-3 py-2 text-sm"
+                    >
+                      <span className="flex min-w-0 items-center gap-2 text-cream/80">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/5 text-xs font-bold text-cream/40">
+                          {topItemsPage * TOP_ITEMS_PAGE_SIZE + i + 1}
+                        </span>
+                        <span className="truncate">{item.name}</span>
                       </span>
-                      {item.name}
-                    </span>
-                    <span className="tabular-nums text-tomato-light">
-                      {item.quantity} · {formatEUR(item.revenue)}
-                    </span>
-                  </li>
-                ))}
+                      <span className="shrink-0 tabular-nums text-tomato-light">
+                        {item.quantity} · {formatEUR(item.revenue)}
+                      </span>
+                    </li>
+                  ))}
               </ul>
-            </div>
+              {data.topItemsToday.length > TOP_ITEMS_PAGE_SIZE && (
+                <div className="mt-3 flex items-center justify-between text-xs text-cream/40">
+                  <button
+                    type="button"
+                    disabled={topItemsPage === 0}
+                    onClick={() => setTopItemsPage((p) => p - 1)}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-white/5 disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" /> Préc.
+                  </button>
+                  <span>
+                    Page {topItemsPage + 1} / {Math.ceil(data.topItemsToday.length / TOP_ITEMS_PAGE_SIZE)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={(topItemsPage + 1) * TOP_ITEMS_PAGE_SIZE >= data.topItemsToday.length}
+                    onClick={() => setTopItemsPage((p) => p + 1)}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-white/5 disabled:opacity-30"
+                  >
+                    Suiv. <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
-            <p className="py-8 text-center text-sm text-cream/40">Pas encore de ventes aujourd&apos;hui</p>
+            <div className="flex flex-1 items-center justify-center">
+              <p className="text-sm text-cream/40">Aucune vente sur cette période</p>
+            </div>
           )}
         </section>
       </div>
 
-      <section className="space-y-3">
-        <h2 className="font-semibold text-cream">Apps opérationnelles</h2>
-        <p className="text-sm text-cream/45">
-          Quatre apps isolées — caisse, cuisine, livreur, totem. Ouvrir en plein écran ou télécharger
-          l&apos;APK.
-        </p>
-        <DeviceLaunchCards />
-      </section>
+      <SalesVsExpensesCards range={range} periodLabel={PERIOD_LABEL[period]} />
 
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-semibold text-cream">
-            <Store className="h-4 w-4 text-cream/40" />
-            Dernières commandes
-          </h2>
+      <AdminDataGridShell
+        title="Dernières commandes"
+        table={recentTable}
+        recordCount={recentTable.getFilteredRowModel().rows.length}
+        search={recentSearch}
+        onSearchChange={setRecentSearch}
+        searchPlaceholder="N°, client, code…"
+        emptyMessage={recentRows.length === 0 ? 'Aucune commande' : 'Aucun résultat pour ce filtre'}
+        paginationSizes={[5, 10, 50]}
+        headerExtra={
           <Link href="/admin/orders" className="text-sm text-tomato-light hover:underline">
             Voir tout →
           </Link>
-        </div>
-        <div className="overflow-hidden rounded-2xl border border-white/10">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-white/5 text-cream/45">
-              <tr>
-                <th className="px-4 py-3 font-medium">N°</th>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Mode</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3 font-medium">Paiement</th>
-                <th className="px-4 py-3 text-right font-medium">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.slice(0, 10).map((order) => (
-                <tr key={order.id} className="border-t border-white/5 hover:bg-white/[0.02]">
-                  <td className="px-4 py-3 font-semibold text-cream">#{order.orderNumber}</td>
-                  <td className="px-4 py-3 text-cream/80">{orderCustomerLine(order)}</td>
-                  <td className="px-4 py-3 text-cream/60">
-                    {ORDER_TYPE_LABEL[order.type] ?? order.type}
-                    {order.isOnlineOrder && (
-                      <span className="ml-1 text-[10px] text-sky-400">web</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={order.status} />
-                  </td>
-                  <td className="px-4 py-3 text-cream/60">
-                    {PAYMENT_STATUS_LABEL[order.paymentStatus] ?? order.paymentStatus}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-tomato-light">
-                    {formatEUR(order.total)}
-                  </td>
-                </tr>
-              ))}
-              {orders.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-cream/40">
-                    <ShoppingBag className="mx-auto mb-2 h-8 w-8 opacity-40" />
-                    Aucune commande
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        }
+      />
     </div>
   )
 }

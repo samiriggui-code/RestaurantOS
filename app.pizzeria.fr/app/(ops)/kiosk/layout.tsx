@@ -1,8 +1,4 @@
-/** Layout appareil totem — plein écran, sans barre admin. */
+/** Layout appareil totem — remplit le shell ops (h-dvh), sans double fixed. */
 export default function KioskLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-charcoal text-cream">
-      {children}
-    </div>
-  )
+  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
 }

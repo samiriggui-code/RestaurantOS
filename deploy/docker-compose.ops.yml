@@ -11,7 +11,8 @@ networks:
 
 services:
   minio:
-    image: minio/minio:latest
+    # Docker Hub a retiré minio/* (sept. 2026) — images historiques sur Quay
+    image: quay.io/minio/minio:latest
     container_name: pizzeria-minio
     command: server /data --console-address ":9001"
     environment:
@@ -35,7 +36,7 @@ services:
       - traefik.http.services.pizzeria-minio.loadbalancer.server.port=9001
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     container_name: pizzeria-minio-init
     depends_on:
       - minio
@@ -55,7 +56,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-CHANGE_ME_minio_strong}
     networks:
       - pizzeria-internal
-    restart: "no"
+    restart: 'no'
 
   n8n:
     image: n8nio/n8n:latest

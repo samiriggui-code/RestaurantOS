@@ -28,6 +28,7 @@ try {
     --exclude="android/.gradle" `
     --exclude="android/.gradle-user-home" `
     --exclude="app.pizzeria.fr/.next" `
+    --exclude="app.pizzeria.fr/public/pizzas" `
     --exclude="server/dist" `
     --exclude="server/uploads" `
     --exclude="server/backups" `

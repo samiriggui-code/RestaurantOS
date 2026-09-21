@@ -1,13 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
-import { Loader2, Plus, RefreshCw, Trash2, Truck } from 'lucide-react'
+import { Loader2, Plus, Trash2 } from 'lucide-react'
 import { eurosToCents, formatEUR } from '@/lib/money'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { cn } from '@/lib/cn'
 import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 
 type DeliveryZone = {
   id: string
@@ -33,6 +44,9 @@ export function AdminDeliveryZonesPanel() {
   const [testCity, setTestCity] = useState('Fargues-Saint-Hilaire')
   const [testSubtotal, setTestSubtotal] = useState('30')
   const [testResult, setTestResult] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [pagination, setPagination] = useState<PaginationState>(() => createDefaultPagination())
 
   function load() {
     const session = getStaffSession('crm')
@@ -47,25 +61,6 @@ export function AdminDeliveryZonesPanel() {
   useEffect(() => {
     load()
   }, [])
-
-  async function handleSyncFlyer() {
-    const session = getStaffSession('crm')
-    if (!session) return
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await staffFetch<{ zones: DeliveryZone[] }>('/delivery/zones/sync-flyer', {
-        method: 'POST',
-        token: session.token,
-      })
-      setZones(res.zones)
-      setMessage('Zones du flyer réimportées.')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync impossible')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -158,6 +153,79 @@ export function AdminDeliveryZonesPanel() {
     }
   }
 
+  const columns = useMemo<ColumnDef<DeliveryZone>[]>(
+    () => [
+      {
+        accessorKey: 'city',
+        header: ({ column }) => <DataGridColumnHeader title="Commune" column={column} />,
+        cell: ({ row }) => <span className="font-medium text-cream">{row.original.city ?? '—'}</span>,
+      },
+      {
+        accessorKey: 'postalCode',
+        header: ({ column }) => <DataGridColumnHeader title="CP" column={column} />,
+        cell: ({ row }) => <span className="text-cream/70">{row.original.postalCode}</span>,
+      },
+      {
+        accessorKey: 'minOrderCents',
+        header: ({ column }) => <DataGridColumnHeader title="Min. commande" column={column} />,
+        cell: ({ row }) => formatEUR(row.original.minOrderCents),
+      },
+      {
+        accessorKey: 'feeCents',
+        header: ({ column }) => <DataGridColumnHeader title="Frais" column={column} />,
+        cell: ({ row }) => <span className="text-tomato-light">{formatEUR(row.original.feeCents)}</span>,
+      },
+      {
+        accessorKey: 'isActive',
+        header: ({ column }) => <DataGridColumnHeader title="Actif" column={column} />,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={() => void toggleActive(row.original)}
+            className={cn(
+              'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+              row.original.isActive ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-cream/40',
+            )}
+          >
+            {row.original.isActive ? 'Oui' : 'Non'}
+          </button>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleDelete(row.original.id)}
+              className="rounded-lg p-2 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const zonesTable = useReactTable({
+    data: zones,
+    columns,
+    state: { pagination, sorting, globalFilter: search },
+    onPaginationChange: setPagination,
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
+
   if (loading) {
     return (
       <div className="flex justify-center py-20">
@@ -169,15 +237,6 @@ export function AdminDeliveryZonesPanel() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => void handleSyncFlyer()}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
-        >
-          <RefreshCw className={cn('h-4 w-4', saving && 'animate-spin')} />
-          Importer flyer
-        </button>
         <button
           type="button"
           onClick={() => setShowForm(true)}
@@ -225,59 +284,17 @@ export function AdminDeliveryZonesPanel() {
         {testResult && <p className="mt-2 text-sm text-cream/70">{testResult}</p>}
       </section>
 
-      <div className="overflow-hidden rounded-2xl border border-white/10">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-white/5 text-cream/45">
-            <tr>
-              <th className="px-4 py-3">Commune</th>
-              <th className="px-4 py-3">CP</th>
-              <th className="px-4 py-3">Min. commande</th>
-              <th className="px-4 py-3">Frais</th>
-              <th className="px-4 py-3">Actif</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {zones.map((z) => (
-              <tr key={z.id} className="border-t border-white/5 hover:bg-white/[0.02]">
-                <td className="px-4 py-3 font-medium text-cream">{z.city ?? '—'}</td>
-                <td className="px-4 py-3 text-cream/70">{z.postalCode}</td>
-                <td className="px-4 py-3">{formatEUR(z.minOrderCents)}</td>
-                <td className="px-4 py-3 text-tomato-light">{formatEUR(z.feeCents)}</td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => void toggleActive(z)}
-                    className={cn(
-                      'rounded-full px-2.5 py-0.5 text-xs font-semibold',
-                      z.isActive ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-cream/40',
-                    )}
-                  >
-                    {z.isActive ? 'Oui' : 'Non'}
-                  </button>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(z.id)}
-                    className="text-red-400 hover:text-red-300"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {zones.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-cream/40">
-                  <Truck className="mx-auto mb-2 h-8 w-8 opacity-40" />
-                  Aucune zone — cliquez « Importer flyer »
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <AdminDataGridShell
+        title="Zones de livraison"
+        table={zonesTable}
+        recordCount={zonesTable.getFilteredRowModel().rows.length}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Commune, code postal…"
+        emptyMessage={
+          zones.length === 0 ? 'Aucune zone — cliquez « Ajouter une zone »' : 'Aucun résultat pour ce filtre'
+        }
+      />
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

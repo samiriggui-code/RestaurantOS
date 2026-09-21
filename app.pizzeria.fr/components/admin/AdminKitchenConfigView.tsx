@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ExternalLink, Loader2, Save } from 'lucide-react'
 import { DeviceDiagnosticsPanel } from '@/components/admin/DeviceDiagnosticsPanel'
 import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
-import { getStaffSession } from '@/lib/staff-auth'
+import { getStaffSession, setKitchenDisplayEnabledCache } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { getApiBase } from '@/lib/api-base'
 
@@ -54,6 +54,9 @@ export function AdminKitchenConfigView({ embedded = false }: { embedded?: boolea
         }),
       })
       setBusiness(updated)
+      if (typeof updated.kitchenDisplayEnabled === 'boolean') {
+        setKitchenDisplayEnabledCache(updated.kitchenDisplayEnabled)
+      }
       setMessage('Paramètres écran cuisine enregistrés.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur')
@@ -76,7 +79,7 @@ export function AdminKitchenConfigView({ embedded = false }: { embedded?: boolea
         <div>
           <h1 className="font-display text-2xl font-bold text-cream">Paramètres KDS</h1>
           <p className="text-sm text-cream/50">
-            Configuration tablette boutique — le suivi live est dans l&apos;onglet « Suivi live ».
+            Configuration tablette boutique — le suivi live est dans l&apos;onglet « Vue d&apos;ensemble ».
           </p>
         </div>
       )}

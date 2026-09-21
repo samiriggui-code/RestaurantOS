@@ -58,7 +58,7 @@ import { useDeviceDiagnosticListener } from '@/lib/print/use-device-diagnostic-l
 import { generateLocalKitchenTicket } from '@/lib/print/local-kitchen-ticket'
 import { generateProvisionalReceipt, newOfflineRef } from '@/lib/print/provisional-receipt'
 import { printKitchenWithCascade } from '@/lib/print/print-job-handler'
-import { bootstrapOfflineSync, queueOfflineCounterOrder } from '@/lib/offline-sync'
+import { bootstrapOfflineSync, isPosNetworkFailure, queueOfflineCounterOrder } from '@/lib/offline-sync'
 import type { PaymentMeta } from '@/lib/payment/payment-meta'
 import { PosOfflineBanner } from '@/components/pos/PosOfflineBanner'
 import { PosWebViewGate } from '@/components/pos/PosWebViewGate'
@@ -622,18 +622,10 @@ function PosScreen({
       setPaymentSheet(null)
       if (deviceProfile === 'sunmi') setSunmiTab('catalog')
     } catch (e) {
-      const offline = typeof navigator !== 'undefined' && !navigator.onLine
-      if (offline) {
+      if (isPosNetworkFailure(e)) {
         try {
           const offlineRef = newOfflineRef()
           const soldAt = new Date()
-          const cartLines = cart.map((l) => ({
-            name: l.menuItem.name,
-            quantity: l.quantity,
-            unitCents: lineUnitPriceCents(l),
-            vatRateBps: l.menuItem.vatRateBps,
-            sizeLabel: l.sizeId ? pizzaSizeLabel(l.sizeId) : undefined,
-          }))
           const ticket = generateLocalKitchenTicket(cartLines, {
             orderType,
             paymentMethod,

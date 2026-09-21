@@ -20,7 +20,6 @@ import {
   Smartphone,
   Store,
   Table2,
-  Tablet,
   TrendingDown,
   Truck,
   UserCog,
@@ -44,12 +43,14 @@ export type AdminNavGroup = {
   items: AdminNavItem[]
 }
 
-/** Liens apps boutique (plein écran) — section Devices de la sidebar. */
+/**
+ * Liens apps boutique (plein écran) — section Devices de la sidebar.
+ * POS et Totem retirés : matériel désactivé, une seule tablette boutique désormais
+ * (backoffice + bascule KDS / supervision livraison).
+ */
 export const DEVICE_APP_LINKS: AdminNavItem[] = [
-  { href: '/pos', label: 'Caisse POS', icon: Store, external: true },
   { href: '/kitchen', label: 'KDS cuisine', icon: ChefHat, external: true },
   { href: '/livreur', label: 'App livreur', icon: Bike, external: true },
-  { href: '/kiosk', label: 'Totem kiosque', icon: Tablet, external: true },
 ]
 
 /** Navigation back-office CRM — groupée (parité Lovable). */
@@ -61,7 +62,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: '/admin/orders', label: 'Commandes', icon: ShoppingBag, module: 'orders' },
       { href: '/admin/clients', label: 'Clients', icon: Users, module: 'orders', roles: ['ADMIN', 'MANAGER'] },
       { href: '/admin/kitchen', label: 'Suivi cuisine', icon: ChefHat, module: 'kitchen', roles: ['ADMIN', 'MANAGER'] },
-      { href: '/admin/pos', label: 'Suivi caisse', icon: Store, module: 'pos', roles: ['ADMIN', 'MANAGER'] },
+      { href: '/admin/pos', label: 'Suivi caisse', icon: Store, roles: ['ADMIN', 'MANAGER'] },
     ],
   },
   {
@@ -113,29 +114,35 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
 /** Liste plate — compat rétro (tests, recherche). */
 export const ADMIN_NAV: AdminNavItem[] = ADMIN_NAV_GROUPS.flatMap((g) => g.items)
 
-/** Canaux commande (filtres admin + stats caisse). */
+/**
+ * Canaux commande (filtres admin + stats). POS et Totem retirés — matériel désactivé (une
+ * seule tablette boutique désormais) : ces canaux ne créent plus aucune commande.
+ *
+ * Pas de "Caisse SumUp" ici : les ventes comptoir SumUp ne créent aucune Commande (pas
+ * d'items/client, cache SumupTransaction à part) — leur suivi/filtrage vit uniquement dans
+ * Suivi caisse (AdminPosHub), pas dans ce filtre par canal de commandes. ORDER_CHANNEL_COLORS
+ * garde tout de même une entrée SUMUP_COUNTER, utilisée par AdminCaisseView pour sa
+ * répartition de CA par canal (un usage différent, agrégé, pas un filtre de liste ici).
+ */
 export const ORDER_CHANNEL_OPTIONS = [
   { value: '', label: 'Tous canaux' },
-  { value: 'POS', label: 'Comptoir (POS)' },
   { value: 'WEB', label: 'Site web' },
   { value: 'DELIVEROO', label: 'Deliveroo' },
   { value: 'UBER_EATS', label: 'Uber Eats' },
-  { value: 'KIOSK', label: 'Totem kiosque' },
 ] as const
 
 export const ORDER_CHANNEL_COLORS: Record<string, string> = {
-  POS: '#e85d3a',
   WEB: '#3b82f6',
   DELIVEROO: '#00ccbc',
   UBER_EATS: '#06c167',
-  KIOSK: '#a855f7',
+  SUMUP_COUNTER: '#f59e0b',
 }
 
 export function orderChannelDisplayLabel(channel: string | null | undefined, isOnlineOrder?: boolean): string {
   if (channel === 'DELIVEROO') return 'Deliveroo'
   if (channel === 'UBER_EATS') return 'Uber Eats'
-  if (channel === 'KIOSK') return 'Totem'
   if (channel === 'WEB' || isOnlineOrder) return 'Site web'
+  if (channel === 'SUMUP_COUNTER') return 'Caisse SumUp'
   if (channel === 'POS') return 'Comptoir'
   return isOnlineOrder ? 'Site web' : 'Comptoir'
 }

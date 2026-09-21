@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { LovableMenuCatalog } from '@/components/menu/LovableMenuCatalog'
 import { useFeedbackState } from '@/lib/use-feedback-state'
@@ -10,6 +11,8 @@ import type { CatalogCategory } from '@/lib/menu-types'
 export function PublicMenuShowcase() {
   const [categories, setCategories] = useState<CatalogCategory[] | null>(null)
   const { error, setError } = useFeedbackState()
+  const searchParams = useSearchParams()
+  const isMegaPromo = searchParams.get('promo') === 'mega18'
 
   useEffect(() => {
     let cancelled = false
@@ -40,7 +43,12 @@ export function PublicMenuShowcase() {
           <Loader2 className="h-8 w-8 animate-spin text-tomato-light" />
         </div>
       ) : (
-        <LovableMenuCatalog categories={categories} showHero />
+        <LovableMenuCatalog
+          categories={categories}
+          showHero
+          initialCategoryId={isMegaPromo ? 'tomate' : undefined}
+          defaultSizeId={isMegaPromo ? '40' : undefined}
+        />
       )}
     </section>
   )

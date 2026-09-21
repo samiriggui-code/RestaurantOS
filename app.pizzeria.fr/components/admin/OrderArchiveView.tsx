@@ -1,11 +1,21 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { FileText, Loader2, Mail, Phone, Printer, RefreshCw, Search, Ban, X } from 'lucide-react'
-import { getStaffSession } from '@/lib/staff-auth'
+import { CalendarRange, FileText, Loader2, Mail, Phone, Printer, RefreshCw, Search, Ban, X } from 'lucide-react'
+import { getStaffSession, getStaffUser } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { ORDER_CHANNEL_OPTIONS } from '@/lib/admin-nav'
 import {
@@ -26,13 +36,15 @@ import {
   type OpsOrder,
   type OrderCancelReason,
 } from '@/lib/ops-orders'
-import { ARCHIVE_PERIODS, periodToDateRange, type ArchivePeriod } from '@/lib/order-period'
+import { ARCHIVE_PERIODS, periodToDateRange, type ArchivePeriod, type CustomRange } from '@/lib/order-period'
+import { defaultCustomRange } from '@/components/admin/PeriodPicker'
 import { formatEUR } from '@/lib/money'
 import { OrderItemLineTotal, OrderItemLines } from '@/components/ops/OrderItemLines'
 import { cn } from '@/lib/cn'
 import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
 import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs'
+import { AdminDataGridShell, DataGridColumnHeader } from '@/components/ui/data-grid'
 
 const STATUS_FILTERS = [
   { value: '', label: 'Tous statuts' },
@@ -51,6 +63,10 @@ type InvoiceFromOrder = {
 }
 
 export type OrderArchiveMode = 'all' | 'online' | 'counter'
+
+/** Au-delà, la liste est tronquée sans avertissement sinon (pas de cap serveur strict, mais
+ * on ne veut pas non plus charger un nombre arbitraire de lignes). */
+const ORDERS_LIMIT = 500
 
 type Props = {
   title: string
@@ -80,6 +96,13 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
   const [cancelReason, setCancelReason] = useState<OrderCancelReason>('CLIENT_REFUSED')
   const [cancelNote, setCancelNote] = useState('')
   const [cancelling, setCancelling] = useState(false)
+  const [custom, setCustom] = useState<CustomRange>(() => defaultCustomRange())
+  const [truncated, setTruncated] = useState(false)
+
+  const range = useMemo(
+    () => periodToDateRange(period, period === 'custom' ? custom : undefined),
+    [period, custom],
+  )
 
   const REPRINT_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -112,25 +135,28 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
   const load = useCallback(async () => {
     const session = getStaffSession()
     if (!session) return
+
     setLoading(true)
     try {
-      const range = periodToDateRange(period)
       const data = await fetchOrders(session.token, {
         ...range,
         status: statusFilter || undefined,
         channel: channelFilter || undefined,
         isOnlineOrder: mode === 'online' ? true : mode === 'counter' ? false : undefined,
         includeUnpaid: statusFilter === 'PENDING_PAYMENT',
-        limit: 250,
+        limit: ORDERS_LIMIT,
       })
       setOrders(data)
+      // Pas de cap serveur strict sur /orders — si on atteint pile la limite demandée,
+      // des commandes plus anciennes existent sûrement mais ne sont pas dans la liste.
+      setTruncated(data.length >= ORDERS_LIMIT)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erreur chargement')
     } finally {
       setLoading(false)
     }
-  }, [period, statusFilter, channelFilter, mode])
+  }, [range, statusFilter, channelFilter, mode])
 
   useEffect(() => {
     void load()
@@ -164,11 +190,11 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
 
   const totalAmount = filtered.reduce((s, o) => s + o.total, 0)
 
-  async function changeStatus(id: string, status: string) {
+  async function changeStatus(id: string, status: string, opts?: { forceDelivered?: boolean }) {
     const session = getStaffSession()
     if (!session) return
     try {
-      const updated = await updateOrderStatus(id, status, session.token)
+      const updated = await updateOrderStatus(id, status, session.token, opts)
       setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
       setSelected((prev) => (prev?.id === id ? updated : prev))
     } catch (e) {
@@ -177,7 +203,11 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
   }
 
   const isActive = (status: string) =>
-    ['CONFIRMED', 'PREPARING', 'READY', 'PENDING'].includes(status)
+    ['CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'PENDING'].includes(status)
+
+  const staffUser = getStaffUser('crm')
+  const canForceDelivered =
+    staffUser?.role === 'ADMIN' || staffUser?.role === 'MANAGER'
 
   const canCancelOrder = (order: OpsOrder) =>
     !['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(order.status)
@@ -268,6 +298,110 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
     }
   }
 
+  const [ordersSorting, setOrdersSorting] = useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [ordersPagination, setOrdersPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
+
+  useEffect(() => {
+    setOrdersPagination((p) => ({ ...p, pageIndex: 0 }))
+  }, [range, statusFilter, channelFilter, search])
+
+  const orderColumns = useMemo<ColumnDef<OpsOrder>[]>(
+    () => [
+      {
+        id: 'orderNumber',
+        header: ({ column }) => <DataGridColumnHeader title="N°" column={column} />,
+        accessorFn: (row) => row.orderNumber,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={() => setSelected(row.original)}
+            className="font-semibold text-tomato-light hover:underline"
+          >
+            #{row.original.orderNumber}
+          </button>
+        ),
+      },
+      {
+        id: 'client',
+        header: ({ column }) => <DataGridColumnHeader title="Client" column={column} />,
+        accessorFn: (row) => orderCustomerLine(row),
+        cell: ({ row }) => <span className="text-cream/80">{orderCustomerLine(row.original)}</span>,
+      },
+      {
+        id: 'channel',
+        header: ({ column }) => <DataGridColumnHeader title="Canal" column={column} />,
+        accessorFn: (row) => orderChannelLabel(row),
+        cell: ({ row }) => (
+          <span className={cn('rounded-full px-2 py-0.5 text-xs', orderChannelBadgeClass(row.original))}>
+            {orderChannelLabel(row.original)}
+          </span>
+        ),
+      },
+      {
+        id: 'type',
+        header: ({ column }) => <DataGridColumnHeader title="Mode" column={column} />,
+        accessorFn: (row) => ORDER_TYPE_LABEL[row.type] ?? row.type,
+      },
+      {
+        id: 'createdAt',
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        accessorFn: (row) => new Date(row.createdAt).getTime(),
+        cell: ({ row }) => (
+          <span className="text-cream/60">{new Date(row.original.createdAt).toLocaleString('fr-FR')}</span>
+        ),
+      },
+      {
+        id: 'status',
+        header: ({ column }) => <DataGridColumnHeader title="Statut" column={column} />,
+        accessorFn: (row) => ORDER_STATUS_LABEL[row.status] ?? row.status,
+        cell: ({ row }) => (
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-cream/70">
+            {ORDER_STATUS_LABEL[row.original.status] ?? row.original.status}
+          </span>
+        ),
+      },
+      {
+        id: 'paymentStatus',
+        header: ({ column }) => <DataGridColumnHeader title="Paiement" column={column} />,
+        accessorFn: (row) => PAYMENT_STATUS_LABEL[row.paymentStatus] ?? row.paymentStatus,
+        cell: ({ row }) => (
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-xs',
+              row.original.paymentStatus === 'PAID'
+                ? 'bg-emerald-500/15 text-emerald-200'
+                : 'bg-amber-500/15 text-amber-200'
+            )}
+          >
+            {PAYMENT_STATUS_LABEL[row.original.paymentStatus] ?? row.original.paymentStatus}
+          </span>
+        ),
+      },
+      {
+        id: 'total',
+        header: ({ column }) => <DataGridColumnHeader title="Total" column={column} />,
+        accessorFn: (row) => row.total,
+        cell: ({ row }) => (
+          <span className="font-medium tabular-nums text-cream">{formatEUR(row.original.total)}</span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const ordersTable = useReactTable({
+    data: filtered,
+    columns: orderColumns,
+    state: { pagination: ordersPagination, sorting: ordersSorting },
+    onPaginationChange: setOrdersPagination,
+    onSortingChange: setOrdersSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
+
   return (
     <AdminPageShell>
       <AdminPageHeader
@@ -291,29 +425,70 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
           {error}
         </p>
       )}
+      {truncated && (
+        <p className="text-sm text-amber-300">
+          Plus de {ORDERS_LIMIT} commandes sur cette période — les plus anciennes ne sont pas affichées.
+          Réduisez la période pour tout voir.
+        </p>
+      )}
 
       {/* Une seule barre : période · recherche · statut · canal · compteur */}
       <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
-        <div
-          className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
-          role="group"
-          aria-label="Période"
-        >
-          {ARCHIVE_PERIODS.map((p) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
+            role="group"
+            aria-label="Période"
+          >
+            {ARCHIVE_PERIODS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setPeriod(p.value)}
+                className={cn(
+                  'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  period === p.value
+                    ? 'bg-tomato/20 text-tomato-light'
+                    : 'text-cream/55 hover:bg-white/[0.04] hover:text-cream'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
-              key={p.value}
               type="button"
-              onClick={() => setPeriod(p.value)}
+              onClick={() => setPeriod('custom')}
               className={cn(
                 'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                period === p.value
+                period === 'custom'
                   ? 'bg-tomato/20 text-tomato-light'
                   : 'text-cream/55 hover:bg-white/[0.04] hover:text-cream'
               )}
             >
-              {p.label}
+              Personnalisé
             </button>
-          ))}
+          </div>
+
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.03] px-2 py-1">
+              <CalendarRange className="h-4 w-4 text-cream/40" />
+              <input
+                type="date"
+                value={custom.from.slice(0, 10)}
+                onChange={(e) => setCustom((c) => ({ ...c, from: `${e.target.value}T00:00:00.000Z` }))}
+                className="bg-transparent text-sm text-cream outline-none"
+                title="Du"
+              />
+              <span className="text-cream/30">→</span>
+              <input
+                type="date"
+                value={custom.to.slice(0, 10)}
+                onChange={(e) => setCustom((c) => ({ ...c, to: `${e.target.value}T23:59:59.999Z` }))}
+                className="bg-transparent text-sm text-cream outline-none"
+                title="Au"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -367,53 +542,14 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
         </p>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-tomato-light" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="py-16 text-center text-cream/40">Aucune commande sur cette période</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((order) => (
-            <button
-              key={order.id}
-              type="button"
-              onClick={() => setSelected(order)}
-              className="rounded-2xl border border-white/10 bg-[#1A1412] p-4 text-left transition hover:border-tomato/40"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-display text-xl font-bold text-tomato-light">
-                    #{order.orderNumber}
-                  </p>
-                  <p className="text-sm text-cream/80">{orderCustomerLine(order)}</p>
-                  <p className="text-xs text-cream/40">
-                    {orderChannelLabel(order)} · {ORDER_TYPE_LABEL[order.type]} ·{' '}
-                    {new Date(order.createdAt).toLocaleString('fr-FR')}
-                  </p>
-                </div>
-                <p className="font-bold text-cream">{formatEUR(order.total)}</p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-cream/70">
-                  {ORDER_STATUS_LABEL[order.status] ?? order.status}
-                </span>
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-xs',
-                    order.paymentStatus === 'PAID'
-                      ? 'bg-emerald-500/15 text-emerald-200'
-                      : 'bg-amber-500/15 text-amber-200'
-                  )}
-                >
-                  {PAYMENT_STATUS_LABEL[order.paymentStatus] ?? order.paymentStatus}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      <AdminDataGridShell
+        title="Commandes"
+        table={ordersTable}
+        recordCount={ordersTable.getFilteredRowModel().rows.length}
+        emptyMessage="Aucune commande sur cette période"
+        paginationSizes={[5, 10, 50]}
+        isLoading={loading}
+      />
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
@@ -599,7 +735,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                       → Prête
                     </button>
                   )}
-                  {selected.status === 'READY' && (
+                  {selected.status === 'READY' && selected.type !== 'DELIVERY' && (
                     <button
                       type="button"
                       onClick={() => void changeStatus(selected.id, 'COMPLETED')}
@@ -608,6 +744,26 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                       → Terminée
                     </button>
                   )}
+                  {canForceDelivered &&
+                    selected.type === 'DELIVERY' &&
+                    (selected.status === 'READY' || selected.status === 'OUT_FOR_DELIVERY') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              'Forcer « Livrée » ? À utiliser si le téléphone livreur est HS ou le code client perdu. Action auditée.',
+                            )
+                          ) {
+                            return
+                          }
+                          void changeStatus(selected.id, 'DELIVERED', { forceDelivered: true })
+                        }}
+                        className="flex-1 rounded-xl bg-amber-600/90 py-2.5 text-sm font-semibold text-white"
+                      >
+                        Forcer livrée
+                      </button>
+                    )}
                 </>
               )}
             </div>

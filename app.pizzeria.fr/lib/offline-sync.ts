@@ -80,6 +80,15 @@ export function queueOfflineCounterOrder(
   return import('@/lib/offline-queue').then(({ enqueueOfflineOrder }) => enqueueOfflineOrder(order))
 }
 
+/** Timeout API, fetch KO, ou navigateur offline — file IndexedDB. */
+export function isPosNetworkFailure(err: unknown): boolean {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return true
+  const msg = err instanceof Error ? err.message : String(err)
+  return /failed to fetch|network|timeout|load failed|ECONNREFUSED|503|502|504|NetworkError/i.test(
+    msg,
+  )
+}
+
 function trySyncWithStoredToken() {
   const token = localStorage.getItem('token')
   if (token && typeof navigator !== 'undefined' && navigator.onLine) {

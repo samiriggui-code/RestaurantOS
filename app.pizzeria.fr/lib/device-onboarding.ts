@@ -141,6 +141,20 @@ export async function pairDevicePublic(code: string, expectedSlot: DeviceSlot) {
   })
 }
 
+/** Accès temporaire POS/KDS — PIN ADMIN/MANAGER (audit côté serveur). */
+export async function requestDeviceEmergencyBypass(pin: string) {
+  return apiFetch<{
+    ok: boolean
+    expiresInSec: number
+    expiresAt: string
+    by: { id: string; name: string; role: string }
+  }>('/devices/public/emergency-bypass', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  })
+}
+
 export async function fetchDevicesAdmin(token: string): Promise<DevicesAdminState> {
   return staffFetch<DevicesAdminState>('/devices', { token })
 }

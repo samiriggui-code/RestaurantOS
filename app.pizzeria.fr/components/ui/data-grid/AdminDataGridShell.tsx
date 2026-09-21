@@ -23,6 +23,8 @@ type AdminDataGridShellProps<TData extends object> = {
   expandedRowId?: string | null
   renderSubRow?: (row: TData) => ReactNode
   getRowClassName?: (row: Row<TData>) => string | undefined
+  /** Tailles de page proposées dans le sélecteur — défaut PAGE_SIZES (10/20/50). */
+  paginationSizes?: readonly number[]
 }
 
 export function AdminDataGridShell<TData extends object>({
@@ -40,6 +42,7 @@ export function AdminDataGridShell<TData extends object>({
   expandedRowId,
   renderSubRow,
   getRowClassName,
+  paginationSizes,
 }: AdminDataGridShellProps<TData>) {
   return (
     <DataGrid
@@ -86,7 +89,7 @@ export function AdminDataGridShell<TData extends object>({
         </div>
       </div>
       <DataGridTable />
-      <DataGridPagination />
+      <DataGridPagination sizes={paginationSizes} />
     </DataGrid>
   )
 }

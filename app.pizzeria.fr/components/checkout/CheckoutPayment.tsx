@@ -5,6 +5,7 @@ import { Loader2, Lock, Store } from 'lucide-react'
 import { formatPriceEUR } from '@/lib/menu-types'
 import type { CartLine, CheckoutDraft } from '@/lib/cart-types'
 import { customerFullName } from '@/lib/cart-types'
+import { loadPendingPayment, savePendingPayment } from '@/lib/pending-payment-session'
 
 const SUMUP_SDK_URL = 'https://gateway.sumup.com/gateway/ecom/card/v2/sdk.js'
 
@@ -284,6 +285,36 @@ export function CheckoutPayment({
       return
     }
 
+    // Un paiement a peut-être déjà été initié pour ce même panier avant un remount (sheet
+    // fermé/reouvert, page rechargée, bandeau « Reprendre ») — le réutiliser plutôt que
+    // d'en créer un second, qui mintrait un nouveau paiement SumUp pour la même commande.
+    const pending = loadPendingPayment(fingerprint)
+    if (pending) {
+      void (async () => {
+        setLoading(true)
+        // Le paiement a peut-être déjà été confirmé pendant l'absence du client (webhook
+        // arrivé entre-temps) — sinon on réafficherait le formulaire de carte pour un
+        // paiement déjà capturé. Un seul essai (pas les 8 tentatives d'attente normales).
+        try {
+          const result = await completeOnlineCheckout(pending.draftId, pending.checkoutId, 1)
+          if (cancelled) return
+          if (result) {
+            onSuccess(result.token, result.orderNumber)
+            return
+          }
+        } catch {
+          // Pas encore confirmé (ou session déjà consommée sans commande liée) — on retombe
+          // sur le formulaire de carte normal, qui gère lui-même les erreurs de paiement.
+        }
+        if (cancelled) return
+        prepareKey.current = fingerprint
+        setDraftId(pending.draftId)
+        setCheckoutId(pending.checkoutId)
+        setLoading(false)
+      })()
+      return
+    }
+
     async function init() {
       setInitError(null)
       setLoading(true)
@@ -308,6 +339,7 @@ export function CheckoutPayment({
         prepareKey.current = fingerprint
         setDraftId(data.draftId)
         setCheckoutId(data.checkoutId)
+        savePendingPayment({ fingerprint, draftId: data.draftId, checkoutId: data.checkoutId })
       } catch (err) {
         if (cancelled || abort.signal.aborted) return
         // Affiché une seule fois ici — ne pas remonter au parent (évite le triple « SumUp non configuré »).

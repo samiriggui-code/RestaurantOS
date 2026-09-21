@@ -23,6 +23,7 @@ import { DeviceRegisterModal } from '@/components/admin/DeviceRegisterModal'
 import { DeviceConfigSheet } from '@/components/admin/DeviceConfigSheet'
 import { StoreScopeBar } from '@/components/admin/StoreScopeBar'
 import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
+import { DeviceFleetOverview } from '@/components/admin/DeviceFleetOverview'
 import { AdminPageHeader, AdminPageShell, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { getStaffSession, getStaffUser } from '@/lib/staff-auth'
 import {
@@ -431,6 +432,8 @@ function DevicesHubPanel({
         <StoreScopeBar stores={stores} selectedId={selectedStoreId} onSelect={onStoreSelect} />
       )}
 
+      <DeviceFleetOverview showManageLink={false} />
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-cream/50">Accès rapide</h2>
@@ -533,14 +536,20 @@ function DevicesHubPanel({
       </section>
 
       <section className="space-y-3 border-t border-white/10 pt-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-cream/50">Apps sans jumelage</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-cream/50">
+          Apps mobiles / totem
+        </h2>
+        <p className="text-xs text-cream/45">
+          Livreur et totem n&apos;exigent pas de code de jumelage — leur présence apparaît dans le parc
+          ci-dessus dès qu&apos;un écran est ouvert.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
             <div className="flex items-center gap-2">
               <Truck className="h-5 w-5 text-violet-300" />
               <p className="font-medium text-cream">App livreur</p>
             </div>
-            <p className="mt-2 text-xs text-cream/45">PIN livreur — pas de code boutique. APK ou navigateur.</p>
+            <p className="mt-2 text-xs text-cream/45">PIN livreur — APK ou navigateur. Statut live dans le parc.</p>
             <Link
               href={publicSitePath('/livreur')}
               target="_blank"
@@ -555,7 +564,7 @@ function DevicesHubPanel({
               <Tablet className="h-5 w-5 text-purple-300" />
               <p className="font-medium text-cream">Totem kiosque</p>
             </div>
-            <p className="mt-2 text-xs text-cream/45">Self-service sur place — pas de jumelage CRM.</p>
+            <p className="mt-2 text-xs text-cream/45">Self-service — heartbeat automatique quand l&apos;écran tourne.</p>
             <Link
               href="/kiosk"
               target="_blank"
@@ -1232,6 +1241,9 @@ function PairedRow({
         <p className="font-medium text-cream">{device.label}</p>
         <p className="text-xs text-cream/40">
           Jumelé le {new Date(device.pairedAt).toLocaleString('fr-FR')}
+          {device.lastSeenAt
+            ? ` · vu ${new Date(device.lastSeenAt).toLocaleString('fr-FR')}`
+            : ''}
           {ip ? ` · IP ${ip}` : ''}
         </p>
         {device.userAgent && (

@@ -1,6 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import { Gift, Loader2, Medal, Pizza, Save, Search, Trash2, TrendingUp, Users } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
@@ -8,6 +18,7 @@ import { staffFetch } from '@/lib/staff-api'
 import { useAppFeedback } from '@/components/feedback/AppFeedbackProvider'
 import { AdminPageHeader, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { ADMIN_STAT_GRID, AdminStatCard } from '@/components/admin/AdminStatCard'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 import { formatEUR } from '@/lib/money'
 import { cn } from '@/lib/cn'
 
@@ -43,8 +54,6 @@ type LoyaltyCustomer = {
   _count?: { transactions: number }
 }
 
-const MEMBERS_PAGE_SIZE = 25
-
 type LoyaltyTab = 'program' | 'clients' | 'search'
 
 const EXAMPLE_ORDER_EUR = 25
@@ -60,7 +69,9 @@ export function AdminLoyaltyView() {
   const [searchPhone, setSearchPhone] = useState('')
   const [searchResult, setSearchResult] = useState<LoyaltyCustomer | null | undefined>(undefined)
   const [manualPoints, setManualPoints] = useState(10)
-  const [memberPage, setMemberPage] = useState(0)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [memberSorting, setMemberSorting] = useState<SortingState>([])
+  const [memberPagination, setMemberPagination] = useState<PaginationState>(() => createDefaultPagination())
 
   const reload = useCallback(async () => {
     const session = getStaffSession('crm')
@@ -204,7 +215,6 @@ export function AdminLoyaltyView() {
       })
       setCustomers((prev) => prev.filter((c) => c.id !== customer.id))
       if (searchResult?.id === customer.id) setSearchResult(null)
-      setMemberPage(0)
       setMessage('Client fidélité effacé.')
       await reload()
     } catch (err) {
@@ -214,11 +224,79 @@ export function AdminLoyaltyView() {
     }
   }
 
-  const memberPages = Math.max(1, Math.ceil(customers.length / MEMBERS_PAGE_SIZE))
-  const pagedCustomers = customers.slice(
-    memberPage * MEMBERS_PAGE_SIZE,
-    memberPage * MEMBERS_PAGE_SIZE + MEMBERS_PAGE_SIZE,
+  const memberColumns = useMemo<ColumnDef<LoyaltyCustomer>[]>(
+    () => [
+      {
+        id: 'client',
+        accessorFn: (row) => `${row.name ?? ''} ${row.phone}`,
+        header: ({ column }) => <DataGridColumnHeader title="Client" column={column} />,
+        cell: ({ row }) => (
+          <div>
+            <p className="font-medium text-cream">{row.original.name ?? '—'}</p>
+            <p className="text-xs text-cream/40">{row.original.phone}</p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'totalPoints',
+        header: ({ column }) => <DataGridColumnHeader title="Points" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-bold tabular-nums text-tomato-light">{row.original.totalPoints}</span>
+        ),
+      },
+      {
+        accessorKey: 'freePizzasAvailable',
+        header: ({ column }) => <DataGridColumnHeader title="🍕 dispo" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-emerald-300">{row.original.freePizzasAvailable ?? 0}</span>
+        ),
+      },
+      {
+        accessorKey: 'totalSpent',
+        header: ({ column }) => <DataGridColumnHeader title="Dépenses" column={column} />,
+        cell: ({ row }) => <span className="text-cream/50">{formatEUR(row.original.totalSpent)}</span>,
+      },
+      {
+        accessorKey: 'visitCount',
+        header: ({ column }) => <DataGridColumnHeader title="Visites" column={column} />,
+        cell: ({ row }) => <span className="text-cream/50">{row.original.visitCount}</span>,
+      },
+      {
+        id: 'rgpd',
+        header: () => <span className="text-xs font-medium uppercase tracking-wide text-cream/45">RGPD</span>,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              title="Effacer ce client (RGPD)"
+              disabled={busy === `delete-${row.original.id}`}
+              onClick={() => void deleteCustomer(row.original)}
+              className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [busy],
   )
+
+  const membersTable = useReactTable({
+    data: customers,
+    columns: memberColumns,
+    state: { pagination: memberPagination, sorting: memberSorting, globalFilter: memberSearch },
+    onPaginationChange: setMemberPagination,
+    onSortingChange: setMemberSorting,
+    onGlobalFilterChange: setMemberSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   if (loading || !program) {
     return (
@@ -369,80 +447,20 @@ export function AdminLoyaltyView() {
 
       {tab === 'clients' && (
         <section className="rounded-2xl border border-white/10 bg-[#1A1412] overflow-hidden">
-          {customers.length === 0 ? (
-            <p className="p-8 text-center text-sm text-cream/40">
-              Aucun membre — les clients sont inscrits à la première commande payée avec téléphone.
-            </p>
-          ) : (
-            <>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-cream/40">
-                  <th className="px-4 py-3">Client</th>
-                  <th className="px-4 py-3">Points</th>
-                  <th className="px-4 py-3 hidden sm:table-cell">🍕 dispo</th>
-                  <th className="px-4 py-3 hidden md:table-cell">Dépenses</th>
-                  <th className="px-4 py-3 hidden lg:table-cell">Visites</th>
-                  <th className="px-4 py-3 text-right">RGPD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {pagedCustomers.map((c) => (
-                  <tr key={c.id} className="hover:bg-white/[0.02]">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-cream">{c.name ?? '—'}</p>
-                      <p className="text-xs text-cream/40">{c.phone}</p>
-                    </td>
-                    <td className="px-4 py-3 font-bold tabular-nums text-tomato-light">{c.totalPoints}</td>
-                    <td className="px-4 py-3 hidden sm:table-cell text-emerald-300">
-                      {c.freePizzasAvailable ?? 0}
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell text-cream/50">
-                      {formatEUR(c.totalSpent)}
-                    </td>
-                    <td className="px-4 py-3 hidden lg:table-cell text-cream/50">{c.visitCount}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        title="Effacer ce client (RGPD)"
-                        disabled={busy === `delete-${c.id}`}
-                        onClick={() => void deleteCustomer(c)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-red-500/25 px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {memberPages > 1 && (
-              <div className="flex items-center justify-between border-t border-white/10 px-4 py-3 text-sm">
-                <span className="text-cream/45">
-                  {memberPage * MEMBERS_PAGE_SIZE + 1}–{Math.min((memberPage + 1) * MEMBERS_PAGE_SIZE, customers.length)} sur {customers.length}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={memberPage === 0}
-                    onClick={() => setMemberPage((p) => p - 1)}
-                    className="rounded-lg border border-white/15 px-3 py-1 disabled:opacity-40"
-                  >
-                    Préc.
-                  </button>
-                  <button
-                    type="button"
-                    disabled={memberPage >= memberPages - 1}
-                    onClick={() => setMemberPage((p) => p + 1)}
-                    className="rounded-lg border border-white/15 px-3 py-1 disabled:opacity-40"
-                  >
-                    Suiv.
-                  </button>
-                </div>
-              </div>
-            )}
-            </>
-          )}
+          <AdminDataGridShell
+            title="Membres"
+            table={membersTable}
+            recordCount={membersTable.getFilteredRowModel().rows.length}
+            search={memberSearch}
+            onSearchChange={setMemberSearch}
+            searchPlaceholder="Nom, téléphone…"
+            className="rounded-none border-0"
+            emptyMessage={
+              customers.length === 0
+                ? 'Aucun membre — les clients sont inscrits à la première commande payée avec téléphone.'
+                : 'Aucun résultat pour ce filtre'
+            }
+          />
         </section>
       )}
 

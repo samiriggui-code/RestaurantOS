@@ -1,7 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { ExternalLink, Loader2, ShieldCheck } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
@@ -13,6 +23,7 @@ import {
   canAccessKitchen,
   canAccessPos,
 } from '@/lib/roles'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 import { cn } from '@/lib/cn'
 
 type StaffRow = {
@@ -82,6 +93,50 @@ export function AdminRolesPermissionsPanel() {
       .catch(() => setRows([]))
       .finally(() => setLoading(false))
   }, [])
+
+  const [staffSearch, setStaffSearch] = useState('')
+  const [staffSorting, setStaffSorting] = useState<SortingState>([])
+  const [staffPagination, setStaffPagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  const staffColumns = useMemo<ColumnDef<StaffRow>[]>(
+    () => [
+      {
+        accessorKey: 'id',
+        header: ({ column }) => <DataGridColumnHeader title="User ID" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-cream/55">{row.original.id.slice(0, 8)}…</span>
+        ),
+      },
+      {
+        accessorKey: 'role',
+        header: ({ column }) => <DataGridColumnHeader title="Rôle" column={column} />,
+        cell: ({ row }) => <RoleBadge role={row.original.role} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => <DataGridColumnHeader title="Créé le" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/50">{new Date(row.original.createdAt).toLocaleDateString('fr-FR')}</span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const staffTable = useReactTable({
+    data: rows,
+    columns: staffColumns,
+    state: { pagination: staffPagination, sorting: staffSorting, globalFilter: staffSearch },
+    onPaginationChange: setStaffPagination,
+    onSortingChange: setStaffSorting,
+    onGlobalFilterChange: setStaffSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   return (
     <div className="space-y-6">
@@ -158,38 +213,15 @@ export function AdminRolesPermissionsPanel() {
             <Loader2 className="h-6 w-6 animate-spin text-tomato" />
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-white/10 bg-white/[0.03] text-[10px] uppercase tracking-widest text-cream/40">
-                <tr>
-                  <th className="px-4 py-3">User ID</th>
-                  <th className="px-4 py-3">Rôle</th>
-                  <th className="px-4 py-3">Créé le</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-cream/40">
-                      Aucun compte staff
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((u) => (
-                    <tr key={u.id} className="border-b border-white/5">
-                      <td className="px-4 py-3 font-mono text-xs text-cream/55">{u.id.slice(0, 8)}…</td>
-                      <td className="px-4 py-3">
-                        <RoleBadge role={u.role} />
-                      </td>
-                      <td className="px-4 py-3 text-cream/50">
-                        {new Date(u.createdAt).toLocaleDateString('fr-FR')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <AdminDataGridShell
+            title="Comptes staff"
+            table={staffTable}
+            recordCount={staffTable.getFilteredRowModel().rows.length}
+            search={staffSearch}
+            onSearchChange={setStaffSearch}
+            searchPlaceholder="ID, rôle…"
+            emptyMessage={rows.length === 0 ? 'Aucun compte staff' : 'Aucun résultat pour ce filtre'}
+          />
         )}
 
         <p className="mt-4 flex items-start gap-2 text-xs text-cream/40">

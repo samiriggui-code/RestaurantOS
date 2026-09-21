@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useFeedbackState } from '@/lib/use-feedback-state'
-import { Edit2, Image, Loader2, Plus, RefreshCw, ToggleLeft, ToggleRight, Trash2, X } from 'lucide-react'
+import { Edit2, Image, Loader2, Plus, ToggleLeft, ToggleRight, Trash2, X } from 'lucide-react'
 import { resolveMenuItemImageUrl } from '@/lib/menu-image-url'
 import { centsToEuros, eurosToCents, formatEUR } from '@/lib/money'
 import { getStaffSession } from '@/lib/staff-auth'
@@ -83,7 +83,6 @@ export function AdminMenuView() {
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [menuStats, setMenuStats] = useState<MenuManageResponse['stats'] | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const { error, setError } = useFeedbackState()
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [showItemModal, setShowItemModal] = useState(false)
@@ -208,7 +207,7 @@ export function AdminMenuView() {
     if (
       !(await confirm({
         title: 'Supprimer la catégorie',
-        message: 'Supprimer cette catégorie ? Les produits qu\'elle contient seront aussi retirés.',
+        message: 'Supprimer cette catégorie ? Elle doit être vide — déplacez ou supprimez ses produits avant.',
         confirmLabel: 'Supprimer',
         destructive: true,
       }))
@@ -245,31 +244,6 @@ export function AdminMenuView() {
       await loadMenu()
     } catch (err) {
       notifyError(err instanceof Error ? err.message : 'Suppression impossible')
-    }
-  }
-
-  async function handleSyncCatalog() {
-    const session = getStaffSession('crm')
-    if (!session) return
-    if (
-      !(await confirm({
-        title: 'Synchroniser le catalogue',
-        message:
-          'Importer / mettre à jour tous les produits du flyer (pizzas, compléments, boissons…) ?',
-        confirmLabel: 'Synchroniser',
-      }))
-    ) {
-      return
-    }
-    setSyncing(true)
-    try {
-      await staffFetch('/menu/sync-catalog', { method: 'POST', token: session.token })
-      notifySuccess('Catalogue synchronisé.')
-      await loadMenu()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import impossible')
-    } finally {
-      setSyncing(false)
     }
   }
 
@@ -329,34 +303,14 @@ export function AdminMenuView() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="admin-page-title">Gestion du menu</h1>
-          <p className="admin-page-subtitle">
-            Carte La Z Pizza — {menuStats?.expectedItems ?? 47} produits sur le site client
-          </p>
+          <p className="admin-page-subtitle">Carte La Z Pizza</p>
           {menuStats && (
             <p className="mt-1 text-xs text-cream/40">
-              {menuStats.items}/{menuStats.expectedItems} produits actifs · {menuStats.categories} catégories
-              {menuStats.items < menuStats.expectedItems && (
-                <span className="ml-1 text-amber-300">
-                  — cliquez « Importer flyer » pour resynchroniser
-                </span>
-              )}
+              {menuStats.items} produits actifs · {menuStats.categories} catégories
             </p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={() => void handleSyncCatalog()}
-            className="rounded-xl border border-tomato/40 bg-tomato/10 px-4 py-2 text-sm font-medium text-tomato-light hover:bg-tomato/20 disabled:opacity-50"
-          >
-            {syncing ? (
-              <Loader2 className="mr-1 inline h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-1 inline h-4 w-4" />
-            )}
-            Importer flyer
-          </button>
           <button
             type="button"
             onClick={() => {
@@ -388,7 +342,7 @@ export function AdminMenuView() {
 
       {categories.length === 0 ? (
         <p className="rounded-2xl border border-white/10 bg-[#1A1412] p-8 text-center text-sm text-cream/40">
-          Aucune catégorie — importez le flyer ou créez une catégorie.
+          Aucune catégorie — créez-en une pour commencer.
         </p>
       ) : (
         <>

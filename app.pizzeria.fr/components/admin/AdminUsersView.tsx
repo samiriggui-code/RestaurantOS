@@ -1,6 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import {
@@ -29,6 +39,7 @@ import {
   type ShiftSummary,
   type StaffMember,
 } from '@/lib/staff-display'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 
 const PLACEHOLDER_NAMES = new Set(['Administrateur', 'Admin', 'Gérant'])
 
@@ -128,6 +139,176 @@ export function AdminUsersView({ title = 'Utilisateurs' }: { title?: string }) {
       )
     })
   }, [users, search, filter])
+
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [pagination, setPagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  useEffect(() => {
+    setPagination((p) => ({ ...p, pageIndex: 0 }))
+  }, [search, filter])
+
+  const columns = useMemo<ColumnDef<StaffMember>[]>(
+    () => [
+      {
+        id: 'employee',
+        accessorFn: (row) => `${row.name} ${row.email}`,
+        header: ({ column }) => <DataGridColumnHeader title="Employé" column={column} />,
+        cell: ({ row }) => {
+          const u = row.original
+          const isMe = u.id === currentUser?.id
+          const rs = roleStyle(u.role)
+          return (
+            <div className="flex items-center gap-3">
+              <div
+                className={cn(
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                  rs.badge,
+                )}
+              >
+                {staffInitials(u.name)}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-cream">
+                  {u.name}
+                  {isMe && <span className="ml-2 text-[10px] font-normal text-tomato-light">vous</span>}
+                </p>
+                <p className="truncate text-xs text-cream/40">{u.email}</p>
+                {u.phone ? <p className="text-xs text-cream/30">{u.phone}</p> : null}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: 'role',
+        header: ({ column }) => <DataGridColumnHeader title="Rôle" column={column} />,
+        cell: ({ row }) => {
+          const rs = roleStyle(row.original.role)
+          return (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
+                rs.badge,
+              )}
+            >
+              <span className={cn('h-1.5 w-1.5 rounded-full', rs.dot)} />
+              {roleLabel(row.original.role)}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'shift',
+        header: () => (
+          <span className="text-xs font-medium uppercase tracking-wide text-cream/45">Créneau par défaut</span>
+        ),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const u = row.original
+          const isOps = u.role !== ROLE.ADMIN
+          if (!isOps) return <span className="text-xs text-cream/30">—</span>
+          return (
+            <div className="relative max-w-[200px]">
+              <select
+                value={u.shiftId ?? ''}
+                disabled={savingShift === u.id || !u.isActive}
+                onChange={(e) => void assignShift(u.id, e.target.value)}
+                className={cn(
+                  adminSelectInlineClass,
+                  'cursor-pointer',
+                  !u.shiftId && 'border-amber-500/30 text-amber-200/90',
+                )}
+              >
+                <option value="">— Non assigné —</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.startTime}–{s.endTime})
+                  </option>
+                ))}
+              </select>
+              {savingShift === u.id ? (
+                <Loader2 className="absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-cream/40" />
+              ) : null}
+              {u.shift ? (
+                <p className="mt-1 text-[10px] text-cream/35">
+                  Planning : {defaultRoleLabelForPlanning(u.role)}
+                </p>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: 'isActive',
+        header: ({ column }) => <DataGridColumnHeader title="Statut" column={column} />,
+        cell: ({ row }) => (
+          <span
+            className={cn(
+              'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
+              row.original.isActive ? 'bg-emerald-500/15 text-emerald-200' : 'bg-red-500/15 text-red-200',
+            )}
+          >
+            {row.original.isActive ? 'Actif' : 'Inactif'}
+          </span>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const u = row.original
+          const isMe = u.id === currentUser?.id
+          const isOps = u.role !== ROLE.ADMIN
+          return (
+            <div className="flex justify-end gap-1">
+              {isOps && u.isActive && (
+                <Link
+                  href="/admin/planning"
+                  title="Voir le planning"
+                  className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                </Link>
+              )}
+              {!isMe && (
+                <button
+                  type="button"
+                  title="Activer / désactiver"
+                  onClick={() => void toggleActive(u)}
+                  className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
+                >
+                  <Shield className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                title="Modifier"
+                onClick={() => openEdit(u)}
+                className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
+              >
+                <Edit2 className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        },
+      },
+    ],
+    [currentUser, savingShift, shifts],
+  )
+
+  const usersTable = useReactTable({
+    data: filtered,
+    columns,
+    state: { pagination, sorting },
+    onPaginationChange: setPagination,
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   function openEdit(user: StaffMember) {
     setEditing(user)
@@ -353,150 +534,12 @@ export function AdminUsersView({ title = 'Utilisateurs' }: { title?: string }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1A1412]/80">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-white/10 bg-white/[0.02] text-left text-xs uppercase tracking-wide text-cream/40">
-                <th className="px-4 py-3 font-medium">Employé</th>
-                <th className="px-4 py-3 font-medium">Rôle</th>
-                <th className="px-4 py-3 font-medium">Créneau par défaut</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((u) => {
-                const isMe = u.id === currentUser?.id
-                const rs = roleStyle(u.role)
-                const isOps = u.role !== ROLE.ADMIN
-                return (
-                  <tr
-                    key={u.id}
-                    className={cn(
-                      'border-b border-white/5 transition hover:bg-white/[0.02]',
-                      isMe && 'bg-tomato/[0.04]'
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={cn(
-                            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold',
-                            rs.badge
-                          )}
-                        >
-                          {staffInitials(u.name)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-cream">
-                            {u.name}
-                            {isMe && (
-                              <span className="ml-2 text-[10px] font-normal text-tomato-light">vous</span>
-                            )}
-                          </p>
-                          <p className="truncate text-xs text-cream/40">{u.email}</p>
-                          {u.phone ? <p className="text-xs text-cream/30">{u.phone}</p> : null}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
-                          rs.badge
-                        )}
-                      >
-                        <span className={cn('h-1.5 w-1.5 rounded-full', rs.dot)} />
-                        {roleLabel(u.role)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {isOps ? (
-                        <div className="relative max-w-[200px]">
-                          <select
-                            value={u.shiftId ?? ''}
-                            disabled={savingShift === u.id || !u.isActive}
-                            onChange={(e) => void assignShift(u.id, e.target.value)}
-                            className={cn(
-                              adminSelectInlineClass,
-                              'cursor-pointer',
-                              !u.shiftId && 'border-amber-500/30 text-amber-200/90',
-                            )}
-                          >
-                            <option value="">— Non assigné —</option>
-                            {shifts.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name} ({s.startTime}–{s.endTime})
-                              </option>
-                            ))}
-                          </select>
-                          {savingShift === u.id ? (
-                            <Loader2 className="absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-cream/40" />
-                          ) : null}
-                          {u.shift ? (
-                            <p className="mt-1 text-[10px] text-cream/35">
-                              Planning : {defaultRoleLabelForPlanning(u.role)}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-cream/30">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-                          u.isActive
-                            ? 'bg-emerald-500/15 text-emerald-200'
-                            : 'bg-red-500/15 text-red-200'
-                        )}
-                      >
-                        {u.isActive ? 'Actif' : 'Inactif'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        {isOps && u.isActive && (
-                          <Link
-                            href="/admin/planning"
-                            title="Voir le planning"
-                            className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
-                          >
-                            <CalendarDays className="h-4 w-4" />
-                          </Link>
-                        )}
-                        {!isMe && (
-                          <button
-                            type="button"
-                            title="Activer / désactiver"
-                            onClick={() => void toggleActive(u)}
-                            className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
-                          >
-                            <Shield className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          title="Modifier"
-                          onClick={() => openEdit(u)}
-                          className="rounded-lg p-2 text-cream/50 hover:bg-white/5 hover:text-cream"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length === 0 && (
-          <p className="py-16 text-center text-sm text-cream/40">Aucun employé ne correspond à votre recherche</p>
-        )}
-      </div>
+      <AdminDataGridShell
+        title="Employés"
+        table={usersTable}
+        recordCount={usersTable.getFilteredRowModel().rows.length}
+        emptyMessage="Aucun employé ne correspond à votre recherche"
+      />
 
       <p className="text-xs text-cream/35">
         Assignez un <strong className="font-medium text-cream/50">créneau par défaut</strong> à chaque employé, puis

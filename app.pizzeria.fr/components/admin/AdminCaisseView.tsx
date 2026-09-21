@@ -10,6 +10,8 @@ import { staffFetch } from '@/lib/staff-api'
 import { ORDER_CHANNEL_COLORS, orderChannelDisplayLabel } from '@/lib/admin-nav'
 import { formatEUR } from '@/lib/money'
 import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
+import { PeriodPicker, defaultCustomRange } from '@/components/admin/PeriodPicker'
+import { periodToDateRange, type ArchivePeriod, type CustomRange } from '@/lib/order-period'
 
 type ChannelStat = { count: number; revenue: number }
 
@@ -17,26 +19,39 @@ type DashboardChannels = {
   todayRevenue: number
   todayPaidCount: number
   channelsToday: Record<string, ChannelStat>
+  paymentMethods: Record<string, ChannelStat>
 }
 
-const CHANNEL_ORDER = ['POS', 'WEB', 'DELIVEROO', 'UBER_EATS', 'KIOSK']
+const CHANNEL_ORDER = ['SUMUP_COUNTER', 'POS', 'WEB', 'DELIVEROO', 'UBER_EATS', 'KIOSK']
 
 export function AdminCaisseView() {
   const [data, setData] = useState<DashboardChannels | null>(null)
   const [loading, setLoading] = useState(true)
   const today = new Date().toISOString().slice(0, 10)
+  const [period, setPeriod] = useState<ArchivePeriod>('today')
+  const [custom, setCustom] = useState<CustomRange>(() => defaultCustomRange())
+
+  const range = useMemo(
+    () => periodToDateRange(period, period === 'custom' ? custom : undefined),
+    [period, custom],
+  )
 
   const load = useCallback(async () => {
     const session = getStaffSession()
     if (!session) return
     setLoading(true)
     try {
-      const d = await staffFetch<DashboardChannels>('/reports/dashboard', { token: session.token })
+      const params = new URLSearchParams()
+      if (range.dateFrom) params.set('from', range.dateFrom)
+      if (range.dateTo) params.set('to', range.dateTo)
+      const d = await staffFetch<DashboardChannels>(`/reports/dashboard?${params.toString()}`, {
+        token: session.token,
+      })
       setData(d)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [range])
 
   useEffect(() => {
     void load()
@@ -47,24 +62,30 @@ export function AdminCaisseView() {
   const stats = useMemo(() => {
     if (!data) return null
     const channels = data.channelsToday ?? {}
+    const methods = data.paymentMethods ?? {}
     const total = data.todayRevenue || 1
-    const cashEstimate = Math.round((channels.POS?.revenue ?? 0) * 0.4)
-    const cardEstimate = data.todayRevenue - cashEstimate
-    return { channels, total, cashEstimate, cardEstimate }
+    // Espèces = commandes app en espèces + ventes comptoir SumUp réglées en espèces (montants
+    // réels, plus d'estimation depuis que le comptoir SumUp remonte son propre détail paiement).
+    const cash = methods.CASH?.revenue ?? 0
+    const card = data.todayRevenue - cash
+    return { channels, total, cash, card }
   }, [data])
 
   return (
     <AdminPageShell>
       <AdminPageHeader
         title="Caisse & Z du jour"
-        subtitle={`Journal ${today} — consolidation tous canaux (POS, web, marketplaces).`}
+        subtitle={`Journal ${today} — consolidation tous canaux (POS, web, SumUp, marketplaces).`}
         actions={
-          <Link
-            href="/admin/fiscal"
-            className="inline-flex items-center gap-2 rounded-xl bg-tomato px-4 py-2 text-sm font-semibold text-white hover:bg-tomato/90"
-          >
-            <Lock className="h-4 w-4" /> Clôture fiscale ISCA
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <PeriodPicker period={period} custom={custom} onPeriodChange={setPeriod} onCustomChange={setCustom} />
+            <Link
+              href="/admin/fiscal"
+              className="inline-flex items-center gap-2 rounded-xl bg-tomato px-4 py-2 text-sm font-semibold text-white hover:bg-tomato/90"
+            >
+              <Lock className="h-4 w-4" /> Clôture fiscale ISCA
+            </Link>
+          </div>
         }
       />
 
@@ -77,8 +98,8 @@ export function AdminCaisseView() {
           <div className={ADMIN_STAT_GRID}>
             <AdminStatCard label="CA TTC (payé)" value={formatEUR(data.todayRevenue)} icon={Receipt} tone="text-tomato-light" />
             <AdminStatCard label="Tickets payés" value={String(data.todayPaidCount)} icon={Receipt} />
-            <AdminStatCard label="Espèces (estim.)" value={formatEUR(stats.cashEstimate)} icon={Receipt} />
-            <AdminStatCard label="CB / en ligne" value={formatEUR(stats.cardEstimate)} icon={Receipt} />
+            <AdminStatCard label="Espèces" value={formatEUR(stats.cash)} icon={Receipt} />
+            <AdminStatCard label="CB / en ligne" value={formatEUR(stats.card)} icon={Receipt} />
           </div>
 
           <div className="mt-6 rounded-xl border border-white/10 bg-[#1A1412] p-5">

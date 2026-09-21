@@ -56,7 +56,7 @@ type LoyaltyCustomer = {
 
 type LoyaltyTab = 'program' | 'clients' | 'search'
 
-const EXAMPLE_ORDER_EUR = 25
+const EXAMPLE_PIZZA_COUNT = 3
 
 export function AdminLoyaltyView() {
   const [tab, setTab] = useState<LoyaltyTab>('program')
@@ -103,10 +103,14 @@ export function AdminLoyaltyView() {
     return { members: customers.length, totalPoints, totalSpent, freePizzasReady }
   }, [customers])
 
-  const threshold = program?.pointsForFreePizza ?? program?.minPointsRedeem ?? 100
-  const exampleEarn = program ? Math.round(EXAMPLE_ORDER_EUR * program.pointsPerDinar) : 0
+  const threshold = program?.pointsForFreePizza ?? program?.minPointsRedeem ?? 10
+  const rate = program?.pointsPerDinar ?? 1
+  const exampleEarn = program ? Math.round(EXAMPLE_PIZZA_COUNT * rate) : 0
   const exampleProgress = program
-    ? Math.min(100, Math.round((exampleEarn / threshold) * 100))
+    ? Math.min(100, Math.round((exampleEarn / Math.max(threshold, 1)) * 100))
+    : 0
+  const ordersUntilFree = program
+    ? Math.ceil(threshold / Math.max(exampleEarn, 1))
     : 0
 
   async function saveProgram(e: React.FormEvent) {
@@ -310,7 +314,7 @@ export function AdminLoyaltyView() {
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
       <AdminPageHeader
         title="Fidélité clients"
-        description="1 pizza offerte — pas de réduction en euros. Les points sont crédités automatiquement à chaque commande payée (téléphone requis)."
+        description="10 pizzas achetées → la 11ᵉ offerte. 1 point = 1 pizza (pas par euro). Crédit auto sur commandes payées (téléphone requis)."
       />
 
       <AdminSectionTabs
@@ -366,11 +370,11 @@ export function AdminLoyaltyView() {
               <span className="text-sm text-cream/80">Programme actif — crédit auto sur commandes payées</span>
             </label>
             <label className="block text-sm text-cream/60">
-              Points gagnés par euro dépensé
+              Points gagnés par pizza commandée
               <input
                 type="number"
-                step="0.1"
-                min="0.1"
+                step="1"
+                min="1"
                 value={program.pointsPerDinar}
                 onChange={(e) =>
                   setProgram((p) => (p ? { ...p, pointsPerDinar: Number(e.target.value) } : p))
@@ -379,7 +383,7 @@ export function AdminLoyaltyView() {
               />
             </label>
             <label className="block text-sm text-cream/60">
-              Points pour <strong className="text-tomato-light">1 pizza offerte</strong>
+              Pizzas achetées pour <strong className="text-tomato-light">1 pizza offerte</strong>
               <input
                 type="number"
                 min="1"
@@ -394,8 +398,8 @@ export function AdminLoyaltyView() {
               />
             </label>
             <p className="text-xs text-cream/45">
-              Récompense = une pizza au choix (taille selon votre politique en caisse), pas d&apos;avoir en
-              euros.
+              Avec {threshold} : le client paie {threshold} pizzas, la suivante (n°{threshold + 1}) est
+              offerte. Boissons / desserts ne comptent pas.
             </p>
             <button
               type="submit"
@@ -413,7 +417,7 @@ export function AdminLoyaltyView() {
               Exemple concret
             </h2>
             <p className="text-sm text-cream/55">
-              Un client commande pour <strong className="text-cream">{EXAMPLE_ORDER_EUR} €</strong> :
+              Un client commande <strong className="text-cream">{EXAMPLE_PIZZA_COUNT} pizzas</strong> :
             </p>
             <ul className="space-y-2 text-sm text-cream/70">
               <li className="flex justify-between rounded-lg bg-black/20 px-3 py-2">
@@ -422,7 +426,7 @@ export function AdminLoyaltyView() {
               </li>
               <li className="rounded-lg bg-black/20 px-3 py-2">
                 <div className="mb-1 flex justify-between">
-                  <span>Progression vers 1 pizza</span>
+                  <span>Progression vers 1 pizza offerte</span>
                   <span className="font-bold text-emerald-300">{threshold} pts</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-white/10">
@@ -432,14 +436,12 @@ export function AdminLoyaltyView() {
                   />
                 </div>
                 <p className="mt-1 text-xs text-cream/40">
-                  Après ~{Math.ceil(threshold / Math.max(exampleEarn, 1))} commandes de {EXAMPLE_ORDER_EUR} €
-                  → 1 pizza offerte
+                  Après ~{ordersUntilFree} commandes de {EXAMPLE_PIZZA_COUNT} pizzas → 1 pizza offerte
                 </p>
               </li>
             </ul>
             <p className="text-xs text-cream/40">
-              Formule : points = montant € × {program.pointsPerDinar} · échange = {threshold} pts → 🍕
-              gratuite
+              Formule Atmane : 1 pt / pizza · {threshold} pts = pizza n°{threshold + 1} offerte
             </p>
           </div>
         </div>

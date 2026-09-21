@@ -75,7 +75,7 @@ router.put('/program', ...loyaltyAdjust, async (req: AuthRequest, res: Response)
     const businessId = req.user!.businessId;
     const { name, pointsPerDinar, pointsForFreePizza, minPointsRedeem, enabled } = req.body;
 
-    const pizzaThreshold = Number(pointsForFreePizza ?? minPointsRedeem ?? 100);
+    const pizzaThreshold = Number(pointsForFreePizza ?? minPointsRedeem ?? 10);
 
     const existing = await prisma.loyaltyProgram.findFirst({ where: { businessId } });
     const data = {

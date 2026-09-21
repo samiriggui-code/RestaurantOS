@@ -57,6 +57,9 @@ model GuestCheckoutDraft {
   stripePaymentIntentId String?   @unique
   sumupCheckoutId       String?   @unique
   consumedAt            DateTime?
+  /// Le paiement SumUp a été capturé mais la commande n'a pas pu être créée (créneau fermé
+  /// entre-temps, article devenu indisponible…) — remboursement automatique effectué.
+  refundedAt            DateTime?
   expiresAt             DateTime
   createdAt             DateTime  @default(now())
 
@@ -667,6 +670,7 @@ model Invoice {
   pennylaneCustomerId Int?
   pennylaneSyncedAt   DateTime?
   pennylaneSyncError  String?
+  sumupTransactions   SumupTransaction[]
 
   @@unique([businessId, invoiceNumber])
   @@index([businessId, status])
@@ -682,6 +686,86 @@ model InvoiceLine {
   unitPriceCents Int
   taxRate        Float   @default(10)
   sortOrder      Int     @default(0)
+}
+
+/// Cache local des transactions SumUp comptoir/en ligne (v2.1 transactions/history).
+/// Fondation du rapprochement ventes : sert à la fois la facturation B2C à la
+/// demande (repère les ventes pas encore facturées) et le futur dashboard ventes.
+model SumupTransaction {
+  id                 String    @id @default(uuid())
+  businessId         String
+  /// Id transaction SumUp (champ `id` de leur API — stable, sert de clé d'idempotence)
+  sumupTransactionId String
+  transactionCode    String?
+  amountCents        Int
+  vatAmountCents     Int?
+  feeAmountCents     Int?
+  currency           String    @default("EUR")
+  /// POS | CASH | ECOM | ...
+  paymentType        String
+  status             String
+  /// Résumé texte libre ("2x Reine Sénior, Canette Coca") — affichage rapide Suivi caisse.
+  /// Le détail exploitable pour les rapports (catégorie, CA par article) est dans `items`.
+  productSummary     String?
+  occurredAt         DateTime
+  /// Facture RestaurantOS émise pour cette vente comptoir, une fois créée
+  invoiceId          String?
+  invoice            Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  /// Payload brut SumUp (audit / champs non modélisés)
+  raw                Json?
+  items              SumupTransactionItem[]
+  syncedAt           DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([businessId, sumupTransactionId])
+  @@index([businessId, occurredAt])
+  @@index([businessId, invoiceId])
+}
+
+/// Détail article d'une vente comptoir SumUp — vient uniquement de l'import manuel du
+/// "Rapport de ventes" (l'API Cloud SumUp ne fournit jamais ce niveau de détail, vérifié
+/// par inspection directe du payload). Réimport idempotent : on remplace les lignes d'une
+/// transaction à chaque import plutôt que de les cumuler.
+model SumupTransactionItem {
+  id                 String           @id @default(uuid())
+  transactionId      String
+  transaction        SumupTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  description        String
+  category           String?
+  quantity           Int
+  amountCents        Int
+  createdAt          DateTime         @default(now())
+
+  @@index([transactionId])
+}
+
+/// Cache local des factures fournisseurs Pennylane (sens inverse du pont facturation :
+/// on lit chez eux). Alimente le futur dashboard ventes vs dépenses — indépendant de
+/// SumupTransaction, aucune dépendance entre les deux caches.
+model PennylaneSupplierInvoice {
+  id                         String    @id @default(uuid())
+  businessId                 String
+  pennylaneSupplierInvoiceId Int
+  supplierId                 Int?
+  invoiceNumber              String?
+  label                      String?
+  amountCents                Int
+  taxCents                   Int       @default(0)
+  currency                   String    @default("EUR")
+  date                       DateTime?
+  deadline                   DateTime?
+  paymentStatus              String
+  paid                       Boolean   @default(false)
+  accountingStatus           String?
+  raw                        Json?
+  syncedAt                   DateTime  @default(now())
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@unique([businessId, pennylaneSupplierInvoiceId])
+  @@index([businessId, date])
+  @@index([businessId, paymentStatus])
 }
 
 model EmailLog {

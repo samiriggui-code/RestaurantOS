@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { ensureSnapshotMenuItem } from '../src/lib/online-order';
-import { syncLazPizzaCatalog, syncLazPizzaDeliveryZones } from '../src/lib/sync-lazpizza-catalog';
+import { syncLazPizzaCatalog } from '../src/lib/sync-lazpizza-catalog';
 import { syncPizzaSizeModifiers } from '../src/lib/sync-pizza-modifiers';
 import { syncMenuFormules } from '../src/lib/sync-menu-formules';
 import { seedPizzeriaExpenses, seedPizzeriaStock } from '../src/lib/seed-pizzeria-ops';
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 
   console.log('📦 Sync catalogue La Z Pizza → PostgreSQL…');
   await syncLazPizzaCatalog(prisma, business.id);
-  await syncLazPizzaDeliveryZones(prisma, business.id);
+  // Zones de livraison : gérées dans l'admin (repli flyer dans delivery-quote) — non écrasées au seed.
   const modResult = await syncPizzaSizeModifiers(prisma, business.id);
   console.log(
     `   Modificateurs taille pizza : ${modResult.pizzas} pizzas, ${modResult.options} options`

@@ -15,14 +15,7 @@ import {
 import { ExternalLink, Loader2, ShieldCheck } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
-import {
-  ROLE,
-  ROLE_LABEL,
-  canAccessAdmin,
-  canAccessDriver,
-  canAccessKitchen,
-  canAccessPos,
-} from '@/lib/roles'
+import { ROLE, ROLE_LABEL, canAccessAdmin, canAccessDriver, canAccessKitchen } from '@/lib/roles'
 import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 import { cn } from '@/lib/cn'
 
@@ -32,20 +25,22 @@ type StaffRow = {
   createdAt: string
 }
 
+// Colonne "POS" volontairement absente : matériel désactivé (une seule tablette boutique,
+// back-office + KDS + livreur). canAccessPos() reste dans lib/roles.ts pour la route /pos
+// elle-même (module rétabli = colonne à réintroduire), juste pas affichée tant qu'il l'est.
 const ROLE_MATRIX: {
   role: string
   label: string
   admin: boolean
-  pos: boolean
   kitchen: boolean
   driver: boolean
 }[] = [
-  { role: ROLE.ADMIN, label: ROLE_LABEL.ADMIN, admin: true, pos: true, kitchen: true, driver: true },
-  { role: ROLE.MANAGER, label: ROLE_LABEL.MANAGER, admin: true, pos: true, kitchen: true, driver: true },
-  { role: ROLE.CASHIER, label: ROLE_LABEL.CASHIER, admin: false, pos: true, kitchen: false, driver: false },
-  { role: ROLE.CHEF, label: ROLE_LABEL.CHEF, admin: false, pos: false, kitchen: true, driver: false },
-  { role: ROLE.WAITER, label: ROLE_LABEL.WAITER, admin: false, pos: true, kitchen: true, driver: false },
-  { role: ROLE.DRIVER, label: ROLE_LABEL.DRIVER, admin: false, pos: false, kitchen: false, driver: true },
+  { role: ROLE.ADMIN, label: ROLE_LABEL.ADMIN, admin: true, kitchen: true, driver: true },
+  { role: ROLE.MANAGER, label: ROLE_LABEL.MANAGER, admin: true, kitchen: true, driver: true },
+  { role: ROLE.CASHIER, label: ROLE_LABEL.CASHIER, admin: false, kitchen: false, driver: false },
+  { role: ROLE.CHEF, label: ROLE_LABEL.CHEF, admin: false, kitchen: true, driver: false },
+  { role: ROLE.WAITER, label: ROLE_LABEL.WAITER, admin: false, kitchen: true, driver: false },
+  { role: ROLE.DRIVER, label: ROLE_LABEL.DRIVER, admin: false, kitchen: false, driver: true },
 ]
 
 function AccessCell({ ok }: { ok: boolean }) {
@@ -146,8 +141,8 @@ export function AdminRolesPermissionsPanel() {
           <div>
             <h3 className="font-display text-lg text-cream">Politique rôles & accès</h3>
             <p className="mt-1 text-sm text-cream/45">
-              Définit qui accède au back-office, à la caisse, à la cuisine et à l&apos;app livreur. Les comptes
-              staff se créent dans{' '}
+              Définit qui accède au back-office, à l&apos;écran cuisine (KDS) et à l&apos;app livreur. Les
+              comptes staff se créent dans{' '}
               <Link href="/admin/users" className="text-tomato-light underline">
                 RH → Utilisateurs
               </Link>
@@ -168,7 +163,6 @@ export function AdminRolesPermissionsPanel() {
               <tr>
                 <th className="px-4 py-3">Rôle</th>
                 <th className="px-4 py-3">Back-office</th>
-                <th className="px-4 py-3">POS</th>
                 <th className="px-4 py-3">KDS</th>
                 <th className="px-4 py-3">Livreur</th>
               </tr>
@@ -179,9 +173,6 @@ export function AdminRolesPermissionsPanel() {
                   <td className="px-4 py-3 font-medium text-cream">{r.label}</td>
                   <td className="px-4 py-3">
                     <AccessCell ok={canAccessAdmin(r.role)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <AccessCell ok={canAccessPos(r.role)} />
                   </td>
                   <td className="px-4 py-3">
                     <AccessCell ok={canAccessKitchen(r.role)} />
@@ -226,8 +217,8 @@ export function AdminRolesPermissionsPanel() {
 
         <p className="mt-4 flex items-start gap-2 text-xs text-cream/40">
           <span aria-hidden>💡</span>
-          Les nouveaux comptes staff reçoivent un rôle opérationnel (caissier, cuisine, livreur…). Seuls admin et
-          manager accèdent au back-office. PIN obligatoire sur POS / KDS pour les rôles terrain.
+          Les nouveaux comptes staff reçoivent un rôle opérationnel (cuisine, livreur…). Seuls admin et manager
+          accèdent au back-office. PIN obligatoire sur KDS pour les rôles terrain.
         </p>
       </div>
     </div>

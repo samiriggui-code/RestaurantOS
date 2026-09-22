@@ -766,7 +766,7 @@ export function AdminFiscalView() {
               <p className="flex items-start gap-2 text-xs text-cream/40">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 Les réimpressions ticket client sont journalisées en DUPLICATA (JET) et limitées à 24 h après
-                encaissement. En mode offline POS, un ticket PROVISOIRE HL-* est imprimé avant synchronisation.
+                encaissement. En mode hors ligne, un ticket PROVISOIRE HL-* est imprimé avant synchronisation.
               </p>
             </div>
           )}

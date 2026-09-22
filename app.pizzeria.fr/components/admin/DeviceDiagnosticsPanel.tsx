@@ -284,7 +284,7 @@ export function DeviceDiagnosticsPanel({ variant }: { variant: DiagnosticVariant
                 className={diagBtn(testingMenu)}
               >
                 <StatusIcon ok={menuOk} loading={testingMenu} />
-                Catalogue menu (POS)
+                Catalogue menu
               </button>
               <button
                 type="button"

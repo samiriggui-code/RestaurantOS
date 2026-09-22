@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { AlertTriangle, CalendarDays, Loader2, Plus, Save, Scale, Wifi } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
+import { isModuleEnabled } from '@/lib/modules'
 import { cn } from '@/lib/cn'
 
 const fieldClass =
@@ -600,7 +601,7 @@ export function AdminSettingsSecurityPanel({ onOpenDevicesTab }: { onOpenDevices
         />
         <ToggleRow
           label="Verrouillage session (15 min)"
-          hint="PIN requis sur POS / KDS après inactivité"
+          hint={isModuleEnabled('pos') ? 'PIN requis sur POS / KDS après inactivité' : 'PIN requis sur KDS après inactivité'}
           checked={security.sessionLock15}
           onChange={(v) => patchSecurity({ sessionLock15: v })}
         />

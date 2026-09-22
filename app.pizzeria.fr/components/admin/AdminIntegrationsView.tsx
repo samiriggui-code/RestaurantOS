@@ -25,6 +25,7 @@ import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSection
 import { SideSheet } from '@/components/ui/side-sheet'
 import { formatEUR } from '@/lib/money'
 import { publicSitePath } from '@/lib/ops-apps'
+import { isModuleEnabled } from '@/lib/modules'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { cn } from '@/lib/cn'
@@ -536,7 +537,11 @@ export function AdminIntegrationsView() {
         <IntegrationCard
           icon={MonitorSmartphone}
           title="Devices & jumelage"
-          blurb="POS, KDS, réseau boutique — hub matériel."
+          blurb={
+            isModuleEnabled('pos')
+              ? 'POS, KDS, réseau boutique — hub matériel.'
+              : 'KDS, réseau boutique — hub matériel.'
+          }
           status="connected"
           onOpen={() => {
             window.location.href = '/admin/devices'

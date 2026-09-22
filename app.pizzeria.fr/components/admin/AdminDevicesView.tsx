@@ -365,7 +365,11 @@ export function AdminDevicesView({ embedded = false }: { embedded?: boolean }) {
     <AdminPageShell>
       <AdminPageHeader
         title="Devices & boutiques"
-        description="POS, KDS, applis livreur — jumelage et isolation par point de vente."
+        description={
+          isModuleEnabled('pos')
+            ? 'POS, KDS, applis livreur — jumelage et isolation par point de vente.'
+            : 'KDS, app livreur — jumelage de la tablette boutique.'
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {state && sumupOnlineBadge(state.sumupOnlineConfigured)}
@@ -780,7 +784,7 @@ function SetupPanel({
               }}
               className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
             >
-              Activer POS / KDS
+              {isModuleEnabled('pos') ? 'Activer POS / KDS' : 'Activer KDS'}
             </button>
             <button
               type="button"

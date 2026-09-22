@@ -112,7 +112,7 @@ export function DeviceRegisterModal({
               </p>
             </div>
             <ol className="space-y-2 text-sm text-cream/55">
-              <li>1. Ouvrez l’application sur le terminal (POS, KDS…).</li>
+              <li>1. Ouvrez l’application sur le terminal.</li>
               <li>2. À la première connexion, saisissez le code à 6 chiffres.</li>
               <li>3. Le terminal restera lié à cette boutique.</li>
             </ol>

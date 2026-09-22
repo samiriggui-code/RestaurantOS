@@ -84,7 +84,7 @@ export function AdminCaisseView() {
     <AdminPageShell>
       <AdminPageHeader
         title="Caisse & Z du jour"
-        subtitle={`Journal ${today} — consolidation tous canaux (POS, web, SumUp, marketplaces).`}
+        subtitle={`Journal ${today} — consolidation site web + comptoir SumUp.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <PeriodPicker period={period} custom={custom} onPeriodChange={setPeriod} onCustomChange={setCustom} />

@@ -6,6 +6,29 @@ import { formatEUR } from './money';
 import { getCounterSales, getCounterSaleItems } from './sumup-counter-sales';
 import { isModuleEnabled } from './modules';
 
+type ExpensesTotals = { manualCents: number; supplierInvoicesCents: number; totalCents: number };
+
+async function expensesForPeriod(
+  prisma: PrismaClient,
+  businessId: string,
+  from: Date,
+  to: Date
+): Promise<ExpensesTotals> {
+  const [manual, supplier] = await Promise.all([
+    prisma.expense.aggregate({
+      where: { businessId, date: { gte: from, lte: to } },
+      _sum: { amount: true },
+    }),
+    prisma.pennylaneSupplierInvoice.aggregate({
+      where: { businessId, date: { gte: from, lte: to } },
+      _sum: { amountCents: true },
+    }),
+  ]);
+  const manualCents = manual._sum.amount ?? 0;
+  const supplierInvoicesCents = supplier._sum.amountCents ?? 0;
+  return { manualCents, supplierInvoicesCents, totalCents: manualCents + supplierInvoicesCents };
+}
+
 export async function renderSalesReportHtml(
   prisma: PrismaClient,
   businessId: string,
@@ -15,13 +38,21 @@ export async function renderSalesReportHtml(
   const biz = await businessDocumentContext(prisma, businessId);
   const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
 
-  const [orders, counterSales] = await Promise.all([
+  // channel: 'WEB' — même raison que sales-vs-expenses.ts : le comptoir vient exclusivement
+  // du cache SumUp (getCounterSales), jamais de la table Order.
+  const [orders, counterSales, expenses] = await Promise.all([
     prisma.order.findMany({
-      where: { businessId, paymentStatus: 'PAID', createdAt: { gte: from, lte: to } },
+      where: {
+        businessId,
+        channel: 'WEB',
+        paymentStatus: 'PAID',
+        createdAt: { gte: from, lte: to },
+      },
       select: { createdAt: true, total: true },
       orderBy: { createdAt: 'asc' },
     }),
     getCounterSales(prisma, businessId, from, to),
+    expensesForPeriod(prisma, businessId, from, to),
   ]);
 
   const grouped = new Map<string, { count: number; total: number }>();
@@ -157,6 +188,16 @@ export async function renderSalesReportHtml(
       alignRightFrom: 1,
       rows: topItems.map(([name, qty]) => [name, String(qty)]),
     },
+    {
+      title: 'Dépenses',
+      columns: ['Origine', 'Montant'],
+      alignRightFrom: 1,
+      rows: [
+        ['Manuelles (Admin → Dépenses)', formatEUR(expenses.manualCents)],
+        ['Factures fournisseurs (Pennylane)', formatEUR(expenses.supplierInvoicesCents)],
+        ['Total', formatEUR(expenses.totalCents)],
+      ],
+    },
   ];
 
   return renderPrintDocument(
@@ -171,6 +212,8 @@ export async function renderSalesReportHtml(
           label: 'Panier moyen',
           value: totalOrders > 0 ? formatEUR(Math.round(totalSales / totalOrders)) : formatEUR(0),
         },
+        { label: 'Dépenses', value: formatEUR(expenses.totalCents) },
+        { label: 'Net', value: formatEUR(totalSales - expenses.totalCents) },
       ],
       sections,
     })

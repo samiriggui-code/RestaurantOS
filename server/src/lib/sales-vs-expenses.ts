@@ -45,8 +45,12 @@ export async function computeSalesVsExpenses(
     undeliveredOrdersCount,
     undeliveredOrders,
   ] = await Promise.all([
+    // channel: 'WEB' — seules les commandes du site créent une ligne Order. Le comptoir
+    // (POS/espèces) n'a plus de source d'écriture ici depuis le pivot SumUp : sans ce filtre,
+    // une commande comptoir historique (test, ou régression future) serait comptée deux fois
+    // — une fois ici en « online », une fois dans le cache SumupTransaction ci-dessous.
     prisma.order.aggregate({
-      where: { businessId, paymentStatus: 'PAID', createdAt: createdAtInPeriod },
+      where: { businessId, channel: 'WEB', paymentStatus: 'PAID', createdAt: createdAtInPeriod },
       _sum: { total: true },
     }),
     prisma.sumupTransaction.aggregate({

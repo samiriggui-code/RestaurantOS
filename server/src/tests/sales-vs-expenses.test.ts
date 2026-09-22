@@ -134,6 +134,17 @@ describe('sales-vs-expenses — computeSalesVsExpenses', () => {
     expect(result.undeliveredOrders.orders).toHaveLength(3);
   });
 
+  it('filtre les ventes en ligne au canal WEB (le comptoir vient de SumUp, pas de Order)', async () => {
+    const prisma = fakePrisma();
+    await computeSalesVsExpenses(prisma as never, 'b1', { from, to });
+
+    expect(prisma.order.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ channel: 'WEB', paymentStatus: 'PAID' }),
+      })
+    );
+  });
+
   it('filters every query to the given [from, to] window', async () => {
     const prisma = fakePrisma();
     await computeSalesVsExpenses(prisma as never, 'b1', { from, to });

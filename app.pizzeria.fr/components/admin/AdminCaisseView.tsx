@@ -8,6 +8,7 @@ import { AdminStatCard, ADMIN_STAT_GRID } from '@/components/admin/AdminStatCard
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { ORDER_CHANNEL_COLORS, orderChannelDisplayLabel } from '@/lib/admin-nav'
+import { isModuleEnabled } from '@/lib/modules'
 import { formatEUR } from '@/lib/money'
 import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
 import { PeriodPicker, defaultCustomRange } from '@/components/admin/PeriodPicker'
@@ -22,7 +23,15 @@ type DashboardChannels = {
   paymentMethods: Record<string, ChannelStat>
 }
 
-const CHANNEL_ORDER = ['SUMUP_COUNTER', 'POS', 'WEB', 'DELIVEROO', 'UBER_EATS', 'KIOSK']
+// Deliveroo/Uber Eats : intégration abandonnée (jamais de commande sur ce canal, quel que soit
+// ENABLED_MODULES) — POS/Totem : uniquement si le module correspondant est actif, sinon ce
+// sont deux lignes à 0 € en permanence sur un tableau de bord consulté tous les jours.
+const CHANNEL_ORDER = [
+  'SUMUP_COUNTER',
+  ...(isModuleEnabled('pos') ? ['POS'] : []),
+  'WEB',
+  ...(isModuleEnabled('kiosk') ? ['KIOSK'] : []),
+]
 
 export function AdminCaisseView() {
   const [data, setData] = useState<DashboardChannels | null>(null)

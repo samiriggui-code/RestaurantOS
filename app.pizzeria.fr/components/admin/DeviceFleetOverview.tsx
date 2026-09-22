@@ -18,6 +18,7 @@ import {
   type FleetSurfaceStatus,
 } from '@/lib/device-fleet'
 import { getStaffSession } from '@/lib/staff-auth'
+import { isModuleEnabled } from '@/lib/modules'
 import { cn } from '@/lib/cn'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -123,7 +124,16 @@ export function DeviceFleetOverview({
           </h2>
           {!compact && (
             <p className="text-xs text-cream/45">
-              Vue gérant — POS, KDS, livreur et totem (rafraîchi automatiquement)
+              Vue gérant —{' '}
+              {[
+                isModuleEnabled('pos') && 'POS',
+                'KDS',
+                'livreur',
+                isModuleEnabled('kiosk') && 'totem',
+              ]
+                .filter(Boolean)
+                .join(', ')}{' '}
+              (rafraîchi automatiquement)
             </p>
           )}
         </div>

@@ -116,7 +116,9 @@ export const ADMIN_NAV: AdminNavItem[] = ADMIN_NAV_GROUPS.flatMap((g) => g.items
 
 /**
  * Canaux commande (filtres admin + stats). POS et Totem retirés — matériel désactivé (une
- * seule tablette boutique désormais) : ces canaux ne créent plus aucune commande.
+ * seule tablette boutique désormais) : ces canaux ne créent plus aucune commande. Deliveroo
+ * et Uber Eats retirés aussi — intégrations abandonnées (décidé le 2026-09-21) : aucune
+ * commande ne prendra jamais ce canal, filtrer dessus ne renverrait qu'une liste vide.
  *
  * Pas de "Caisse SumUp" ici : les ventes comptoir SumUp ne créent aucune Commande (pas
  * d'items/client, cache SumupTransaction à part) — leur suivi/filtrage vit uniquement dans
@@ -127,8 +129,6 @@ export const ADMIN_NAV: AdminNavItem[] = ADMIN_NAV_GROUPS.flatMap((g) => g.items
 export const ORDER_CHANNEL_OPTIONS = [
   { value: '', label: 'Tous canaux' },
   { value: 'WEB', label: 'Site web' },
-  { value: 'DELIVEROO', label: 'Deliveroo' },
-  { value: 'UBER_EATS', label: 'Uber Eats' },
 ] as const
 
 export const ORDER_CHANNEL_COLORS: Record<string, string> = {

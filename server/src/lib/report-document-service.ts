@@ -47,6 +47,9 @@ export async function renderSalesReportHtml(
         channel: 'WEB',
         paymentStatus: 'PAID',
         createdAt: { gte: from, lte: to },
+        // Commandes en mode formation (ticket fiscal TRAINING) : immuables, on ne peut pas
+        // les supprimer (CGI art. 286) — on les exclut du rapport comme des clôtures Z.
+        NOT: { fiscalTickets: { some: { kind: 'TRAINING' } } },
       },
       select: { createdAt: true, total: true },
       orderBy: { createdAt: 'asc' },

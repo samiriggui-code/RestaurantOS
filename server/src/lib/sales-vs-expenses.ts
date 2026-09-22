@@ -50,7 +50,16 @@ export async function computeSalesVsExpenses(
     // une commande comptoir historique (test, ou régression future) serait comptée deux fois
     // — une fois ici en « online », une fois dans le cache SumupTransaction ci-dessous.
     prisma.order.aggregate({
-      where: { businessId, channel: 'WEB', paymentStatus: 'PAID', createdAt: createdAtInPeriod },
+      where: {
+        businessId,
+        channel: 'WEB',
+        paymentStatus: 'PAID',
+        createdAt: createdAtInPeriod,
+        // Commandes de test en mode formation (ticket fiscal TRAINING, exclu des clôtures Z
+        // — cf. fiscal/ticket.ts) : le CGI interdit de supprimer une ligne dès qu'un ticket
+        // fiscal existe (immuable), donc on les exclut du CA au lieu de les effacer.
+        NOT: { fiscalTickets: { some: { kind: 'TRAINING' } } },
+      },
       _sum: { total: true },
     }),
     prisma.sumupTransaction.aggregate({

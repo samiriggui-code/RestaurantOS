@@ -837,7 +837,12 @@ function NetworkPanel({
           <ul className="list-inside list-disc space-y-1 text-cream/60">
             <li>
               <strong className="text-cream/80">Oui :</strong> enregistre l&apos;IP publique de la box du shop
-              (ex. Free/Orange) pour autoriser <code className="text-cream/70">/pos</code> et{' '}
+              (ex. Free/Orange) pour autoriser{' '}
+              {isModuleEnabled('pos') && (
+                <>
+                  <code className="text-cream/70">/pos</code> et{' '}
+                </>
+              )}
               <code className="text-cream/70">/kitchen</code> depuis ce réseau uniquement.
             </li>
             <li>
@@ -846,15 +851,21 @@ function NetworkPanel({
             </li>
             <li>
               <strong className="text-cream/80">Non :</strong> ça ne scanne pas le réseau et ne détecte pas les
-              tablettes automatiquement. Le jumelage se fait par <strong>code à 6 chiffres</strong> (onglets SUNMI /
-              Tablette / KDS).
+              tablettes automatiquement. Le jumelage se fait par <strong>code à 6 chiffres</strong>{' '}
+              ({isModuleEnabled('pos') ? 'onglets SUNMI / Tablette / KDS' : 'onglet KDS'}).
             </li>
           </ul>
         </div>
         <p className="text-xs text-cream/50">
           <strong className="text-cream/70">Procédure sur place :</strong> CRM → générer le code 6 chiffres →
-          tablette : ouvrir <code className="text-cream/60">/kitchen</code> ou{' '}
-          <code className="text-cream/60">/pos</code> → saisir le code → PIN employé.
+          tablette : ouvrir <code className="text-cream/60">/kitchen</code>
+          {isModuleEnabled('pos') && (
+            <>
+              {' '}
+              ou <code className="text-cream/60">/pos</code>
+            </>
+          )}{' '}
+          → saisir le code → PIN employé.
         </p>
         <p className="text-xs text-amber-400/80">
           En dev local (<code>localhost</code>) cette étape est ignorée — la garde IP est désactivée.

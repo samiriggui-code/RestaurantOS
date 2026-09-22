@@ -434,14 +434,13 @@ export function DeviceDiagnosticsPanel({ variant }: { variant: DiagnosticVariant
         {isPos ? (
           <>
             Epson cuisine : partage réseau ou pilote navigateur. SUNMI V2 : impression via pont natif ;
-            réimpression depuis le POS ou l&apos;admin commandes — la file PrintJob conserve la traçabilité.
-            Le KDS reçoit les mêmes événements Socket que la caisse.
+            réimpression depuis l&apos;admin commandes — la file PrintJob conserve la traçabilité. Le KDS
+            reçoit les mêmes événements Socket que la caisse.
           </>
         ) : (
           <>
             Imprimante Epson : partage réseau ou pilote navigateur. SUNMI V2 : si oubli en cuisine,
-            réimpression possible depuis le POS ou l&apos;admin commandes — la file PrintJob conserve la
-            traçabilité.
+            réimpression possible depuis l&apos;admin commandes — la file PrintJob conserve la traçabilité.
           </>
         )}
       </p>

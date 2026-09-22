@@ -30,6 +30,7 @@ import { adminFieldClass, adminSelectClass, adminSelectInlineClass } from '@/lib
 import { cn } from '@/lib/cn'
 import { OPERATIONAL_ROLES, ROLE, ROLE_LABEL } from '@/lib/roles'
 import { STAFF_PIN_LENGTH } from '@/lib/pin'
+import { isModuleEnabled } from '@/lib/modules'
 import {
   defaultRoleLabelForPlanning,
   roleLabel,
@@ -656,7 +657,8 @@ export function AdminUsersView({ title = 'Utilisateurs' }: { title?: string }) {
                 </label>
               )}
               <p className="text-xs text-cream/35">
-                Caisse → POS · Cuisine → KDS · Livreur → app /livreur · Le créneau alimente le planning.
+                {isModuleEnabled('pos') ? 'Caisse → POS · ' : ''}Cuisine → KDS · Livreur → app /livreur · Le
+                créneau alimente le planning.
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <button

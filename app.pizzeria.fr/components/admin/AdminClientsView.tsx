@@ -31,19 +31,29 @@ type CustomerRow = {
 export function AdminClientsView() {
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'lastOrderAt', desc: true }])
   const [pagination, setPagination] = useState<PaginationState>(() => createDefaultPagination())
 
   const load = useCallback(async () => {
     const session = getStaffSession()
-    if (!session) return
+    if (!session) {
+      // Sans ça, `loading` (true par défaut) ne redescend jamais — la page tourne à l'infini
+      // au lieu de dire "session expirée" quand le token CRM a sauté en cours d'usage.
+      setLoading(false)
+      setError('Session expirée — reconnectez-vous.')
+      return
+    }
     setLoading(true)
+    setError(null)
     try {
       const res = await staffFetch<{ customers: CustomerRow[] }>('/reports/customers-summary', {
         token: session.token,
       })
       setCustomers(res.customers)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement impossible')
     } finally {
       setLoading(false)
     }
@@ -130,6 +140,11 @@ export function AdminClientsView() {
         }
       />
 
+      {error && (
+        <p className="mb-4 rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-2 text-sm text-red-200">
+          {error}
+        </p>
+      )}
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-tomato-light" />

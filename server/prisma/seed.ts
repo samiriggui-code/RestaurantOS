@@ -91,13 +91,20 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log('👥 Employés opérationnels…');
-  const bizCount = await seedStaffAllBusinesses(prisma);
+  // Équipe démo (Marco/Sophie/Lucas/Amine) : uniquement à la demande (SEED_DEMO_DATA=true).
+  // seedPizzeriaStaff() upserte ces 4 comptes avec isActive: true à chaque appel — sur un
+  // déploiement normal ça réactivait un compte désactivé à la main à chaque redeploy.
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    console.log('👥 Employés opérationnels démo…');
+    const bizCount = await seedStaffAllBusinesses(prisma);
+    console.log(`   ${bizCount} établissement(s) — équipe seed OK (PIN non loggés)`);
+  } else {
+    console.log('👥 Équipe démo ignorée (SEED_DEMO_DATA≠true)');
+  }
   await prisma.user.updateMany({
     where: { role: 'ADMIN', isActive: true },
     data: { shiftId: null },
   });
-  console.log(`   ${bizCount} établissement(s) — équipe seed OK (PIN non loggés)`);
 
   await ensureSnapshotMenuItem(prisma, business.id);
 

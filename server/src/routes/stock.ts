@@ -28,6 +28,31 @@ router.get('/', ...stockRead, async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * GET /api/stock/:id/movements — historique complet d'un article (réceptions, sorties,
+ * pertes, ajustements). La liste `/api/stock` ne renvoie que les 5 derniers mouvements
+ * par article (aperçu léger) ; cette route sert la page dédiée « Historique ».
+ */
+router.get('/:id/movements', ...stockRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const item = await prisma.stockItem.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+      select: { id: true, name: true, unit: true },
+    });
+    if (!item) return res.status(404).json({ error: 'Article introuvable' });
+
+    const movements = await prisma.stockMovement.findMany({
+      where: { stockItemId: item.id },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    res.json({ item, movements });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /** GET /api/stock/recipe-items — produits menu + nombre de lignes BOM */
 router.get('/recipe-items', ...stockRead, async (req: AuthRequest, res: Response) => {
   try {

@@ -39,7 +39,9 @@ function fakePrisma(latestOccurredAt: Date | null = null) {
 }
 
 describe('sumup-transaction-sync — syncSumupTransactions', () => {
-  beforeEach(() => jest.clearAllMocks());
+  // mockReset (pas clearAllMocks) : vide aussi les mockResolvedValueOnce en file d'attente,
+  // sinon ils fuient d'un test à l'autre.
+  beforeEach(() => sumupTransactionsClient.getSumupTransactionHistory.mockReset());
 
   it('looks back 30 days on the very first sync for a business (no cached rows)', async () => {
     sumupTransactionsClient.getSumupTransactionHistory.mockResolvedValue({ items: [] });
@@ -114,13 +116,18 @@ describe('sumup-transaction-sync — syncSumupTransactions', () => {
 
   it('paginates past a full page and stops once a short page is returned', async () => {
     const fullPage = Array.from({ length: PAGE_LIMIT }, (_, i) =>
-      fakeTransaction({ id: `txn-${i}`, timestamp: new Date(2026, 8, 1, 0, i).toISOString() })
+      fakeTransaction({
+        id: `txn-${i}`,
+        timestamp: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString(),
+      })
     );
     const shortPage = [fakeTransaction({ id: 'txn-last', timestamp: '2026-09-02T00:00:00Z' })];
     sumupTransactionsClient.getSumupTransactionHistory
       .mockResolvedValueOnce({ items: fullPage })
       .mockResolvedValueOnce({ items: shortPage });
-    const prisma = fakePrisma();
+    // Point de reprise fixe (oldestTime = 2026-09-01T00:00Z) : sans lui, la fenêtre
+    // "30 derniers jours" dépend de la date du jour et le test finit par casser.
+    const prisma = fakePrisma(new Date('2026-09-01T00:30:00Z'));
 
     const result = await syncSumupTransactions(prisma as never, 'b1');
 

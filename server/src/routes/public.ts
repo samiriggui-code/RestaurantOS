@@ -188,8 +188,10 @@ router.get('/loyalty/balance', async (req: AuthRequest, res: Response) => {
 /**
  * POST /api/public/orders
  * Commande invité — uniquement paiement au comptoir (pas de CB abandonnée en BDD).
+ * Exige le module `pos` : seul l'écran caisse sait encaisser une commande PENDING_PAYMENT —
+ * sans lui (version une-tablette), elle resterait bloquée sans jamais partir en cuisine.
  */
-router.post('/orders', async (req: AuthRequest, res: Response) => {
+router.post('/orders', requireModule('pos'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const body = req.body as OnlineOrderBody;

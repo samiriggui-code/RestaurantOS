@@ -18,7 +18,8 @@ export const ALL_MODULES = [
 
 export type AppModule = (typeof ALL_MODULES)[number]
 
-const V1_DEFAULT = 'menu,pos,kitchen,orders,reports,users,settings'
+/** Défaut = version une-tablette La Z Pizza (sans pos/kiosk) — aligné sur docker-compose.yml. */
+const V1_DEFAULT = 'menu,kitchen,orders,reports,users,settings,expenses,loyalty,shifts'
 
 export function getEnabledModules(): Set<string> {
   const raw =

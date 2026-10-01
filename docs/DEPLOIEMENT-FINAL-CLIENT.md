@@ -10,13 +10,13 @@
 
 | Élément                | Solution                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------ |
-| Site public            | `pizzeria.fr` — menu, commande en ligne (invité), **paiement SumUp**, suivi de commande    |
+| Site public            | `lazpizza.fr` — menu, commande en ligne (invité), **paiement SumUp**, suivi de commande    |
 | Tablette boutique      | **1 tablette**, APK `kds` (ouvre `/kitchen`) — bascule cuisine / back-office / livreur     |
 | Ventes comptoir        | **Terminal SumUp** du client — synchro auto des transactions (API) + import CSV du journal |
 | Facturation            | Factures depuis les transactions SumUp + commandes web                                     |
 | Dépenses               | **Pennylane** (token saisi dans Admin → Intégrations) → reporting ventes vs dépenses       |
 | Impression (optionnel) | Epson cuisine sur le LAN (IP fixe)                                                         |
-| Back-office            | `app.pizzeria.fr/admin`                                                                    |
+| Back-office            | `app.lazpizza.fr/admin`                                                                    |
 
 **Hors périmètre — ne pas activer, ne pas promettre :** POS / caisse tablette, totem (kiosk), réservations, tables, Wi-Fi client, Deliveroo, Uber Eats, Stripe.
 
@@ -33,7 +33,7 @@
 
 - [ ] **Token API Pennylane** (bloquant pour les dépenses du reporting)
 - [ ] Confirmation des clés SumUp de prod (merchant `M26X4YP5`) — déjà présentes sur le VPS
-- [ ] Boîte mail `commandes@pizzeria.fr` (SMTP Hostinger) + mot de passe
+- [ ] Boîte mail `commandes@lazpizza.fr` à créer chez Hostinger (SMTP) — ne pas utiliser la boîte perso `atmane.chennit@lazpizza.fr` (qui reçoit les notifications admin)
 - [ ] Menu réel validé (produits, prix TTC, TVA) et horaires
 - [ ] SIRET, n° TVA, raison sociale (mentions sur les tickets)
 - [ ] Coordonnées de l'expert-comptable (attestation fiscale)
@@ -46,7 +46,7 @@
   - `JWT_SECRET`, `REFRESH_SECRET`, `DB_PASSWORD`
   - `FISCAL_HMAC_SECRET` (distinct de `JWT_SECRET`) — ⚠️ **ne plus jamais le changer après mise en service**
   - `ENABLED_MODULES=menu,kitchen,orders,reports,users,settings,expenses,loyalty,shifts` (**sans** `pos` ni `kiosk`)
-  - `SUMUP_API_KEY`, `SUMUP_MERCHANT_CODE`, `API_PUBLIC_BASE_URL=https://api.pizzeria.fr` (retours de paiement SumUp)
+  - `SUMUP_API_KEY`, `SUMUP_MERCHANT_CODE`, `API_PUBLIC_BASE_URL=https://api.lazpizza.fr` (retours de paiement SumUp)
   - `DRIVER_ACCESS_PIN` **neuf**
 - [ ] Déployer :
   ```bash
@@ -54,7 +54,7 @@
   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
   docker compose exec server npx prisma migrate deploy
   ```
-- [ ] `https://pizzeria.fr`, `https://app.pizzeria.fr/admin`, `https://api.pizzeria.fr/api/health` répondent en HTTPS
+- [ ] `https://lazpizza.fr`, `https://app.lazpizza.fr/admin`, `https://api.lazpizza.fr/api/health` répondent en HTTPS
 - [ ] BDD **sans données de démo ni commandes de test**
 
 ## 4. Mise en service en boutique
@@ -81,7 +81,7 @@
 ## 5. Recette (sur place, avec la vraie tablette)
 
 - [ ] Commande **en ligne** payée SumUp (petit montant réel) → apparaît en cuisine en temps réel → email de confirmation reçu
-- [ ] Suivi client `pizzeria.fr/suivi/:token` OK
+- [ ] Suivi client `lazpizza.fr/suivi/:token` OK
 - [ ] Statuts cuisine : en préparation → prête → en livraison → app livreur (code client à 4 chiffres)
 - [ ] Vente **comptoir** sur le terminal SumUp → remonte dans l'admin après synchro → facture générable
 - [ ] Coupure Wi-Fi tablette → reprise propre à la reconnexion

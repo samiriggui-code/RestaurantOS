@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ColumnDef,
   PaginationState,
@@ -10,58 +10,62 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-} from '@tanstack/react-table'
-import { Loader2, Mail, Phone } from 'lucide-react'
-import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs'
-import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
-import { getStaffSession } from '@/lib/staff-auth'
-import { staffFetch } from '@/lib/staff-api'
-import { formatEUR } from '@/lib/money'
-import Link from 'next/link'
+} from '@tanstack/react-table';
+import { Loader2, Mail, Phone } from 'lucide-react';
+import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs';
+import {
+  AdminDataGridShell,
+  DataGridColumnHeader,
+  createDefaultPagination,
+} from '@/components/ui/data-grid';
+import { getStaffSession } from '@/lib/staff-auth';
+import { staffFetch } from '@/lib/staff-api';
+import { formatEUR } from '@/lib/money';
+import Link from 'next/link';
 
 type CustomerRow = {
-  phone: string
-  name: string
-  email: string | null
-  orderCount: number
-  paidTotalCents: number
-  lastOrderAt: string
-}
+  phone: string;
+  name: string;
+  email: string | null;
+  orderCount: number;
+  paidTotalCents: number;
+  lastOrderAt: string;
+};
 
 export function AdminClientsView() {
-  const [customers, setCustomers] = useState<CustomerRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'lastOrderAt', desc: true }])
-  const [pagination, setPagination] = useState<PaginationState>(() => createDefaultPagination())
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'lastOrderAt', desc: true }]);
+  const [pagination, setPagination] = useState<PaginationState>(() => createDefaultPagination());
 
   const load = useCallback(async () => {
-    const session = getStaffSession()
+    const session = getStaffSession();
     if (!session) {
       // Sans ça, `loading` (true par défaut) ne redescend jamais — la page tourne à l'infini
       // au lieu de dire "session expirée" quand le token CRM a sauté en cours d'usage.
-      setLoading(false)
-      setError('Session expirée — reconnectez-vous.')
-      return
+      setLoading(false);
+      setError('Session expirée — reconnectez-vous.');
+      return;
     }
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
       const res = await staffFetch<{ customers: CustomerRow[] }>('/reports/customers-summary', {
         token: session.token,
-      })
-      setCustomers(res.customers)
+      });
+      setCustomers(res.customers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Chargement impossible')
+      setError(err instanceof Error ? err.message : 'Chargement impossible');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   const columns = useMemo<ColumnDef<CustomerRow>[]>(
     () => [
@@ -72,7 +76,7 @@ export function AdminClientsView() {
       },
       {
         id: 'contact',
-        accessorFn: (row) => `${row.phone} ${row.email ?? ''}`,
+        accessorFn: row => `${row.phone} ${row.email ?? ''}`,
         header: ({ column }) => <DataGridColumnHeader title="Contact" column={column} />,
         cell: ({ row }) => (
           <div className="text-cream/60">
@@ -96,12 +100,14 @@ export function AdminClientsView() {
         accessorKey: 'paidTotalCents',
         header: ({ column }) => <DataGridColumnHeader title="CA payé" column={column} />,
         cell: ({ row }) => (
-          <span className="font-mono text-tomato-light">{formatEUR(row.original.paidTotalCents)}</span>
+          <span className="font-mono text-tomato-light">
+            {formatEUR(row.original.paidTotalCents)}
+          </span>
         ),
       },
       {
         id: 'lastOrderAt',
-        accessorFn: (row) => new Date(row.lastOrderAt).getTime(),
+        accessorFn: row => new Date(row.lastOrderAt).getTime(),
         header: ({ column }) => <DataGridColumnHeader title="Dernière cmd" column={column} />,
         cell: ({ row }) => (
           <span className="text-xs text-cream/45">
@@ -110,8 +116,8 @@ export function AdminClientsView() {
         ),
       },
     ],
-    [],
-  )
+    []
+  );
 
   const table = useReactTable({
     data: customers,
@@ -125,8 +131,16 @@ export function AdminClientsView() {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getRowId: (row) => row.phone,
-  })
+    getRowId: row => row.phone,
+    // Pagination contrôlée + autoReset = boucle de rendu infinie (onglet gelé en arrivant
+    // depuis Commandes) : resetPageIndex → setPagination → rendu → resetPageIndex…
+    // On revient en page 1 nous-mêmes quand la recherche change (effet ci-dessous).
+    autoResetPageIndex: false,
+  });
+
+  useEffect(() => {
+    setPagination(p => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+  }, [search]);
 
   return (
     <AdminPageShell>
@@ -134,7 +148,10 @@ export function AdminClientsView() {
         title="Clients"
         subtitle="Clients identifiés par téléphone — 12 derniers mois, commandes non annulées."
         actions={
-          <Link href="/admin/loyalty" className="text-sm font-medium text-tomato-light hover:underline">
+          <Link
+            href="/admin/loyalty"
+            className="text-sm font-medium text-tomato-light hover:underline"
+          >
             Programme fidélité →
           </Link>
         }
@@ -157,9 +174,11 @@ export function AdminClientsView() {
           search={search}
           onSearchChange={setSearch}
           searchPlaceholder="Nom, téléphone, e-mail…"
-          emptyMessage={customers.length === 0 ? 'Aucun client trouvé.' : 'Aucun résultat pour ce filtre'}
+          emptyMessage={
+            customers.length === 0 ? 'Aucun client trouvé.' : 'Aucun résultat pour ce filtre'
+          }
         />
       )}
     </AdminPageShell>
-  )
+  );
 }

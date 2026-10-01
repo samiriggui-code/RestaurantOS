@@ -33,7 +33,7 @@
 
 - [ ] **Token API Pennylane** (bloquant pour les dépenses du reporting)
 - [ ] Confirmation des clés SumUp de prod (merchant `M26X4YP5`) — déjà présentes sur le VPS
-- [ ] Boîte mail `commandes@lazpizza.fr` à créer chez Hostinger (SMTP) — ne pas utiliser la boîte perso `atmane.chennit@lazpizza.fr` (qui reçoit les notifications admin)
+- [ ] Mot de passe de la boîte `atmane.chennit@lazpizza.fr` (Hostinger) pour le SMTP des emails de commande
 - [ ] Menu réel validé (produits, prix TTC, TVA) et horaires
 - [ ] SIRET, n° TVA, raison sociale (mentions sur les tickets)
 - [ ] Coordonnées de l'expert-comptable (attestation fiscale)
@@ -48,11 +48,14 @@
   - `ENABLED_MODULES=menu,kitchen,orders,reports,users,settings,expenses,loyalty,shifts` (**sans** `pos` ni `kiosk`)
   - `SUMUP_API_KEY`, `SUMUP_MERCHANT_CODE`, `API_PUBLIC_BASE_URL=https://api.lazpizza.fr` (retours de paiement SumUp)
   - `DRIVER_ACCESS_PIN` **neuf**
+  - `ADMIN_PASSWORD` (+ `ADMIN_PIN` optionnel) : compte admin **`atmane.chennit@lazpizza.fr`** créé au 1er seed — jamais réécrit ensuite
+  - `EMAIL_SERVER_USER` / `EMAIL_FROM` / `ADMIN_NOTIFICATION_EMAIL` = `atmane.chennit@lazpizza.fr`
 - [ ] Déployer :
   ```bash
   cd /opt/pizzeria && git pull
   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
   docker compose exec server npx prisma migrate deploy
+  docker compose exec server npx tsx prisma/seed.ts   # crée / renomme l'admin atmane.chennit@lazpizza.fr
   ```
 - [ ] `https://lazpizza.fr`, `https://app.lazpizza.fr/admin`, `https://api.lazpizza.fr/api/health` répondent en HTTPS
 - [ ] BDD **sans données de démo ni commandes de test**
@@ -92,13 +95,13 @@
 
 - [ ] ⚠️ **Tous les PIN du labo changés** : `2580`, `3456`, `2468` sont grillés (affichés publiquement en 07/2026)
 - [ ] Aucun PIN affiché sur une page publique (`/livreur`)
-- [ ] Mot de passe admin fort, remis en main propre
+- [ ] Admin `atmane.chennit@lazpizza.fr` : mot de passe fort, remis en main propre (le gérant peut le changer, le seed ne l'écrase plus)
 - [ ] `FISCAL_ALLOW_JET_REPAIR=false`
 - [ ] Sauvegarde quotidienne active (`deploy/scripts/install-backup-cron.sh`) **et restauration testée une fois**
 
 ## 7. Remise au client
 
-- [ ] Identifiants admin + PIN cuisine / livreur (nouveaux)
+- [ ] Identifiant admin `atmane.chennit@lazpizza.fr` + PIN cuisine / livreur (nouveaux)
 - [ ] Formation du gérant : cuisine sur la tablette, synchro et import CSV SumUp, factures, dépenses et reporting, menu, prix, horaires, **clôture Z chaque soir**
 - [ ] Doc incidents : coupure de courant, plus de papier, plus de Wi-Fi, tablette HS (Appareils → dissocier → rejumeler)
 - [ ] Expert-comptable : revue de [`conformite-article-286-cgi.md`](conformite-article-286-cgi.md) + signature de [`attestation-logiciel-caisse-bofip.md`](attestation-logiciel-caisse-bofip.md)

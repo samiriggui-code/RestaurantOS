@@ -28,9 +28,18 @@ function mergeSeedBusinessSettings(
   };
 }
 
-/** Compte admin CRM — Atmane Chennit, gérant La Z Pizza */
+/** Compte admin CRM — Atmane Chennit, gérant La Z Pizza (atmane.chennit@lazpizza.fr) */
 const ADMIN_EMAIL = lazPizzaStaffEmail('atmane', 'chennit');
-const ADMIN_PASSWORD = 'admin123';
+/** Ancienne adresse (avant bascule sur lazpizza.fr) — renommée si présente. */
+const LEGACY_ADMIN_EMAIL = 'atmane.chennit@lazpizzafarguesainthilaire.com';
+const IS_PROD = process.env.NODE_ENV === 'production';
+/**
+ * Mot de passe / PIN utilisés UNIQUEMENT à la création du compte — jamais réécrits ensuite,
+ * sinon chaque redeploy remettrait le mot de passe choisi par le gérant à sa valeur initiale.
+ * En prod : ADMIN_PASSWORD obligatoire (pas de défaut) ; ADMIN_PIN optionnel.
+ */
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD?.trim() || (IS_PROD ? '' : 'admin123');
+const ADMIN_PIN = process.env.ADMIN_PIN?.trim() || (IS_PROD ? null : '2468');
 
 async function main(): Promise<void> {
   const existingBiz = await prisma.business.findUnique({
@@ -59,13 +68,28 @@ async function main(): Promise<void> {
     },
   });
 
-  const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 12);
-
   const ATMANE_PLANNING_META = {
     employmentType: 'FULL_TIME' as const,
     maxDaysPerWeek: 6,
     canSubstitute: ['CHEF', 'CASHIER', 'DRIVER'],
   };
+
+  // Bascule de domaine : renomme l'ancien compte au lieu d'en créer un second.
+  const [legacyAdmin, currentAdmin] = await Promise.all([
+    prisma.user.findUnique({ where: { email: LEGACY_ADMIN_EMAIL }, select: { id: true } }),
+    prisma.user.findUnique({ where: { email: ADMIN_EMAIL }, select: { id: true } }),
+  ]);
+  if (legacyAdmin && !currentAdmin) {
+    await prisma.user.update({ where: { id: legacyAdmin.id }, data: { email: ADMIN_EMAIL } });
+    console.log(`👤 Admin renommé → ${ADMIN_EMAIL}`);
+  }
+
+  const adminExists = Boolean(currentAdmin || legacyAdmin);
+  if (!adminExists && !ADMIN_PASSWORD) {
+    throw new Error(
+      `ADMIN_PASSWORD requis pour créer le compte admin ${ADMIN_EMAIL} en production.`
+    );
+  }
 
   await prisma.user.upsert({
     where: { email: ADMIN_EMAIL },
@@ -75,16 +99,14 @@ async function main(): Promise<void> {
       role: 'ADMIN',
       isActive: true,
       phone: bizSettings.phone,
-      pin: '2468',
-      password: hashedPassword,
       planningMeta: ATMANE_PLANNING_META,
     },
     create: {
       name: 'Atmane Chennit',
       email: ADMIN_EMAIL,
-      password: hashedPassword,
+      password: await bcrypt.hash(ADMIN_PASSWORD, 12),
       role: 'ADMIN',
-      pin: '2468',
+      pin: ADMIN_PIN,
       businessId: business.id,
       phone: bizSettings.phone,
       planningMeta: ATMANE_PLANNING_META,

@@ -109,7 +109,7 @@ export function DriverPinGate({ children }: { children: React.ReactNode }) {
               <Lock className="mx-auto h-12 w-12 text-violet-400" />
               <h1 className="mt-4 font-display text-2xl font-bold text-cream">Accès livreur</h1>
               <p className="mt-2 text-sm text-cream/50">
-                PIN équipe (2580), PIN livreur (3456 Lucas) ou admin (2468 Atmane)
+                Saisissez votre PIN livreur ou gérant.
               </p>
             </div>
             <input

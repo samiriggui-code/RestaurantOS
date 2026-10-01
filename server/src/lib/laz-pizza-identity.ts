@@ -1,13 +1,13 @@
 /**
  * Identité légale & domaine La Z Pizza — Fargues-Saint-Hilaire.
- * Source : RNE / INSEE (nov. 2023) · site https://www.lazpizzafarguesainthilaire.com/
+ * Source : RNE / INSEE (nov. 2023) · domaine client lazpizza.fr (Hostinger)
  */
 
-export const LAZ_PIZZA_DOMAIN = 'lazpizzafarguesainthilaire.com';
+export const LAZ_PIZZA_DOMAIN = 'lazpizza.fr';
 
-export const LAZ_PIZZA_PUBLIC_URL = `https://www.${LAZ_PIZZA_DOMAIN}`;
+export const LAZ_PIZZA_PUBLIC_URL = `https://${LAZ_PIZZA_DOMAIN}`;
 
-/** Emails staff : prenom.nom@lazpizzafarguesainthilaire.com */
+/** Emails staff : prenom.nom@lazpizza.fr */
 export function lazPizzaStaffEmail(prenom: string, nom: string): string {
   const p = prenom
     .trim()

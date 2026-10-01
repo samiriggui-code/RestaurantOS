@@ -290,6 +290,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   }
 });
 
+// Filet de sécurité : une promesse de tâche de fond rejetée (impression, email, sync…) ne doit
+// jamais arrêter l'API — Node termine le process par défaut sur un rejet non géré.
+process.on('unhandledRejection', reason => {
+  console.error('[unhandledRejection]', reason);
+});
+
 process.on('SIGTERM', async () => {
   await prisma.$disconnect();
   httpServer.close();

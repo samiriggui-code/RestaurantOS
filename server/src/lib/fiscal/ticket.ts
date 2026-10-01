@@ -39,6 +39,19 @@ async function isTrainingMode(prisma: PrismaClient, businessId: string): Promise
   return settings.fiscalTrainingMode === true;
 }
 
+/**
+ * Verrouille la séquence fiscale (SELECT … FOR UPDATE) jusqu'à la fin de la transaction.
+ * Sans ce verrou, deux tickets émis en parallèle lisent le même nextTicketNo / lastTicketHash :
+ * violation d'unicité (businessId, serialNumber) — qui faisait planter l'API — ou chaîne cassée.
+ */
+async function lockFiscalSequence(
+  tx: Prisma.TransactionClient,
+  businessId: string
+): Promise<Prisma.FiscalSequenceGetPayload<object>> {
+  await tx.$queryRaw`SELECT 1 FROM "FiscalSequence" WHERE "businessId" = ${businessId} FOR UPDATE`;
+  return tx.fiscalSequence.findUniqueOrThrow({ where: { businessId } });
+}
+
 /** Idempotent : un ticket SALE par commande (hors TRAINING). */
 export async function ensureFiscalTicketForPaidOrder(
   prisma: PrismaClient,
@@ -110,7 +123,7 @@ export async function issueFiscalTicket(
   } satisfies Record<string, unknown>;
 
   return prisma.$transaction(async tx => {
-    const seq = await tx.fiscalSequence.upsert({
+    await tx.fiscalSequence.upsert({
       where: { businessId: input.businessId },
       create: {
         businessId: input.businessId,
@@ -118,6 +131,20 @@ export async function issueFiscalTicket(
       },
       update: {},
     });
+    const seq = await lockFiscalSequence(tx, input.businessId);
+
+    // Sous le verrou : un appel concurrent (encaissement + file d'impression) a pu émettre le
+    // ticket de cette commande entre notre vérification et ici — ne jamais en émettre un second.
+    if (kind !== 'VOID') {
+      const already = await tx.fiscalTicket.findFirst({
+        where: {
+          businessId: input.businessId,
+          orderId: input.orderId,
+          kind: { in: ['SALE', 'TRAINING'] },
+        },
+      });
+      if (already) return already;
+    }
 
     const serialNumber = seq.nextTicketNo;
     const previousHash = seq.lastTicketHash ?? fiscalGenesisHash();
@@ -212,9 +239,7 @@ export async function issueFiscalVoid(prisma: PrismaClient, input: IssueFiscalVo
   );
 
   return prisma.$transaction(async tx => {
-    const seq = await tx.fiscalSequence.findUniqueOrThrow({
-      where: { businessId: input.businessId },
-    });
+    const seq = await lockFiscalSequence(tx, input.businessId);
     const serialNumber = seq.nextTicketNo;
     const previousHash = seq.lastTicketHash ?? fiscalGenesisHash();
 

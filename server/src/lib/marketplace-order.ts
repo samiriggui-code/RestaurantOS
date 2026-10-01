@@ -254,7 +254,9 @@ export async function ingestMarketplaceOrder(
   if (io) {
     io.to(`business:${businessId}`).emit('order:new', order);
   }
-  void enqueueConfirmedOrderPrints(prisma, io, businessId, order.id);
+  void enqueueConfirmedOrderPrints(prisma, io, businessId, order.id).catch(err =>
+    console.error('[prints] enqueue après paiement:', err)
+  );
 
   return { ok: true, order, orderNumber: order.orderNumber };
 }

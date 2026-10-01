@@ -70,7 +70,9 @@ export async function runOnlineCardPaymentHooks(
     console.error('[online-payment] stock/facture CRITICAL:', orderId, sideErr);
   }
 
-  void enqueueConfirmedOrderPrints(prisma, io, businessId, orderId);
+  void enqueueConfirmedOrderPrints(prisma, io, businessId, orderId).catch(err =>
+    console.error('[prints] enqueue après paiement:', err)
+  );
   emitOrderTrackUpdate(io, order);
 
   if (order.customerEmail) {

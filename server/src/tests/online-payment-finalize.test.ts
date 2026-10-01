@@ -2,7 +2,9 @@ import { runOnlineCardPaymentHooks } from '../lib/online-payment-finalize';
 
 jest.mock('../lib/paid-order-side-effects');
 jest.mock('../lib/fiscal/hook-paid-order');
-jest.mock('../lib/enqueue-order-prints');
+jest.mock('../lib/enqueue-order-prints', () => ({
+  enqueueConfirmedOrderPrints: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('../lib/order-track-events');
 jest.mock('../lib/socket-emit');
 jest.mock('../lib/mail-service');

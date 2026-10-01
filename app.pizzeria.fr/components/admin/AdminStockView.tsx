@@ -20,6 +20,7 @@ import {
   Boxes,
   ChefHat,
   Edit2,
+  History,
   Loader2,
   Package,
   Plus,
@@ -125,6 +126,7 @@ export function AdminStockView() {
   const [showForm, setShowForm] = useState(false)
   const [editTarget, setEditTarget] = useState<StockItem | null>(null)
   const [moveTarget, setMoveTarget] = useState<StockItem | null>(null)
+  const [historyTarget, setHistoryTarget] = useState<StockItem | null>(null)
 
   const load = useCallback(() => {
     const session = getStaffSession()
@@ -352,6 +354,14 @@ export function AdminStockView() {
         enableSorting: false,
         cell: ({ row }) => (
           <div className="flex justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => setHistoryTarget(row.original)}
+              className="rounded-lg p-1.5 text-cream/40 hover:bg-white/5 hover:text-cream"
+              title="Historique des mouvements"
+            >
+              <History className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={() => setEditTarget(row.original)}
@@ -677,6 +687,10 @@ export function AdminStockView() {
         </div>
       )}
 
+      {historyTarget && (
+        <StockHistoryModal item={historyTarget} onClose={() => setHistoryTarget(null)} />
+      )}
+
       {moveTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <form
@@ -730,5 +744,96 @@ export function AdminStockView() {
         </>
       )}
     </AdminPageShell>
+  )
+}
+
+/** Historique complet des mouvements d'un article — la liste principale n'en garde que 5. */
+function StockHistoryModal({ item, onClose }: { item: StockItem; onClose: () => void }) {
+  const [movements, setMovements] = useState<StockMovement[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const session = getStaffSession()
+    if (!session) return
+    let cancelled = false
+    staffFetch<{ movements: StockMovement[] }>(`/stock/${item.id}/movements`, { token: session.token })
+      .then((data) => {
+        if (!cancelled) setMovements(data.movements)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Chargement impossible')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [item.id])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#1A1412] p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-cream">Historique des mouvements</h3>
+            <p className="text-xs text-cream/45">{item.name}</p>
+          </div>
+          <button type="button" onClick={onClose}>
+            <X className="h-5 w-5 text-cream/40" />
+          </button>
+        </div>
+
+        {error && <p className="text-sm text-red-300">{error}</p>}
+        {!error && movements === null && (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-cream/40" />
+          </div>
+        )}
+        {!error && movements?.length === 0 && (
+          <p className="py-8 text-center text-sm text-cream/40">Aucun mouvement enregistré.</p>
+        )}
+        {!error && movements && movements.length > 0 && (
+          <div className="-mr-2 space-y-2 overflow-y-auto pr-2">
+            {movements.map((m) => {
+              const meta = MOVE_TYPES.find((t) => t.id === m.type)
+              const Icon = meta?.icon ?? RefreshCw
+              const sign = m.type === 'IN' ? '+' : m.type === 'ADJUST' ? '=' : '−'
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-start gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
+                >
+                  <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', meta?.tone ?? 'text-cream/40')} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-cream">{meta?.label ?? m.type}</span>
+                      <span className={cn('text-sm font-mono', meta?.tone ?? 'text-cream/70')}>
+                        {sign}
+                        {m.quantity} {item.unit}
+                      </span>
+                    </div>
+                    <p className="text-xs text-cream/40">
+                      {new Date(m.createdAt).toLocaleString('fr-FR', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      {m.note ? ` · ${m.note}` : ''}
+                    </p>
+                    {m.orderId && (
+                      <Link
+                        href={`/admin/orders?order=${m.orderId}`}
+                        className="text-xs text-tomato-light hover:underline"
+                      >
+                        Voir la commande →
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

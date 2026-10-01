@@ -1,47 +1,50 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useRef } from 'react'
-import { Loader2, Lock, Store } from 'lucide-react'
-import { formatPriceEUR } from '@/lib/menu-types'
-import type { CartLine, CheckoutDraft } from '@/lib/cart-types'
-import { customerFullName } from '@/lib/cart-types'
+import { useEffect, useState, useRef } from 'react';
+import { Loader2, Lock, Store } from 'lucide-react';
+import { formatPriceEUR } from '@/lib/menu-types';
+import type { CartLine, CheckoutDraft } from '@/lib/cart-types';
+import { customerFullName } from '@/lib/cart-types';
+import { loadPendingPayment, savePendingPayment } from '@/lib/pending-payment-session';
+import { isModuleEnabled } from '@/lib/modules';
 
-const SUMUP_SDK_URL = 'https://gateway.sumup.com/gateway/ecom/card/v2/sdk.js'
+const SUMUP_SDK_URL = 'https://gateway.sumup.com/gateway/ecom/card/v2/sdk.js';
 
 declare global {
   interface Window {
     SumUpCard?: {
       mount: (options: {
-        id: string
-        checkoutId: string
-        locale?: string
-        onResponse: (type: string, body: unknown) => void
-      }) => void
-    }
+        id: string;
+        checkoutId: string;
+        locale?: string;
+        onResponse: (type: string, body: unknown) => void;
+      }) => void;
+    };
   }
 }
 
-let sumupSdkPromise: Promise<void> | null = null
+let sumupSdkPromise: Promise<void> | null = null;
 function loadSumupSdk(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('SDK indisponible côté serveur'))
-  if (window.SumUpCard) return Promise.resolve()
-  if (sumupSdkPromise) return sumupSdkPromise
+  if (typeof window === 'undefined')
+    return Promise.reject(new Error('SDK indisponible côté serveur'));
+  if (window.SumUpCard) return Promise.resolve();
+  if (sumupSdkPromise) return sumupSdkPromise;
 
   sumupSdkPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${SUMUP_SDK_URL}"]`)
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${SUMUP_SDK_URL}"]`);
     if (existing) {
-      existing.addEventListener('load', () => resolve())
-      existing.addEventListener('error', () => reject(new Error('SDK de paiement introuvable')))
-      return
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('SDK de paiement introuvable')));
+      return;
     }
-    const script = document.createElement('script')
-    script.src = SUMUP_SDK_URL
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('SDK de paiement introuvable'))
-    document.body.appendChild(script)
-  })
-  return sumupSdkPromise
+    const script = document.createElement('script');
+    script.src = SUMUP_SDK_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('SDK de paiement introuvable'));
+    document.body.appendChild(script);
+  });
+  return sumupSdkPromise;
 }
 
 async function completeOnlineCheckout(
@@ -54,30 +57,30 @@ async function completeOnlineCheckout(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draftId, checkoutId }),
-    })
-    const data = await res.json()
+    });
+    const data = await res.json();
     if (res.ok && data.success && data.token) {
-      return { token: data.token, orderNumber: data.orderNumber }
+      return { token: data.token, orderNumber: data.orderNumber };
     }
     if (res.status === 402 || res.status === 202) {
-      await new Promise((r) => setTimeout(r, 1200))
-      continue
+      await new Promise(r => setTimeout(r, 1200));
+      continue;
     }
-    throw new Error(data.error ?? 'Confirmation impossible')
+    throw new Error(data.error ?? 'Confirmation impossible');
   }
-  return null
+  return null;
 }
 
 type Props = {
-  lines: CartLine[]
-  checkout: CheckoutDraft
-  subtotal: number
-  deliveryFee: number
-  total: number
-  paymentMode: 'online' | 'counter'
-  onSuccess: (token: string, orderNumber: number) => void
-  onError: (message: string) => void
-}
+  lines: CartLine[];
+  checkout: CheckoutDraft;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  paymentMode: 'online' | 'counter';
+  onSuccess: (token: string, orderNumber: number) => void;
+  onError: (message: string) => void;
+};
 
 /** Formulaire carte SumUp (widget embarqué — les numéros de carte ne passent pas par notre serveur). */
 function SumupCardForm({
@@ -86,88 +89,89 @@ function SumupCardForm({
   checkoutId,
   onSuccess,
 }: {
-  total: number
-  draftId: string
-  checkoutId: string
-  onSuccess: (token: string, orderNumber: number) => void
+  total: number;
+  draftId: string;
+  checkoutId: string;
+  onSuccess: (token: string, orderNumber: number) => void;
 }) {
-  const [paying, setPaying] = useState(false)
-  const [payError, setPayError] = useState<string | null>(null)
-  const [mounting, setMounting] = useState(true)
-  const containerId = useRef(`sumup-card-${draftId}`).current
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [mounting, setMounting] = useState(true);
+  const containerId = useRef(`sumup-card-${draftId}`).current;
 
   function reportError(message: string) {
-    setPayError(message)
+    setPayError(message);
   }
 
   useEffect(() => {
-    let cancelled = false
-    setMounting(true)
-    setPayError(null)
+    let cancelled = false;
+    setMounting(true);
+    setPayError(null);
 
     loadSumupSdk()
       .then(() => {
-        if (cancelled) return
-        setMounting(false)
+        if (cancelled) return;
+        setMounting(false);
         window.SumUpCard?.mount({
           id: containerId,
           checkoutId,
           locale: 'fr-FR',
           onResponse: (type, body) => {
-            if (cancelled) return
+            if (cancelled) return;
 
             if (type === 'sent') {
-              setPaying(true)
-              setPayError(null)
-              return
+              setPaying(true);
+              setPayError(null);
+              return;
             }
             if (type === 'auth-screen') {
               // 3DS affiché dans le widget lui-même — rien à faire côté appli.
-              return
+              return;
             }
             if (type === 'invalid') {
-              setPaying(false)
-              reportError('Vérifiez les informations de carte.')
-              return
+              setPaying(false);
+              reportError('Vérifiez les informations de carte.');
+              return;
             }
             if (type === 'success') {
               void (async () => {
                 try {
-                  const result = await completeOnlineCheckout(draftId, checkoutId)
+                  const result = await completeOnlineCheckout(draftId, checkoutId);
                   if (!result) {
-                    setPaying(false)
-                    reportError('Paiement accepté — confirmation en cours, réessayez dans un instant.')
-                    return
+                    setPaying(false);
+                    reportError(
+                      'Paiement accepté — confirmation en cours, réessayez dans un instant.'
+                    );
+                    return;
                   }
-                  onSuccess(result.token, result.orderNumber)
+                  onSuccess(result.token, result.orderNumber);
                 } catch (err) {
-                  setPaying(false)
-                  reportError(err instanceof Error ? err.message : 'Erreur confirmation paiement')
+                  setPaying(false);
+                  reportError(err instanceof Error ? err.message : 'Erreur confirmation paiement');
                 }
-              })()
-              return
+              })();
+              return;
             }
             // 'error' | 'fail'
-            setPaying(false)
-            const hasMessage =
-              body !== null && typeof body === 'object' && 'message' in body
+            setPaying(false);
+            const hasMessage = body !== null && typeof body === 'object' && 'message' in body;
             const message = hasMessage
               ? String((body as { message: unknown }).message)
-              : 'Paiement refusé'
-            reportError(message)
+              : 'Paiement refusé';
+            reportError(message);
           },
-        })
+        });
       })
-      .catch((err) => {
-        if (cancelled) return
-        setMounting(false)
-        reportError(err instanceof Error ? err.message : 'Widget de paiement indisponible')
-      })
+      .catch(err => {
+        if (cancelled) return;
+        setMounting(false);
+        reportError(err instanceof Error ? err.message : 'Widget de paiement indisponible');
+      });
 
     return () => {
-      cancelled = true
-    }
-  }, [checkoutId, draftId, containerId])
+      cancelled = true;
+    };
+  }, [checkoutId, draftId, containerId]);
 
   return (
     <div className="space-y-4">
@@ -194,7 +198,7 @@ function SumupCardForm({
       )}
       <p className="text-center text-xs text-cream/35">Paiement sécurisé par carte bancaire</p>
     </div>
-  )
+  );
 }
 
 function CounterPaymentForm({
@@ -206,10 +210,10 @@ function CounterPaymentForm({
   onSuccess,
   onError,
 }: Props) {
-  const [submitting, setSubmitting] = useState(false)
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
-    setSubmitting(true)
+    setSubmitting(true);
     try {
       const res = await fetch('/api/public/orders', {
         method: 'POST',
@@ -221,24 +225,24 @@ function CounterPaymentForm({
           deliveryFee,
           total,
         }),
-      })
-      const data = await res.json()
+      });
+      const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error ?? 'Impossible de créer la commande')
+        throw new Error(data.error ?? 'Impossible de créer la commande');
       }
-      onSuccess(data.token, data.orderNumber)
+      onSuccess(data.token, data.orderNumber);
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Erreur commande')
+      onError(err instanceof Error ? err.message : 'Erreur commande');
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
   return (
     <div className="space-y-4">
       <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-        Votre commande sera envoyée en cuisine après paiement au comptoir. Présentez-vous à la caisse avec
-        votre numéro de commande.
+        Votre commande sera envoyée en cuisine après paiement au comptoir. Présentez-vous à la
+        caisse avec votre numéro de commande.
       </p>
       <button
         type="button"
@@ -250,7 +254,7 @@ function CounterPaymentForm({
         {submitting ? 'Envoi…' : `Commander — ${formatPriceEUR(total)} à payer au comptoir`}
       </button>
     </div>
-  )
+  );
 }
 
 export function CheckoutPayment({
@@ -259,75 +263,108 @@ export function CheckoutPayment({
   subtotal,
   deliveryFee,
   total,
-  paymentMode,
+  paymentMode: requestedMode,
   onSuccess,
   onError,
 }: Props) {
-  const [loading, setLoading] = useState(true)
-  const [initError, setInitError] = useState<string | null>(null)
-  const [draftId, setDraftId] = useState<string | null>(null)
-  const [checkoutId, setCheckoutId] = useState<string | null>(null)
-  const prepareKey = useRef<string | null>(null)
+  // Sans module pos, un "comptoir" mémorisé (session, ancien panier) bascule en ligne.
+  const paymentMode = isModuleEnabled('pos') ? requestedMode : 'online';
+  const [loading, setLoading] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [checkoutId, setCheckoutId] = useState<string | null>(null);
+  const prepareKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (paymentMode === 'counter') {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
     }
 
-    const abort = new AbortController()
-    let cancelled = false
-    const fingerprint = JSON.stringify({ lines, checkout, subtotal, deliveryFee, total })
+    const abort = new AbortController();
+    let cancelled = false;
+    const fingerprint = JSON.stringify({ lines, checkout, subtotal, deliveryFee, total });
 
     if (prepareKey.current === fingerprint && draftId && checkoutId) {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
+    }
+
+    // Un paiement a peut-être déjà été initié pour ce même panier avant un remount (sheet
+    // fermé/reouvert, page rechargée, bandeau « Reprendre ») — le réutiliser plutôt que
+    // d'en créer un second, qui mintrait un nouveau paiement SumUp pour la même commande.
+    const pending = loadPendingPayment(fingerprint);
+    if (pending) {
+      void (async () => {
+        setLoading(true);
+        // Le paiement a peut-être déjà été confirmé pendant l'absence du client (webhook
+        // arrivé entre-temps) — sinon on réafficherait le formulaire de carte pour un
+        // paiement déjà capturé. Un seul essai (pas les 8 tentatives d'attente normales).
+        try {
+          const result = await completeOnlineCheckout(pending.draftId, pending.checkoutId, 1);
+          if (cancelled) return;
+          if (result) {
+            onSuccess(result.token, result.orderNumber);
+            return;
+          }
+        } catch {
+          // Pas encore confirmé (ou session déjà consommée sans commande liée) — on retombe
+          // sur le formulaire de carte normal, qui gère lui-même les erreurs de paiement.
+        }
+        if (cancelled) return;
+        prepareKey.current = fingerprint;
+        setDraftId(pending.draftId);
+        setCheckoutId(pending.checkoutId);
+        setLoading(false);
+      })();
+      return;
     }
 
     async function init() {
-      setInitError(null)
-      setLoading(true)
+      setInitError(null);
+      setLoading(true);
       try {
         const res = await fetch('/api/public/payments/prepare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lines, checkout, subtotal, deliveryFee, total }),
           signal: abort.signal,
-        })
-        const data = await res.json()
+        });
+        const data = await res.json();
         if (!res.ok || !data.success) {
-          throw new Error(data.error ?? "Impossible d'initialiser le paiement")
+          throw new Error(data.error ?? "Impossible d'initialiser le paiement");
         }
 
-        if (cancelled) return
+        if (cancelled) return;
 
         if (!data.draftId || !data.checkoutId) {
-          throw new Error('Paiement en ligne non configuré')
+          throw new Error('Paiement en ligne non configuré');
         }
 
-        prepareKey.current = fingerprint
-        setDraftId(data.draftId)
-        setCheckoutId(data.checkoutId)
+        prepareKey.current = fingerprint;
+        setDraftId(data.draftId);
+        setCheckoutId(data.checkoutId);
+        savePendingPayment({ fingerprint, draftId: data.draftId, checkoutId: data.checkoutId });
       } catch (err) {
-        if (cancelled || abort.signal.aborted) return
+        if (cancelled || abort.signal.aborted) return;
         // Affiché une seule fois ici — ne pas remonter au parent (évite le triple « SumUp non configuré »).
-        const raw = err instanceof Error ? err.message : 'Erreur initialisation paiement'
+        const raw = err instanceof Error ? err.message : 'Erreur initialisation paiement';
         const message = /sumup|non configuré|paiement en ligne/i.test(raw)
           ? 'Paiement en ligne indisponible pour le moment. Choisissez « Comptoir » pour commander.'
-          : raw
-        setInitError(message)
+          : raw;
+        setInitError(message);
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
     }
 
-    void init()
+    void init();
     return () => {
-      cancelled = true
-      abort.abort()
-    }
+      cancelled = true;
+      abort.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentMode, lines, checkout, subtotal, deliveryFee, total])
+  }, [paymentMode, lines, checkout, subtotal, deliveryFee, total]);
 
   if (paymentMode === 'counter') {
     return (
@@ -341,7 +378,7 @@ export function CheckoutPayment({
         onSuccess={onSuccess}
         onError={onError}
       />
-    )
+    );
   }
 
   if (loading) {
@@ -350,7 +387,7 @@ export function CheckoutPayment({
         <Loader2 className="h-5 w-5 animate-spin" />
         Préparation du paiement…
       </div>
-    )
+    );
   }
 
   if (initError) {
@@ -358,13 +395,15 @@ export function CheckoutPayment({
       <div className="rounded-xl border border-red-500/30 bg-red-950/20 px-4 py-3 text-sm text-red-200">
         {initError}
       </div>
-    )
+    );
   }
 
   if (!draftId || !checkoutId) {
     return (
-      <p className="text-sm text-red-400">Paiement indisponible. Vérifiez la configuration du paiement en ligne.</p>
-    )
+      <p className="text-sm text-red-400">
+        Paiement indisponible. Vérifiez la configuration du paiement en ligne.
+      </p>
+    );
   }
 
   return (
@@ -379,5 +418,5 @@ export function CheckoutPayment({
         onSuccess={onSuccess}
       />
     </div>
-  )
+  );
 }

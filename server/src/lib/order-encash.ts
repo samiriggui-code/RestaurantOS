@@ -72,7 +72,9 @@ export async function encashOrder(
     order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
   ).catch(err => console.error('Stock deduct on encash:', err));
 
-  void enqueueConfirmedOrderPrints(prisma, io, order.businessId, order.id);
+  void enqueueConfirmedOrderPrints(prisma, io, order.businessId, order.id).catch(err =>
+    console.error('[prints] enqueue après paiement:', err)
+  );
 
   void ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, params.userId).catch(err =>
     console.error('Auto invoice on encash:', err)

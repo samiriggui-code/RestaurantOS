@@ -28,6 +28,31 @@ router.get('/', ...stockRead, async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * GET /api/stock/:id/movements — historique complet d'un article (réceptions, sorties,
+ * pertes, ajustements). La liste `/api/stock` ne renvoie que les 5 derniers mouvements
+ * par article (aperçu léger) ; cette route sert la page dédiée « Historique ».
+ */
+router.get('/:id/movements', ...stockRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const item = await prisma.stockItem.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+      select: { id: true, name: true, unit: true },
+    });
+    if (!item) return res.status(404).json({ error: 'Article introuvable' });
+
+    const movements = await prisma.stockMovement.findMany({
+      where: { stockItemId: item.id },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    res.json({ item, movements });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /** GET /api/stock/recipe-items — produits menu + nombre de lignes BOM */
 router.get('/recipe-items', ...stockRead, async (req: AuthRequest, res: Response) => {
   try {
@@ -318,8 +343,18 @@ router.delete('/:id', ...stockWrite, async (req: AuthRequest, res: Response) => 
     const prisma: PrismaClient = req.app.get('prisma');
     const existing = await prisma.stockItem.findFirst({
       where: { id: req.params.id, businessId: req.user!.businessId },
+      include: { recipes: { include: { menuItem: { select: { name: true } } } } },
     });
     if (!existing) return res.status(404).json({ error: 'Article introuvable' });
+    if (existing.recipes.length > 0) {
+      // La recette (MenuItemRecipe) cascade sur suppression du StockItem — sans ce garde-fou,
+      // l'article disparaît silencieusement du BOM des produits qui l'utilisent (déduction
+      // stock faussée à la prochaine vente, sans que personne ne s'en aperçoive).
+      const productNames = [...new Set(existing.recipes.map(r => r.menuItem.name))];
+      return res.status(409).json({
+        error: `Cet article est utilisé dans la recette de ${productNames.length} produit(s) (${productNames.join(', ')}). Retirez-le de ces recettes avant de le supprimer.`,
+      });
+    }
     await prisma.stockItem.delete({ where: { id: existing.id } });
     const io: SocketIOServer = req.app.get('io');
     emitAdminLive(io, req.user!.businessId, {

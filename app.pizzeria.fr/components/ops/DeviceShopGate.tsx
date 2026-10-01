@@ -1,12 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Link2, Loader2, ShieldAlert, Smartphone, WifiOff } from 'lucide-react'
+import { KeyRound, Link2, Loader2, ShieldAlert, Smartphone, WifiOff } from 'lucide-react'
 import {
   fetchDeviceAccessStatus,
   fetchDeviceBindingStatus,
   isLocalDevHost,
   pairDevicePublic,
+  requestDeviceEmergencyBypass,
   DEVICE_SLOT_LABELS,
   type DevicesAccessStatus,
 } from '@/lib/device-onboarding'
@@ -16,15 +17,23 @@ import {
   getBoundDeviceId,
   saveDeviceBinding,
 } from '@/lib/device-binding'
+import {
+  hasValidDeviceGateBypass,
+  saveDeviceGateBypass,
+} from '@/lib/device-gate-bypass'
+import { getCrmSession } from '@/lib/staff-auth'
 
 type GatePhase = 'loading' | 'network-error' | 'network-blocked' | 'wan-missing' | 'pairing' | 'ready'
 
 export function DeviceShopGate({
   deviceLabel,
   children,
+  /** Totem : contrôle IP boutique sans jumelage slot POS/KDS. */
+  skipPairing = false,
 }: {
   deviceLabel: string
   children: React.ReactNode
+  skipPairing?: boolean
 }) {
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [status, setStatus] = useState<DevicesAccessStatus | null>(null)
@@ -33,6 +42,11 @@ export function DeviceShopGate({
 
   const verify = useCallback(async () => {
     if (isLocalDevHost()) {
+      setPhase('ready')
+      return
+    }
+
+    if (hasValidDeviceGateBypass()) {
       setPhase('ready')
       return
     }
@@ -54,6 +68,11 @@ export function DeviceShopGate({
         return
       }
 
+      if (skipPairing) {
+        setPhase('ready')
+        return
+      }
+
       const boundId = getBoundDeviceId()
       if (boundId) {
         const binding = await fetchDeviceBindingStatus(boundId)
@@ -64,12 +83,20 @@ export function DeviceShopGate({
         clearDeviceBinding()
       }
 
+      // Tablette unique boutique : déjà connectée au backoffice (session CRM) sur ce même
+      // appareil → pas besoin de re-jumeler séparément pour le KDS. Le contrôle IP boutique
+      // ci-dessus reste appliqué ; seul le code de jumelage à 6 chiffres est sauté.
+      if (getCrmSession()) {
+        setPhase('ready')
+        return
+      }
+
       setPhase('pairing')
     } catch (err) {
       setNetworkError(err instanceof Error ? err.message : 'Connexion impossible')
       setPhase('network-error')
     }
-  }, [expectedSlot])
+  }, [expectedSlot, skipPairing])
 
   useEffect(() => {
     void verify()
@@ -102,6 +129,7 @@ export function DeviceShopGate({
           }
         }
         onRetry={() => void verify()}
+        onEmergencyBypass={() => setPhase('ready')}
       />
     )
   }
@@ -114,6 +142,7 @@ export function DeviceShopGate({
         message="L’IP du réseau boutique n’est pas encore enregistrée. Réessayez depuis le Wi‑Fi du restaurant, ou demandez au gérant d’utiliser « Utiliser l’IP de ce réseau » dans le CRM (Appareils → Réseau)."
         status={status}
         onRetry={() => void verify()}
+        onEmergencyBypass={() => setPhase('ready')}
       />
     )
   }
@@ -126,6 +155,7 @@ export function DeviceShopGate({
         message="Cet écran n’est accessible que depuis le Wi‑Fi du restaurant (IP boutique enregistrée)."
         status={status}
         onRetry={() => void verify()}
+        onEmergencyBypass={() => setPhase('ready')}
       />
     )
   }
@@ -136,11 +166,79 @@ export function DeviceShopGate({
         deviceLabel={deviceLabel}
         expectedSlot={expectedSlot}
         onPaired={() => setPhase('ready')}
+        onEmergencyBypass={() => setPhase('ready')}
       />
     )
   }
 
   return <>{children}</>
+}
+
+function ManagerEmergencyBypass({ onSuccess }: { onSuccess: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    if (pin.length < 4) {
+      setError('PIN gérant requis')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await requestDeviceEmergencyBypass(pin)
+      saveDeviceGateBypass(res.expiresAt)
+      onSuccess()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Accès refusé')
+      setPin('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-2 text-xs text-cream/45 underline-offset-2 hover:text-cream/70 hover:underline"
+      >
+        Accès temporaire gérant (PIN)
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-4 w-full max-w-xs space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+      <p className="flex items-center gap-2 text-xs text-amber-200/90">
+        <KeyRound className="h-3.5 w-3.5 shrink-0" />
+        Bypass 4 h — PIN admin / gérant
+      </p>
+      <input
+        inputMode="numeric"
+        maxLength={8}
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void submit()
+        }}
+        placeholder="PIN"
+        className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-center font-mono tracking-widest"
+      />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button
+        type="button"
+        disabled={busy || pin.length < 4}
+        onClick={() => void submit()}
+        className="w-full rounded-lg bg-amber-600 py-2 text-xs font-medium text-white disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : 'Débloquer temporairement'}
+      </button>
+    </div>
+  )
 }
 
 function BlockedScreen({
@@ -149,12 +247,14 @@ function BlockedScreen({
   message,
   status,
   onRetry,
+  onEmergencyBypass,
 }: {
   icon: React.ReactNode
   title: string
   message: string
   status: DevicesAccessStatus
   onRetry?: () => void
+  onEmergencyBypass?: () => void
 }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-charcoal p-6 text-cream">
@@ -178,6 +278,7 @@ function BlockedScreen({
           Réessayer
         </button>
       )}
+      {onEmergencyBypass && <ManagerEmergencyBypass onSuccess={onEmergencyBypass} />}
     </div>
   )
 }
@@ -186,10 +287,12 @@ function DevicePairingScreen({
   deviceLabel,
   expectedSlot,
   onPaired,
+  onEmergencyBypass,
 }: {
   deviceLabel: string
   expectedSlot: ReturnType<typeof expectedDeviceSlot>
   onPaired: () => void
+  onEmergencyBypass: () => void
 }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -223,7 +326,7 @@ function DevicePairingScreen({
       <div className="max-w-sm space-y-2 text-center">
         <h1 className="font-display text-2xl font-bold">Jumeler {deviceLabel}</h1>
         <p className="text-sm text-cream/60">
-          Saisissez le code à 6 chiffres généré dans le CRM → Devices &amp; boutiques.
+          Saisissez le code à 6 chiffres généré dans le CRM → Devices &amp; boutiques ({slotLabel}).
         </p>
         <p className="text-xs text-cream/40">
           Le jumelage ne se fait qu’une fois. Pour changer d’appareil, dissociez l’ancien dans le CRM.
@@ -256,6 +359,7 @@ function DevicePairingScreen({
         >
           {submitting ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Associer cet appareil'}
         </button>
+        <ManagerEmergencyBypass onSuccess={onEmergencyBypass} />
       </div>
     </div>
   )

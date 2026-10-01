@@ -1,210 +1,443 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CreditCard,
-  ExternalLink,
-  Loader2,
-  Monitor,
-  Package,
-  Settings,
-  Smartphone,
-  Store,
-  Truck,
-} from 'lucide-react'
-import { AdminPosConfigView } from '@/components/admin/AdminPosConfigView'
-import {
-  AdminMonitorBanner,
-  AdminPageHeader,
-  AdminSectionTabs,
-} from '@/components/admin/AdminSectionTabs'
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
+import { CreditCard, FileText, Loader2, RefreshCw, Upload, Wallet, X } from 'lucide-react'
+import { AdminPageHeader } from '@/components/admin/AdminSectionTabs'
 import { ADMIN_STAT_GRID, AdminStatCard } from '@/components/admin/AdminStatCard'
+import { AdminDataGridShell, DataGridColumnHeader } from '@/components/ui/data-grid'
 import { getStaffSession } from '@/lib/staff-auth'
-import {
-  fetchOnlineOrdersForPos,
-  fetchPosDeliveryQueue,
-  fetchPosHandoverQueue,
-  type OpsOrder,
-} from '@/lib/ops-orders'
-import { getKitchenSocket, joinBusinessRoom, releaseKitchenSocket, retainKitchenSocket } from '@/lib/socket'
+import { staffFetch } from '@/lib/staff-api'
+import { formatEUR } from '@/lib/money'
+import { periodToDateRange, type ArchivePeriod, type CustomRange } from '@/lib/order-period'
+import { PeriodPicker, defaultCustomRange } from '@/components/admin/PeriodPicker'
 
-type HubTab = 'overview' | 'settings'
+const fieldClass =
+  'mt-1 w-full rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40'
 
-export function AdminPosHub() {
-  const [tab, setTab] = useState<HubTab>('overview')
+/** Cap serveur (sumup-transaction-sync.ts) — au-delà, la liste est tronquée silencieusement
+ * sans cette valeur pour comparer et prévenir qu'il y a plus de résultats que ce qui est affiché. */
+const SERVER_MAX_LIMIT = 500
 
-  const tabs = [
-    { id: 'overview' as const, label: 'Vue d\'ensemble', icon: Monitor },
-    { id: 'settings' as const, label: 'Paramètres caisse', icon: Settings },
-  ]
-
-  return (
-    <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col">
-      <div className="shrink-0 border-b border-white/10 px-4 py-4 md:px-6">
-        <AdminPageHeader
-          title="Suivi caisse"
-          description="Le CRM observe les files d'attente ; le terminal SUNMI (/pos) prend les commandes et encaisse."
-          actions={
-            <AdminSectionTabs tabs={tabs} active={tab} onChange={setTab} />
-          }
-        />
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === 'overview' ? <PosOverviewPanel /> : <AdminPosConfigView embedded />}
-      </div>
-    </div>
-  )
+type SumupTransactionRow = {
+  id: string
+  amountCents: number
+  paymentType: string
+  productSummary: string | null
+  occurredAt: string
+  invoiceId: string | null
 }
 
-function PosOverviewPanel() {
-  const [online, setOnline] = useState<OpsOrder[]>([])
-  const [handover, setHandover] = useState<OpsOrder[]>([])
-  const [delivery, setDelivery] = useState<OpsOrder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [connected, setConnected] = useState(false)
+const PAYMENT_TYPE_LABEL: Record<string, string> = {
+  POS: 'Comptoir CB',
+  CASH: 'Comptoir espèces',
+  ECOM: 'En ligne',
+}
 
-  const refresh = useCallback(async () => {
-    const session = getStaffSession('crm')
+const PAGINATION_SIZES = [5, 10, 50] as const
+
+/** Suivi caisse = encaissements comptoir SumUp (cache API), indépendant du module POS (désactivé). */
+export function AdminPosHub() {
+  const [period, setPeriod] = useState<ArchivePeriod>('today')
+  const [custom, setCustom] = useState<CustomRange>(() => defaultCustomRange())
+  const [transactions, setTransactions] = useState<SumupTransactionRow[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [search, setSearch] = useState('')
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'occurredAt', desc: true }])
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
+  const [billTarget, setBillTarget] = useState<SumupTransactionRow | null>(null)
+  const [billForm, setBillForm] = useState({ clientName: '', clientEmail: '', clientPhone: '', clientAddress: '' })
+  const [billing, setBilling] = useState(false)
+  const [billError, setBillError] = useState<string | null>(null)
+
+  const range = useMemo(
+    () => periodToDateRange(period, period === 'custom' ? custom : undefined),
+    [period, custom],
+  )
+
+  const load = useCallback(async () => {
+    const session = getStaffSession()
     if (!session) return
+    setLoading(true)
     try {
-      const [o, h, d] = await Promise.all([
-        fetchOnlineOrdersForPos(session.token),
-        fetchPosHandoverQueue(session.token),
-        fetchPosDeliveryQueue(session.token),
-      ])
-      setOnline(o)
-      setHandover(h)
-      setDelivery(d)
+      const params = new URLSearchParams({ billed: 'all', limit: String(SERVER_MAX_LIMIT) })
+      if (range.dateFrom) params.set('from', range.dateFrom)
+      if (range.dateTo) params.set('to', range.dateTo)
+      const res = await staffFetch<{ transactions: SumupTransactionRow[] }>(
+        `/payments/sumup/transactions?${params.toString()}`,
+        { token: session.token },
+      )
+      setTransactions(res.transactions)
+      // Le serveur plafonne à SERVER_MAX_LIMIT — si on l'atteint pile, des transactions plus
+      // anciennes existent sûrement mais ne sont pas dans la liste, sans qu'on le voie sinon.
+      setTruncated(res.transactions.length >= SERVER_MAX_LIMIT)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [range])
 
   useEffect(() => {
-    void refresh()
-    const session = getStaffSession('crm')
+    void load()
+  }, [load])
+
+  useEffect(() => {
+    setPagination((p) => ({ ...p, pageIndex: 0 }))
+  }, [range, search])
+
+  async function sync() {
+    const session = getStaffSession()
     if (!session) return
-
-    retainKitchenSocket()
-    const socket = getKitchenSocket(session.token)
-    const onConnect = () => {
-      setConnected(true)
-      joinBusinessRoom(socket, session.businessId)
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const res = await staffFetch<{ synced: number }>('/payments/sumup/transactions/sync', {
+        token: session.token,
+        method: 'POST',
+      })
+      setSyncMsg(`${res.synced} transaction(s) synchronisée(s).`)
+      await load()
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : 'Synchro impossible')
+    } finally {
+      setSyncing(false)
     }
-    const onDisconnect = () => setConnected(false)
-    const onOrder = () => void refresh()
+  }
 
-    socket.on('connect', onConnect)
-    socket.on('disconnect', onDisconnect)
-    socket.on('order:new', onOrder)
-    socket.on('order:statusUpdate', onOrder)
-    socket.on('order:cancelled', onOrder)
-    if (socket.connected) onConnect()
-
-    return () => {
-      socket.off('connect', onConnect)
-      socket.off('disconnect', onDisconnect)
-      socket.off('order:new', onOrder)
-      socket.off('order:statusUpdate', onOrder)
-      socket.off('order:cancelled', onOrder)
-      releaseKitchenSocket()
+  async function importJournal(file: File) {
+    const session = getStaffSession()
+    if (!session) return
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const csv = await file.text()
+      const res = await staffFetch<{ matched: number; unmatched: string[] }>(
+        '/payments/sumup/transactions/import-journal',
+        { token: session.token, method: 'POST', body: JSON.stringify({ csv }) },
+      )
+      const parts = [`${res.matched} transaction(s) complétée(s) avec le détail produit.`]
+      if (res.unmatched.length > 0) {
+        parts.push(
+          `${res.unmatched.length} non trouvée(s) dans le cache (pas encore synchronisées ou hors période) — resynchronisez et réessayez.`,
+        )
+      }
+      setImportMsg(parts.join(' '))
+      await load()
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : 'Import impossible')
+    } finally {
+      setImporting(false)
     }
-  }, [refresh])
+  }
+
+  function openBillModal(txn: SumupTransactionRow) {
+    setBillTarget(txn)
+    setBillForm({ clientName: '', clientEmail: '', clientPhone: '', clientAddress: '' })
+    setBillError(null)
+  }
+
+  async function confirmBill() {
+    const session = getStaffSession()
+    if (!session || !billTarget) return
+    if (!billForm.clientName.trim()) {
+      setBillError('Nom client obligatoire')
+      return
+    }
+    setBilling(true)
+    setBillError(null)
+    try {
+      await staffFetch(`/invoices/from-sumup-transaction/${billTarget.id}`, {
+        method: 'POST',
+        token: session.token,
+        body: JSON.stringify({
+          clientName: billForm.clientName,
+          clientEmail: billForm.clientEmail || undefined,
+          clientPhone: billForm.clientPhone || undefined,
+          clientAddress: billForm.clientAddress || undefined,
+        }),
+      })
+      setBillTarget(null)
+      await load()
+    } catch (e) {
+      setBillError(e instanceof Error ? e.message : 'Facturation impossible')
+    } finally {
+      setBilling(false)
+    }
+  }
+
+  const total = transactions.reduce((s, t) => s + t.amountCents, 0)
+  const cb = transactions.filter((t) => t.paymentType === 'POS')
+  const cash = transactions.filter((t) => t.paymentType === 'CASH')
+  const unbilled = transactions.filter((t) => !t.invoiceId)
+
+  const columns = useMemo<ColumnDef<SumupTransactionRow>[]>(
+    () => [
+      {
+        id: 'occurredAt',
+        accessorFn: (row) => new Date(row.occurredAt).getTime(),
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/70">
+            {new Date(row.original.occurredAt).toLocaleString('fr-FR')}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'paymentType',
+        header: ({ column }) => <DataGridColumnHeader title="Type" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/70">
+            {PAYMENT_TYPE_LABEL[row.original.paymentType] ?? row.original.paymentType}
+          </span>
+        ),
+      },
+      {
+        id: 'productSummary',
+        accessorFn: (row) => row.productSummary ?? '',
+        header: ({ column }) => <DataGridColumnHeader title="Détail" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/50">{row.original.productSummary ?? '—'}</span>
+        ),
+      },
+      {
+        accessorKey: 'amountCents',
+        header: ({ column }) => <DataGridColumnHeader title="Montant" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-semibold tabular-nums text-cream">
+            {formatEUR(row.original.amountCents)}
+          </span>
+        ),
+      },
+      {
+        id: 'invoiceId',
+        accessorFn: (row) => (row.invoiceId ? 1 : 0),
+        header: ({ column }) => <DataGridColumnHeader title="Facture" column={column} />,
+        cell: ({ row }) =>
+          row.original.invoiceId ? (
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
+              Facturée
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openBillModal(row.original)}
+              className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/25"
+            >
+              Facturer
+            </button>
+          ),
+      },
+    ],
+    [],
+  )
+
+  const table = useReactTable({
+    data: transactions,
+    columns,
+    state: { pagination, sorting, globalFilter: search },
+    onPaginationChange: setPagination,
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-      <AdminMonitorBanner
-        href="/monitor/pos"
-        title="Moniteur caisse temps réel"
-        description="Files en ligne, remise client et livraison — fenêtre dédiée pour supervision."
-        icon={Store}
+      <AdminPageHeader
+        title="Suivi caisse"
+        description="Encaissements comptoir SumUp — CB et espèces enregistrés sur le lecteur boutique."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) void importJournal(file)
+              }}
+            />
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => fileInputRef.current?.click()}
+              title='Importe le détail produit depuis le rapport "Ventes" exporté manuellement sur SumUp (l’API ne le fournit pas)'
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm text-cream hover:bg-white/5 disabled:opacity-50"
+            >
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Importer détail (CSV)
+            </button>
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={() => void sync()}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm text-cream hover:bg-white/5 disabled:opacity-50"
+            >
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Synchroniser
+            </button>
+            <PeriodPicker period={period} custom={custom} onPeriodChange={setPeriod} onCustomChange={setCustom} />
+          </div>
+        }
       />
+
+      {syncMsg && (
+        <p className={syncMsg.includes('impossible') ? 'text-sm text-red-300' : 'text-sm text-emerald-300'}>
+          {syncMsg}
+        </p>
+      )}
+      {importMsg && (
+        <p className={importMsg.includes('impossible') ? 'text-sm text-red-300' : 'text-sm text-emerald-300'}>
+          {importMsg}
+        </p>
+      )}
+      {truncated && (
+        <p className="text-sm text-amber-300">
+          Plus de {SERVER_MAX_LIMIT} transactions sur cette période — les plus anciennes ne sont pas affichées.
+          Réduisez la période pour tout voir.
+        </p>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-tomato-light" />
         </div>
       ) : (
-        <div className={ADMIN_STAT_GRID}>
-          <AdminStatCard
-            label="En ligne à encaisser"
-            value={online.length}
-            sub="Paiement en ligne validé, attente comptoir"
-            icon={CreditCard}
-            tone="text-amber-300"
+        <>
+          <div className={ADMIN_STAT_GRID}>
+            <AdminStatCard
+              label="Total encaissé"
+              value={formatEUR(total)}
+              sub={`${transactions.length} vente(s)`}
+              icon={Wallet}
+              tone="text-emerald-300"
+            />
+            <AdminStatCard
+              label="Carte bancaire"
+              value={formatEUR(cb.reduce((s, t) => s + t.amountCents, 0))}
+              sub={`${cb.length} vente(s)`}
+              icon={CreditCard}
+            />
+            <AdminStatCard
+              label="Espèces"
+              value={formatEUR(cash.reduce((s, t) => s + t.amountCents, 0))}
+              sub={`${cash.length} vente(s)`}
+            />
+            <AdminStatCard
+              label="Non facturées"
+              value={unbilled.length}
+              sub="À facturer sur demande"
+              icon={FileText}
+              tone={unbilled.length > 0 ? 'text-amber-300' : undefined}
+            />
+          </div>
+
+          <AdminDataGridShell
+            title="Encaissements"
+            table={table}
+            recordCount={table.getFilteredRowModel().rows.length}
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Rechercher un montant, un détail…"
+            emptyMessage={
+              transactions.length === 0
+                ? 'Aucun encaissement sur cette période'
+                : 'Aucun résultat pour ce filtre'
+            }
+            paginationSizes={PAGINATION_SIZES}
           />
-          <AdminStatCard
-            label="Prêtes à remettre"
-            value={handover.length}
-            sub="À emporter / sur place"
-            icon={Package}
-            tone="text-emerald-300"
-          />
-          <AdminStatCard
-            label="Livraisons actives"
-            value={delivery.length}
-            sub="File dispatch livreur"
-            icon={Truck}
-            tone="text-blue-300"
-          />
-          <AdminStatCard
-            label="Connexion"
-            value={connected ? 'Live' : 'Offline'}
-            sub="Sync avec terminal /pos"
-            tone={connected ? 'text-emerald-300' : 'text-cream/50'}
-          />
-        </div>
+        </>
       )}
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <InfoCard
-          icon={Smartphone}
-          title="Terminal boutique (/pos)"
-          body="SUNMI ou tablette : PIN staff, prise de commande comptoir, encaissement TPE / espèces, impression ticket."
-          href="/admin/devices"
-          linkLabel="Jumeler un appareil"
-        />
-        <InfoCard
-          icon={Store}
-          title="Différence CRM vs caisse"
-          body="Le moniteur CRM est en lecture/supervision. Seul le terminal jumelé peut créer des commandes comptoir et encaisser."
-          href="/monitor/pos"
-          linkLabel="Ouvrir le moniteur"
-        />
-      </section>
-    </div>
-  )
-}
-
-function InfoCard({
-  icon: Icon,
-  title,
-  body,
-  href,
-  linkLabel,
-}: {
-  icon: typeof Store
-  title: string
-  body: string
-  href: string
-  linkLabel: string
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-      <div className="mb-2 flex items-center gap-2 text-cream">
-        <Icon className="h-4 w-4 text-tomato-light" />
-        <h3 className="font-semibold">{title}</h3>
-      </div>
-      <p className="text-sm text-cream/50">{body}</p>
-      <Link
-        href={href}
-        className="mt-3 inline-flex items-center gap-1 text-sm text-tomato-light hover:underline"
-      >
-        {linkLabel}
-        <ExternalLink className="h-3.5 w-3.5" />
-      </Link>
+      {billTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1A1412] p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-semibold text-cream">Facturer {formatEUR(billTarget.amountCents)}</h3>
+              <button type="button" onClick={() => setBillTarget(null)}>
+                <X className="h-5 w-5 text-cream/40" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-xs text-cream/50">
+                Client / organisme *
+                <input
+                  required
+                  autoFocus
+                  className={fieldClass}
+                  value={billForm.clientName}
+                  onChange={(e) => setBillForm((f) => ({ ...f, clientName: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-cream/50">
+                Email
+                <input
+                  type="email"
+                  className={fieldClass}
+                  value={billForm.clientEmail}
+                  onChange={(e) => setBillForm((f) => ({ ...f, clientEmail: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-cream/50">
+                Téléphone
+                <input
+                  className={fieldClass}
+                  value={billForm.clientPhone}
+                  onChange={(e) => setBillForm((f) => ({ ...f, clientPhone: e.target.value }))}
+                />
+              </label>
+              <label className="block text-xs text-cream/50">
+                Adresse
+                <input
+                  className={fieldClass}
+                  value={billForm.clientAddress}
+                  onChange={(e) => setBillForm((f) => ({ ...f, clientAddress: e.target.value }))}
+                />
+              </label>
+            </div>
+            {billError ? <p className="mt-3 text-sm text-red-300">{billError}</p> : null}
+            <div className="mt-6 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setBillTarget(null)}
+                className="flex-1 rounded-xl border border-white/15 py-2 text-sm"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={billing || !billForm.clientName.trim()}
+                onClick={() => void confirmBill()}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-tomato py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {billing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                Émettre la facture
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

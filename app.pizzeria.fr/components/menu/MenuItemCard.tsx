@@ -5,6 +5,7 @@ import { AddToCartControl } from '@/components/cart/AddToCartControl'
 import { formatPriceEUR, type CatalogItem } from '@/lib/menu-types'
 import { categoryShowsItemPhoto, getCategoryHeroImage } from '@/lib/menu-images'
 import { FoodImage } from '@/components/ui/FoodImage'
+import type { PizzaSizeId } from '@/lib/pizza-sizes'
 
 type MenuItemCardProps = {
   item: CatalogItem
@@ -12,6 +13,8 @@ type MenuItemCardProps = {
   showSize?: boolean
   /** Carte horizontale avec photo — style Lovable */
   layout?: 'default' | 'lovable'
+  /** Taille pré-sélectionnée à l'arrivée (ex. Méga depuis le lien promo "En profiter"). */
+  defaultSizeId?: PizzaSizeId
 }
 
 const CATEGORY_ICONS: Record<string, typeof Pizza> = {
@@ -21,7 +24,13 @@ const CATEGORY_ICONS: Record<string, typeof Pizza> = {
   supplements: Plus,
 }
 
-export function MenuItemCard({ item, categoryId, showSize, layout = 'default' }: MenuItemCardProps) {
+export function MenuItemCard({
+  item,
+  categoryId,
+  showSize,
+  layout = 'default',
+  defaultSizeId,
+}: MenuItemCardProps) {
   const withPhoto =
     layout === 'lovable' ||
     (categoryShowsItemPhoto(categoryId) && Boolean(item.image))
@@ -58,7 +67,7 @@ export function MenuItemCard({ item, categoryId, showSize, layout = 'default' }:
           </div>
           <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-cream/50">{item.description}</p>
           {item.priceNote && <p className="mt-1 text-xs text-cream/35">{item.priceNote}</p>}
-          <AddToCartControl item={item} categoryId={categoryId} className="mt-auto border-0 pt-3" />
+          <AddToCartControl item={item} categoryId={categoryId} defaultSizeId={defaultSizeId} className="mt-auto border-0 pt-3" />
         </div>
       </li>
     )
@@ -80,7 +89,7 @@ export function MenuItemCard({ item, categoryId, showSize, layout = 'default' }:
           <p className="mt-1.5 text-sm leading-relaxed text-cream/50">{item.description}</p>
           {item.priceNote && <p className="mt-2 text-xs text-cream/35">{item.priceNote}</p>}
         </div>
-        <AddToCartControl item={item} categoryId={categoryId} className="px-4 pb-4 sm:px-5" />
+        <AddToCartControl item={item} categoryId={categoryId} defaultSizeId={defaultSizeId} className="px-4 pb-4 sm:px-5" />
       </div>
     </li>
   )

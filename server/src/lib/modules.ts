@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 export const ALL_MODULES = [
   'menu',
   'pos',
+  'kiosk',
   'kitchen',
   'orders',
   'reports',

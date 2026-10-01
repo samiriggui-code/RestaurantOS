@@ -1,112 +1,116 @@
-'use client'
+'use client';
 
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
-import { useFeedbackState } from '@/lib/use-feedback-state'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import {
-  ArrowLeft,
-  ArrowRight,
-  MapPin,
-  Store,
-  Truck,
-} from 'lucide-react'
-import { useCart } from '@/components/cart/CartProvider'
-import { PanierLineCard } from '@/components/cart/PanierLineCard'
-import { MenuFormulePanel } from '@/components/cart/MenuFormulePanel'
-import { CartUpsellStrip } from '@/components/cart/CartUpsellStrip'
-import { CheckoutStepBar } from '@/components/checkout/CheckoutStepBar'
-import { CheckoutSummary, useCheckoutTotal } from '@/components/checkout/CheckoutSummary'
-import { formatPriceEUR } from '@/lib/menu-types'
-import { fetchDeliveryQuote } from '@/lib/delivery-api'
-import { deliveryZoneHint, townsForPostalCode, normalizePostalCode } from '@/lib/delivery'
-import type { DeliveryQuote } from '@/lib/delivery'
-import { fetchAvailableTimeSlots } from '@/lib/time-slots-api'
-import { PIZZERIA, DELIVERY_TOWNS } from '@/lib/pizzeria-content'
-import { buildCheckoutSteps, type CheckoutStepId } from '@/lib/checkout-flow'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useFeedbackState } from '@/lib/use-feedback-state';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, ArrowRight, MapPin, Store, Truck } from 'lucide-react';
+import { useCart } from '@/components/cart/CartProvider';
+import { PanierLineCard } from '@/components/cart/PanierLineCard';
+import { MenuFormulePanel } from '@/components/cart/MenuFormulePanel';
+import { CartUpsellStrip } from '@/components/cart/CartUpsellStrip';
+import { CheckoutStepBar } from '@/components/checkout/CheckoutStepBar';
+import { CheckoutSummary, useCheckoutTotal } from '@/components/checkout/CheckoutSummary';
+import { formatPriceEUR } from '@/lib/menu-types';
+import { isModuleEnabled } from '@/lib/modules';
+import { fetchDeliveryQuote } from '@/lib/delivery-api';
+import { deliveryZoneHint, townsForPostalCode, normalizePostalCode } from '@/lib/delivery';
+import type { DeliveryQuote } from '@/lib/delivery';
+import { fetchAvailableTimeSlots } from '@/lib/time-slots-api';
+import { PIZZERIA, DELIVERY_TOWNS } from '@/lib/pizzeria-content';
+import { buildCheckoutSteps, type CheckoutStepId } from '@/lib/checkout-flow';
 import {
   clearCheckoutSession,
   computeCartFingerprint,
   loadCheckoutSession,
   resolveSafeCheckoutStep,
   saveCheckoutSession,
-} from '@/lib/checkout-session'
-import type { CheckoutDraft, OrderType } from '@/lib/cart-types'
-import { customerFullName } from '@/lib/cart-types'
-import { cn } from '@/lib/cn'
-import { CheckoutPayment } from '@/components/checkout/CheckoutPayment'
-import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice'
-import { SITE_STICKY_BELOW_HEADER } from '@/lib/site-layout'
-import { pizzaSubtotalFromLines } from '@/lib/pizza-subtotal'
-import { isOrderTestSlotsEnabled } from '@/lib/order-test-mode'
+} from '@/lib/checkout-session';
+import type { CheckoutDraft, OrderType } from '@/lib/cart-types';
+import { customerFullName } from '@/lib/cart-types';
+import { cn } from '@/lib/cn';
+import { CheckoutPayment } from '@/components/checkout/CheckoutPayment';
+import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice';
+import { SITE_STICKY_BELOW_HEADER } from '@/lib/site-layout';
+import { pizzaSubtotalFromLines } from '@/lib/pizza-subtotal';
+import { isOrderTestSlotsEnabled } from '@/lib/order-test-mode';
 
 export function CheckoutWizard() {
-  const router = useRouter()
-  const { lines, subtotal, itemCount, updateQuantity, removeLine, clearCart, hydrated: cartHydrated } =
-    useCart()
+  const router = useRouter();
+  const {
+    lines,
+    subtotal,
+    itemCount,
+    updateQuantity,
+    removeLine,
+    clearCart,
+    hydrated: cartHydrated,
+  } = useCart();
 
-  const [step, setStep] = useState<CheckoutStepId>('recap')
-  const [orderType, setOrderType] = useState<OrderType | null>(null)
-  const [customerFirstName, setCustomerFirstName] = useState('')
-  const [customerLastName, setCustomerLastName] = useState('')
-  const [customerPhone, setCustomerPhone] = useState('')
-  const [customerEmail, setCustomerEmail] = useState('')
-  const [addressLine, setAddressLine] = useState('')
-  const [postalCode, setPostalCode] = useState('')
-  const [city, setCity] = useState('')
-  const [instructions, setInstructions] = useState('')
-  const [timeSlot, setTimeSlot] = useState('')
-  const [slots, setSlots] = useState<string[]>([])
-  const [slotsClosedReason, setSlotsClosedReason] = useState<string | null>(null)
-  const [slotsLoading, setSlotsLoading] = useState(true)
-  const [paymentMode, setPaymentMode] = useState<'online' | 'counter'>('online')
-  const { error, setError } = useFeedbackState()
-  const [sessionHydrated, setSessionHydrated] = useState(false)
-  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null)
-  const skipPersist = useRef(true)
-  const sessionRestored = useRef(false)
+  const [step, setStep] = useState<CheckoutStepId>('recap');
+  const [orderType, setOrderType] = useState<OrderType | null>(null);
+  const [customerFirstName, setCustomerFirstName] = useState('');
+  const [customerLastName, setCustomerLastName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [addressLine, setAddressLine] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [city, setCity] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [timeSlot, setTimeSlot] = useState('');
+  const [slots, setSlots] = useState<string[]>([]);
+  const [slotsClosedReason, setSlotsClosedReason] = useState<string | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(true);
+  const [paymentMode, setPaymentMode] = useState<'online' | 'counter'>('online');
+  const { error, setError } = useFeedbackState();
+  const [sessionHydrated, setSessionHydrated] = useState(false);
+  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const skipPersist = useRef(true);
+  const sessionRestored = useRef(false);
 
   useEffect(() => {
-    let cancelled = false
-    setSlotsLoading(true)
-    void fetchAvailableTimeSlots().then((result) => {
-      if (cancelled) return
-      setSlots(result.slots)
-      setSlotsClosedReason(result.isOpen ? null : (result.closedReason ?? result.openStatus?.sublabel ?? 'Fermé'))
-      setSlotsLoading(false)
-    })
+    let cancelled = false;
+    setSlotsLoading(true);
+    void fetchAvailableTimeSlots().then(result => {
+      if (cancelled) return;
+      setSlots(result.slots);
+      setSlotsClosedReason(
+        result.isOpen ? null : (result.closedReason ?? result.openStatus?.sublabel ?? 'Fermé')
+      );
+      setSlotsLoading(false);
+    });
     return () => {
-      cancelled = true
-    }
-  }, [step])
+      cancelled = true;
+    };
+  }, [step]);
 
-  const pizzaSubtotal = useMemo(() => pizzaSubtotalFromLines(lines), [lines])
-  const cartFingerprint = useMemo(() => computeCartFingerprint(lines), [lines])
+  const pizzaSubtotal = useMemo(() => pizzaSubtotalFromLines(lines), [lines]);
+  const cartFingerprint = useMemo(() => computeCartFingerprint(lines), [lines]);
 
   useEffect(() => {
-    if (!cartHydrated || sessionRestored.current) return
-    sessionRestored.current = true
+    if (!cartHydrated || sessionRestored.current) return;
+    sessionRestored.current = true;
 
-    const saved = loadCheckoutSession()
+    const saved = loadCheckoutSession();
     if (!saved) {
-      setSessionHydrated(true)
-      return
+      setSessionHydrated(true);
+      return;
     }
 
-    const safeStep = resolveSafeCheckoutStep(saved.step, saved.orderType, saved)
-    setStep(safeStep)
-    setOrderType(saved.orderType)
-    setCustomerFirstName(saved.customerFirstName)
-    setCustomerLastName(saved.customerLastName)
-    setCustomerPhone(saved.customerPhone)
-    setCustomerEmail(saved.customerEmail)
-    setAddressLine(saved.addressLine)
-    setPostalCode(saved.postalCode)
-    setCity(saved.city)
-    setInstructions(saved.instructions)
-    if (saved.timeSlot) setTimeSlot(saved.timeSlot)
-    setSessionHydrated(true)
-  }, [cartHydrated])
+    const safeStep = resolveSafeCheckoutStep(saved.step, saved.orderType, saved);
+    setStep(safeStep);
+    setOrderType(saved.orderType);
+    setCustomerFirstName(saved.customerFirstName);
+    setCustomerLastName(saved.customerLastName);
+    setCustomerPhone(saved.customerPhone);
+    setCustomerEmail(saved.customerEmail);
+    setAddressLine(saved.addressLine);
+    setPostalCode(saved.postalCode);
+    setCity(saved.city);
+    setInstructions(saved.instructions);
+    if (saved.timeSlot) setTimeSlot(saved.timeSlot);
+    setSessionHydrated(true);
+  }, [cartHydrated]);
 
   const persistCheckout = useCallback(() => {
     saveCheckoutSession({
@@ -123,7 +127,7 @@ export function CheckoutWizard() {
       timeSlot,
       cartFingerprint,
       subtotal,
-    })
+    });
   }, [
     step,
     orderType,
@@ -138,19 +142,19 @@ export function CheckoutWizard() {
     timeSlot,
     cartFingerprint,
     subtotal,
-  ])
+  ]);
 
   useEffect(() => {
-    if (!sessionHydrated || itemCount === 0) return
+    if (!sessionHydrated || itemCount === 0) return;
     if (skipPersist.current) {
-      skipPersist.current = false
-      return
+      skipPersist.current = false;
+      return;
     }
-    persistCheckout()
-  }, [sessionHydrated, itemCount, persistCheckout])
+    persistCheckout();
+  }, [sessionHydrated, itemCount, persistCheckout]);
 
   const checkoutDraft = useMemo((): CheckoutDraft | null => {
-    if (!orderType) return null
+    if (!orderType) return null;
     return {
       orderType,
       customerFirstName: customerFirstName.trim(),
@@ -163,7 +167,7 @@ export function CheckoutWizard() {
       instructions: instructions.trim(),
       timeSlot,
       paymentMode,
-    }
+    };
   }, [
     orderType,
     customerFirstName,
@@ -176,176 +180,180 @@ export function CheckoutWizard() {
     instructions,
     timeSlot,
     paymentMode,
-  ])
+  ]);
 
   const handlePaymentSuccess = useCallback(
     (token: string, orderNumber: number) => {
-      clearCheckoutSession()
-      clearCart()
-      router.push(`/suivi/${token}?n=${orderNumber}`)
+      clearCheckoutSession();
+      clearCart();
+      router.push(`/suivi/${token}?n=${orderNumber}`);
     },
     [clearCart, router]
-  )
+  );
 
   const goToMenu = useCallback(() => {
-    persistCheckout()
-    router.push('/menu')
-  }, [persistCheckout, router])
+    persistCheckout();
+    router.push('/menu');
+  }, [persistCheckout, router]);
 
   const handlePaymentError = useCallback((message: string) => {
-    setError(message)
-  }, [])
+    setError(message);
+  }, []);
 
-  const steps = buildCheckoutSteps(orderType)
-  const stepIdx = steps.indexOf(step)
+  const steps = buildCheckoutSteps(orderType);
+  const stepIdx = steps.indexOf(step);
 
   const cityOptions = useMemo(
     () => (postalCode.length >= 5 ? townsForPostalCode(postalCode) : []),
     [postalCode]
-  )
+  );
 
   useEffect(() => {
-    if (!sessionHydrated || cityOptions.length !== 1) return
-    if (!city.trim()) setCity(cityOptions[0].name)
-  }, [cityOptions, city, sessionHydrated])
+    if (!sessionHydrated || cityOptions.length !== 1) return;
+    if (!city.trim()) setCity(cityOptions[0].name);
+  }, [cityOptions, city, sessionHydrated]);
 
   useEffect(() => {
-    if (step !== 'details' || slots.length === 0) return
-    setTimeSlot((current) => (current && slots.includes(current) ? current : slots[0]))
-  }, [step, slots])
+    if (step !== 'details' || slots.length === 0) return;
+    setTimeSlot(current => (current && slots.includes(current) ? current : slots[0]));
+  }, [step, slots]);
 
   useEffect(() => {
     if (orderType !== 'delivery' || postalCode.length < 5) {
-      setDeliveryQuote(null)
-      return
+      setDeliveryQuote(null);
+      return;
     }
-    let cancelled = false
-    void fetchDeliveryQuote(postalCode, city, pizzaSubtotal).then((quote) => {
-      if (!cancelled) setDeliveryQuote(quote)
-    })
+    let cancelled = false;
+    void fetchDeliveryQuote(postalCode, city, pizzaSubtotal).then(quote => {
+      if (!cancelled) setDeliveryQuote(quote);
+    });
     return () => {
-      cancelled = true
-    }
-  }, [orderType, postalCode, city, pizzaSubtotal])
+      cancelled = true;
+    };
+  }, [orderType, postalCode, city, pizzaSubtotal]);
 
   useEffect(() => {
-    if (step !== 'confirm' || orderType !== 'delivery' || !sessionHydrated) return
+    if (step !== 'confirm' || orderType !== 'delivery' || !sessionHydrated) return;
     if (!postalCode.trim() || !city.trim()) {
-      setStep('address')
-      setError('Vérifiez votre adresse de livraison.')
-      return
+      setStep('address');
+      setError('Vérifiez votre adresse de livraison.');
+      return;
     }
-    let cancelled = false
-    void fetchDeliveryQuote(postalCode, city, pizzaSubtotal).then((quote) => {
-      if (cancelled) return
-      setDeliveryQuote(quote)
+    let cancelled = false;
+    void fetchDeliveryQuote(postalCode, city, pizzaSubtotal).then(quote => {
+      if (cancelled) return;
+      setDeliveryQuote(quote);
       if (!quote.ok) {
-        setError(quote.error ?? 'Complétez en pizzas pour atteindre le minimum livraison.')
-        setStep('address')
+        setError(quote.error ?? 'Complétez en pizzas pour atteindre le minimum livraison.');
+        setStep('address');
       }
-    })
+    });
     return () => {
-      cancelled = true
-    }
-  }, [step, orderType, postalCode, city, pizzaSubtotal, sessionHydrated])
+      cancelled = true;
+    };
+  }, [step, orderType, postalCode, city, pizzaSubtotal, sessionHydrated]);
 
-  const deliveryFee = orderType === 'delivery' && deliveryQuote?.ok ? deliveryQuote.fee : 0
-  const total = useCheckoutTotal(orderType, deliveryFee)
+  const deliveryFee = orderType === 'delivery' && deliveryQuote?.ok ? deliveryQuote.fee : 0;
+  const total = useCheckoutTotal(orderType, deliveryFee);
 
   const deliveryPizzaBelowMinimum =
     orderType === 'delivery' &&
     deliveryQuote !== null &&
     !deliveryQuote.ok &&
     deliveryQuote.minOrder > 0 &&
-    pizzaSubtotal < deliveryQuote.minOrder
+    pizzaSubtotal < deliveryQuote.minOrder;
 
   const pizzaMinimumGap =
-    deliveryPizzaBelowMinimum && deliveryQuote ? deliveryQuote.minOrder - pizzaSubtotal : 0
+    deliveryPizzaBelowMinimum && deliveryQuote ? deliveryQuote.minOrder - pizzaSubtotal : 0;
 
-  const belowDeliveryMinimum = step === 'address' && deliveryPizzaBelowMinimum
+  const belowDeliveryMinimum = step === 'address' && deliveryPizzaBelowMinimum;
 
-  const amountToMinimum = pizzaMinimumGap
+  const amountToMinimum = pizzaMinimumGap;
 
   if (!cartHydrated || !sessionHydrated) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-cream/50">
         Chargement du panier…
       </div>
-    )
+    );
   }
 
   if (itemCount === 0) {
     return (
       <div className="mx-auto max-w-md text-center">
         <h1 className="font-display text-2xl font-bold text-cream">Panier vide</h1>
-        <p className="mt-3 text-cream/55">Ajoutez des articles depuis la carte avant de commander.</p>
+        <p className="mt-3 text-cream/55">
+          Ajoutez des articles depuis la carte avant de commander.
+        </p>
         <Link href="/menu" className="mt-6 inline-block text-tomato-light hover:underline">
           Voir la carte →
         </Link>
       </div>
-    )
+    );
   }
 
   async function goNext() {
-    setError(null)
-    const next = steps[stepIdx + 1]
-    if (!next) return
+    setError(null);
+    const next = steps[stepIdx + 1];
+    if (!next) return;
 
     if (step === 'mode' && !orderType) {
-      setError('Choisissez à emporter ou en livraison.')
-      return
+      setError('Choisissez à emporter ou en livraison.');
+      return;
     }
     if (step === 'address') {
       if (!addressLine.trim() || !postalCode.trim() || !city.trim()) {
-        setError('Adresse complète requise.')
-        return
+        setError('Adresse complète requise.');
+        return;
       }
-      const quote = await fetchDeliveryQuote(postalCode, city, pizzaSubtotal)
-      setDeliveryQuote(quote)
+      const quote = await fetchDeliveryQuote(postalCode, city, pizzaSubtotal);
+      setDeliveryQuote(quote);
       if (!quote.ok) {
-        setError(quote.error ?? 'Livraison impossible à cette adresse.')
-        return
+        setError(quote.error ?? 'Livraison impossible à cette adresse.');
+        return;
       }
     }
     if (step === 'details') {
       if (!customerFirstName.trim() || !customerLastName.trim() || !customerPhone.trim()) {
-        setError('Prénom, nom et téléphone obligatoires.')
-        return
+        setError('Prénom, nom et téléphone obligatoires.');
+        return;
       }
       if (!timeSlot) {
-        setError('Choisissez un créneau horaire.')
-        return
+        setError('Choisissez un créneau horaire.');
+        return;
       }
     }
     if (next === 'confirm' && orderType === 'delivery') {
-      const quote = await fetchDeliveryQuote(postalCode, city, pizzaSubtotal)
-      setDeliveryQuote(quote)
+      const quote = await fetchDeliveryQuote(postalCode, city, pizzaSubtotal);
+      setDeliveryQuote(quote);
       if (!quote.ok) {
         if (quote.minOrder > 0 && pizzaSubtotal < quote.minOrder) {
           setError(
             `Il manque ${formatPriceEUR(quote.minOrder - pizzaSubtotal)} de pizzas pour livrer à ${quote.zoneLabel || city}. Ajoutez une pizza sur la carte.`
-          )
+          );
         } else {
-          setError(quote.error ?? 'Livraison impossible à cette adresse.')
+          setError(quote.error ?? 'Livraison impossible à cette adresse.');
         }
-        return
+        return;
       }
     }
 
-    setStep(next)
+    setStep(next);
   }
 
   function goBack() {
-    setError(null)
-    if (stepIdx > 0) setStep(steps[stepIdx - 1])
-    else router.push('/panier')
+    setError(null);
+    if (stepIdx > 0) setStep(steps[stepIdx - 1]);
+    else router.push('/panier');
   }
   return (
     <div className="mx-auto max-w-5xl">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-tomato-light">Commande</p>
-          <h1 className="font-display text-2xl font-bold text-cream sm:text-3xl">Finaliser votre commande</h1>
+          <h1 className="font-display text-2xl font-bold text-cream sm:text-3xl">
+            Finaliser votre commande
+          </h1>
         </div>
         <button
           type="button"
@@ -364,11 +372,11 @@ export function CheckoutWizard() {
             <div className="space-y-6">
               <MenuFormulePanel />
               <ul className="space-y-3">
-                {lines.map((line) => (
+                {lines.map(line => (
                   <PanierLineCard
                     key={line.lineId}
                     line={line}
-                    onUpdateQty={(qty) => updateQuantity(line.lineId, qty)}
+                    onUpdateQty={qty => updateQuantity(line.lineId, qty)}
                     onRemove={() => removeLine(line.lineId)}
                   />
                 ))}
@@ -379,11 +387,18 @@ export function CheckoutWizard() {
 
           {step === 'mode' && (
             <div className="space-y-4">
-              <p className="text-sm text-cream/55">Comment souhaitez-vous récupérer votre commande ?</p>
+              <p className="text-sm text-cream/55">
+                Comment souhaitez-vous récupérer votre commande ?
+              </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {(
                   [
-                    { id: 'pickup' as const, label: 'À emporter', icon: Store, desc: PIZZERIA.fullAddress },
+                    {
+                      id: 'pickup' as const,
+                      label: 'À emporter',
+                      icon: Store,
+                      desc: PIZZERIA.fullAddress,
+                    },
                     {
                       id: 'delivery' as const,
                       label: 'Livraison',
@@ -391,7 +406,7 @@ export function CheckoutWizard() {
                       desc: `${deliveryZoneHint()} — frais selon adresse`,
                     },
                   ] as const
-                ).map((mode) => (
+                ).map(mode => (
                   <button
                     key={mode.id}
                     type="button"
@@ -424,19 +439,19 @@ export function CheckoutWizard() {
               <input
                 placeholder="N° et nom de rue *"
                 value={addressLine}
-                onChange={(e) => setAddressLine(e.target.value)}
+                onChange={e => setAddressLine(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream placeholder:text-cream/35"
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
                   placeholder="Code postal *"
                   value={postalCode}
-                  onChange={(e) => {
-                    const next = e.target.value
+                  onChange={e => {
+                    const next = e.target.value;
                     if (normalizePostalCode(next) !== normalizePostalCode(postalCode)) {
-                      setCity('')
+                      setCity('');
                     }
-                    setPostalCode(next)
+                    setPostalCode(next);
                   }}
                   maxLength={5}
                   className="rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream placeholder:text-cream/35"
@@ -444,11 +459,11 @@ export function CheckoutWizard() {
                 {cityOptions.length > 1 ? (
                   <select
                     value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    onChange={e => setCity(e.target.value)}
                     className="rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
                   >
                     <option value="">Choisir la ville *</option>
-                    {cityOptions.map((t) => (
+                    {cityOptions.map(t => (
                       <option key={t.name} value={t.name}>
                         {t.name} (min. {t.minOrder} €)
                       </option>
@@ -458,7 +473,7 @@ export function CheckoutWizard() {
                   <input
                     placeholder="Ville *"
                     value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    onChange={e => setCity(e.target.value)}
                     list={cityOptions.length === 1 ? 'delivery-city-single' : undefined}
                     className="rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream placeholder:text-cream/35"
                   />
@@ -483,8 +498,7 @@ export function CheckoutWizard() {
                     <>
                       <p className="font-semibold">Zone : {deliveryQuote.zoneLabel}</p>
                       <p className="mt-1">
-                        Frais de livraison :{' '}
-                        <strong>{formatPriceEUR(deliveryQuote.fee)}</strong>
+                        Frais de livraison : <strong>{formatPriceEUR(deliveryQuote.fee)}</strong>
                       </p>
                     </>
                   ) : (
@@ -492,9 +506,8 @@ export function CheckoutWizard() {
                       <p>{deliveryQuote.error}</p>
                       {belowDeliveryMinimum && (
                         <p className="mt-2 font-medium">
-                          Il vous manque{' '}
-                          <strong>{formatPriceEUR(amountToMinimum)}</strong> de pizzas pour la
-                          livraison (boissons et suppléments ne comptent pas).
+                          Il vous manque <strong>{formatPriceEUR(amountToMinimum)}</strong> de
+                          pizzas pour la livraison (boissons et suppléments ne comptent pas).
                         </p>
                       )}
                     </>
@@ -527,8 +540,8 @@ export function CheckoutWizard() {
                 <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-50">
                   <p className="font-semibold">Minimum livraison non atteint (pizzas uniquement)</p>
                   <p className="mt-1 text-amber-100/90">
-                    Vous avez <strong>{formatPriceEUR(pizzaSubtotal)}</strong> de pizzas — il en faut{' '}
-                    <strong>{formatPriceEUR(deliveryQuote.minOrder)}</strong> pour{' '}
+                    Vous avez <strong>{formatPriceEUR(pizzaSubtotal)}</strong> de pizzas — il en
+                    faut <strong>{formatPriceEUR(deliveryQuote.minOrder)}</strong> pour{' '}
                     {deliveryQuote.zoneLabel}. Boissons et desserts ne comptent pas.
                   </p>
                   <button
@@ -545,14 +558,14 @@ export function CheckoutWizard() {
                 <input
                   placeholder="Prénom *"
                   value={customerFirstName}
-                  onChange={(e) => setCustomerFirstName(e.target.value)}
+                  onChange={e => setCustomerFirstName(e.target.value)}
                   autoComplete="given-name"
                   className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
                 />
                 <input
                   placeholder="Nom *"
                   value={customerLastName}
-                  onChange={(e) => setCustomerLastName(e.target.value)}
+                  onChange={e => setCustomerLastName(e.target.value)}
                   autoComplete="family-name"
                   className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
                 />
@@ -561,30 +574,30 @@ export function CheckoutWizard() {
                 type="tel"
                 placeholder="Téléphone *"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
+                onChange={e => setCustomerPhone(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
               />
               <input
                 type="email"
                 placeholder="Email (optionnel)"
                 value={customerEmail}
-                onChange={(e) => setCustomerEmail(e.target.value)}
+                onChange={e => setCustomerEmail(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
               />
               {slots.length > 0 ? (
                 <>
                   {isOrderTestSlotsEnabled() && (
                     <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                      Mode test — créneaux ouverts jusqu&apos;à 23h45. En production : dernière commande à
-                      21h45.
+                      Mode test — créneaux ouverts jusqu&apos;à 23h45. En production : dernière
+                      commande à 21h45.
                     </p>
                   )}
                   <select
                     value={timeSlot}
-                    onChange={(e) => setTimeSlot(e.target.value)}
+                    onChange={e => setTimeSlot(e.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
                   >
-                    {slots.map((s) => (
+                    {slots.map(s => (
                       <option key={s} value={s}>
                         Créneau {s}
                       </option>
@@ -609,7 +622,7 @@ export function CheckoutWizard() {
                 placeholder="Instructions (interphone, code porte…)"
                 rows={2}
                 value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
+                onChange={e => setInstructions(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-charcoal/80 px-4 py-3 text-cream"
               />
             </div>
@@ -622,7 +635,9 @@ export function CheckoutWizard() {
                 <dl className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <dt className="text-cream/45">Mode</dt>
-                    <dd className="text-cream">{orderType === 'delivery' ? 'Livraison' : 'À emporter'}</dd>
+                    <dd className="text-cream">
+                      {orderType === 'delivery' ? 'Livraison' : 'À emporter'}
+                    </dd>
                   </div>
                   {orderType === 'delivery' && (
                     <div className="flex justify-between gap-4">
@@ -653,37 +668,40 @@ export function CheckoutWizard() {
                 </dl>
               </div>
 
-              <div className="mb-6 rounded-2xl border border-white/10 bg-charcoal/60 p-4">
-                <p className="mb-3 text-sm font-semibold text-cream">Mode de paiement</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode('online')}
-                    className={cn(
-                      'rounded-xl border px-4 py-3 text-left text-sm',
-                      paymentMode === 'online'
-                        ? 'border-tomato bg-tomato/15 text-cream'
-                        : 'border-white/15 text-cream/60'
-                    )}
-                  >
-                    <strong className="block">Payer en ligne</strong>
-                    <span className="text-xs opacity-80">Carte bancaire</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode('counter')}
-                    className={cn(
-                      'rounded-xl border px-4 py-3 text-left text-sm',
-                      paymentMode === 'counter'
-                        ? 'border-tomato bg-tomato/15 text-cream'
-                        : 'border-white/15 text-cream/60'
-                    )}
-                  >
-                    <strong className="block">Payer au comptoir</strong>
-                    <span className="text-xs opacity-80">Encaissement à la pizzeria (SUNMI)</span>
-                  </button>
+              {/* Paiement au comptoir : encaissable uniquement depuis l'écran caisse (module pos). */}
+              {isModuleEnabled('pos') && (
+                <div className="mb-6 rounded-2xl border border-white/10 bg-charcoal/60 p-4">
+                  <p className="mb-3 text-sm font-semibold text-cream">Mode de paiement</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('online')}
+                      className={cn(
+                        'rounded-xl border px-4 py-3 text-left text-sm',
+                        paymentMode === 'online'
+                          ? 'border-tomato bg-tomato/15 text-cream'
+                          : 'border-white/15 text-cream/60'
+                      )}
+                    >
+                      <strong className="block">Payer en ligne</strong>
+                      <span className="text-xs opacity-80">Carte bancaire</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('counter')}
+                      className={cn(
+                        'rounded-xl border px-4 py-3 text-left text-sm',
+                        paymentMode === 'counter'
+                          ? 'border-tomato bg-tomato/15 text-cream'
+                          : 'border-white/15 text-cream/60'
+                      )}
+                    >
+                      <strong className="block">Payer au comptoir</strong>
+                      <span className="text-xs opacity-80">Encaissement à la pizzeria (SUNMI)</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <LegalCheckoutNotice />
 
@@ -700,9 +718,7 @@ export function CheckoutWizard() {
             </div>
           )}
 
-          {error && step !== 'confirm' && (
-            <p className="mt-4 text-sm text-red-400">{error}</p>
-          )}
+          {error && step !== 'confirm' && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
           <div className="mt-8 flex flex-wrap gap-3">
             <button
@@ -739,5 +755,5 @@ export function CheckoutWizard() {
         </aside>
       </div>
     </div>
-  )
+  );
 }

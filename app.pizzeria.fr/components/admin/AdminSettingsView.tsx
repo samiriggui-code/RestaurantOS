@@ -415,7 +415,7 @@ export function AdminSettingsView() {
                 <input
                   name="website"
                   type="url"
-                  defaultValue={legal.website ?? 'https://www.lazpizzafarguesainthilaire.com/'}
+                  defaultValue={legal.website ?? 'https://lazpizza.fr'}
                   className={fieldClass}
                 />
               </label>
@@ -423,8 +423,8 @@ export function AdminSettingsView() {
                 Domaine emails staff (prenom.nom@…)
                 <input
                   name="emailDomain"
-                  defaultValue={legal.emailDomain ?? 'lazpizzafarguesainthilaire.com'}
-                  placeholder="lazpizzafarguesainthilaire.com"
+                  defaultValue={legal.emailDomain ?? 'lazpizza.fr'}
+                  placeholder="lazpizza.fr"
                   className={fieldClass}
                 />
               </label>
@@ -472,7 +472,7 @@ export function AdminSettingsView() {
                   name="adminNotificationEmail"
                   type="email"
                   defaultValue={legal.adminNotificationEmail ?? ''}
-                  placeholder="atmane.chennit@lazpizzafarguesainthilaire.com"
+                  placeholder="atmane.chennit@lazpizza.fr"
                   className={fieldClass}
                 />
                 <span className="mt-1 block text-xs text-cream/40">

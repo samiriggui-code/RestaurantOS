@@ -39,6 +39,7 @@ import {
 } from '@/lib/route-optimize'
 import { PIZZERIA } from '@/lib/pizzeria-content'
 import { cn } from '@/lib/cn'
+import { startAppHeartbeat } from '@/lib/device-fleet'
 
 type Tab = 'tour' | 'day'
 
@@ -57,6 +58,11 @@ export function DriverHubView() {
   useEffect(() => {
     const t = sessionStorage.getItem('pizzeria_driver_active_delivery')
     setActiveDeliveryToken(t)
+  }, [])
+
+  useEffect(() => {
+    const driverId = getStoredDriverUserId() ?? undefined
+    return startAppHeartbeat('livreur', { driverId })
   }, [])
 
   const loadStops = useCallback(async (driverLat?: number, driverLng?: number) => {

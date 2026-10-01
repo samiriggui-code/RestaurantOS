@@ -16,7 +16,7 @@ import {
 } from '@/lib/staff-auth'
 
 const DEV_MANAGER = {
-  email: 'atmane.chennit@lazpizzafarguesainthilaire.com',
+  email: 'atmane.chennit@lazpizza.fr',
   password: 'admin123',
   label: 'Gérant (ADMIN)',
 }

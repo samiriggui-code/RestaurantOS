@@ -5,11 +5,36 @@ import { AuthRequest } from '../types';
 import { effectiveOrderChannel } from '../lib/order-channel';
 import { UNPAID_PENDING_ORDER_FILTER } from '../lib/order-list-filters';
 import { renderSalesReportHtml } from '../lib/report-document-service';
+import { computeSalesVsExpenses } from '../lib/sales-vs-expenses';
+import { getCounterSales, getCounterSaleItems } from '../lib/sumup-counter-sales';
 import { PERMISSION, requirePermission } from '../lib/permissions';
+import { normalizePhoneE164 } from '../lib/notifications-phone';
 
 const router = Router();
 
 const reportsRead = [authenticate, requirePermission(PERMISSION.REPORTS_READ)] as const;
+
+/** "Dernières commandes" (dashboard) — assez pour que la pagination front (5/10/50) ait
+ * vraiment de quoi paginer, sans charger un historique complet à chaque rafraîchissement. */
+const RECENT_ACTIVITY_LIMIT = 50;
+
+/** ?from=&to= (ISO, prioritaires) sinon ?period=<jours, défaut 7, max 90> avant aujourd'hui. */
+function resolvePeriodRange(query: { from?: string; to?: string; period?: string }): {
+  from: Date;
+  to: Date;
+} {
+  if (query.from || query.to) {
+    return {
+      from: query.from ? new Date(query.from) : new Date(0),
+      to: query.to ? new Date(query.to) : new Date(),
+    };
+  }
+  const period = Math.min(parseInt(String(query.period ?? '7'), 10) || 7, 90);
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - period);
+  return { from, to };
+}
 
 /**
  * GET /api/reports/print — rapport ventes HTML (React Email, prêt PDF)
@@ -17,15 +42,34 @@ const reportsRead = [authenticate, requirePermission(PERMISSION.REPORTS_READ)] a
 router.get('/print', ...reportsRead, async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
-    const period = Math.min(parseInt(String(req.query.period ?? '7'), 10) || 7, 90);
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - period);
+    const { from, to } = resolvePeriodRange(
+      req.query as { from?: string; to?: string; period?: string }
+    );
     const html = await renderSalesReportHtml(prisma, req.user!.businessId, from, to);
     res.type('text/html; charset=utf-8').send(html);
   } catch (error) {
     console.error('[reports/print]', error);
     res.status(500).json({ error: 'Génération rapport impossible' });
+  }
+});
+
+/**
+ * GET /api/reports/sales-vs-expenses — chantier 4 : assemble ventes (Order + cache
+ * SumUp comptoir) et dépenses (Expense + cache factures fournisseurs Pennylane),
+ * plus pertes (commandes annulées), commandes non livrées et remboursements.
+ * ?from=&to= (ISO) sinon ?period=<jours, défaut 7, max 90>
+ */
+router.get('/sales-vs-expenses', ...reportsRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { from, to } = resolvePeriodRange(
+      req.query as { from?: string; to?: string; period?: string }
+    );
+    const result = await computeSalesVsExpenses(prisma, req.user!.businessId, { from, to });
+    res.json(result);
+  } catch (error) {
+    console.error('[reports/sales-vs-expenses]', error);
+    res.status(500).json({ error: 'Calcul ventes vs dépenses impossible' });
   }
 });
 
@@ -38,31 +82,56 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const businessId = req.user!.businessId;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { from: qFrom, to: qTo } = req.query as { from?: string; to?: string };
 
-    const todayEnd = new Date(today);
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const weekStart = new Date(today);
-    weekStart.setDate(weekStart.getDate() - 6);
+    // Période sélectionnée (sélecteur jour/semaine/mois/personnalisé côté front) — par
+    // défaut "aujourd'hui" si aucune borne n'est fournie (compat anciens appelants).
+    const now = new Date();
+    const periodFrom = qFrom
+      ? new Date(qFrom)
+      : ((): Date => {
+          const d = new Date(now);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })();
+    const periodTo = qTo ? new Date(qTo) : now;
+    // Nombre de jours calendaires distincts couverts (pas la différence brute en ms, qui
+    // décale d'un jour dès que periodFrom/periodTo ne sont pas alignés sur minuit — ex.
+    // "aujourd'hui" durait moins de 24h mais comptait 2 jours, "semaine" en comptait 8).
+    // Capé à 92 jours (comme /reports/print) pour éviter un salesByDay à des milliers d'entrées.
+    const startOfDay = (d: Date): Date => {
+      const copy = new Date(d);
+      copy.setHours(0, 0, 0, 0);
+      return copy;
+    };
+    const spanDays = Math.min(
+      92,
+      Math.max(
+        1,
+        Math.round(
+          (startOfDay(periodTo).getTime() - startOfDay(periodFrom).getTime()) /
+            (24 * 60 * 60 * 1000)
+        ) + 1
+      )
+    );
 
     const [
-      todayOrdersCount,
-      todayRevenueAgg,
+      periodOrdersCount,
+      periodRevenueAgg,
       pendingOrders,
       activeTables,
       totalItems,
       totalCategories,
       recentOrders,
-      todayOrdersDetail,
-      weekPaidOrders,
+      recentCounterSales,
+      periodOrdersDetail,
+      periodCounterSales,
     ] = await Promise.all([
       prisma.order.count({
-        where: { businessId, createdAt: { gte: today, lte: todayEnd } },
+        where: { businessId, createdAt: { gte: periodFrom, lte: periodTo } },
       }),
       prisma.order.aggregate({
-        where: { businessId, createdAt: { gte: today, lte: todayEnd }, paymentStatus: 'PAID' },
+        where: { businessId, createdAt: { gte: periodFrom, lte: periodTo }, paymentStatus: 'PAID' },
         _sum: { total: true },
         _count: true,
       }),
@@ -84,15 +153,32 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
       prisma.order.findMany({
         where: { businessId, NOT: UNPAID_PENDING_ORDER_FILTER },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: RECENT_ACTIVITY_LIMIT,
         include: {
           items: { include: { menuItem: true } },
           table: true,
         },
       }),
-      prisma.order.findMany({
-        where: { businessId, createdAt: { gte: today, lte: todayEnd } },
+      // Ventes comptoir SumUp les plus récentes — sans ça, "Dernières commandes" ne montre
+      // jamais le comptoir (ce n'est pas une Order) alors que c'est un canal de vente réel.
+      // Portée globale comme recentOrders (pas bornée à la période sélectionnée).
+      prisma.sumupTransaction.findMany({
+        where: { businessId, status: 'SUCCESSFUL', paymentType: { in: ['POS', 'CASH'] } },
+        orderBy: { occurredAt: 'desc' },
+        take: RECENT_ACTIVITY_LIMIT,
         select: {
+          id: true,
+          transactionCode: true,
+          amountCents: true,
+          paymentType: true,
+          occurredAt: true,
+          productSummary: true,
+        },
+      }),
+      prisma.order.findMany({
+        where: { businessId, createdAt: { gte: periodFrom, lte: periodTo } },
+        select: {
+          id: true,
           type: true,
           paymentMethod: true,
           paymentStatus: true,
@@ -103,22 +189,19 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
           channel: true,
         },
       }),
-      prisma.order.findMany({
-        where: {
-          businessId,
-          createdAt: { gte: weekStart, lte: todayEnd },
-          paymentStatus: 'PAID',
-        },
-        select: { createdAt: true, total: true },
-      }),
+      getCounterSales(prisma, businessId, periodFrom, periodTo),
     ]);
 
-    const todayRevenue = todayRevenueAgg._sum.total || 0;
-    const todayPaidCount = todayRevenueAgg._count || 0;
+    const periodCounterRevenue = periodCounterSales.reduce((s, t) => s + t.amountCents, 0);
+    const todayRevenue = (periodRevenueAgg._sum.total || 0) + periodCounterRevenue;
+    const todayPaidCount = (periodRevenueAgg._count || 0) + periodCounterSales.length;
     const avgBasketToday = todayPaidCount > 0 ? Math.round(todayRevenue / todayPaidCount) : 0;
 
+    // Répartition horaire sur toute la journée (0h-23h) — avant, seules les heures 18h-23h
+    // étaient suivies : toute vente en dehors (service du midi, brunch…) disparaissait sans
+    // même remonter en erreur, silencieusement.
     const hourlyToday: { hour: number; count: number; revenue: number }[] = [];
-    for (let h = 18; h <= 23; h++) {
+    for (let h = 0; h < 24; h++) {
       hourlyToday.push({ hour: h, count: 0, revenue: 0 });
     }
 
@@ -127,16 +210,20 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
     const channelsToday: Record<string, { count: number; revenue: number }> = {};
     const statusToday: Record<string, number> = {};
     let onlineToday = 0;
-    let counterToday = 0;
+    // Comptoir SumUp compté dès le départ — sans Order, ces ventes ne passent jamais par la
+    // boucle ci-dessous ; "Canaux" affichait donc 0 comptoir même avec des ventes SumUp réelles.
+    let counterToday = periodCounterSales.length;
 
-    const itemQtyToday: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    const paidOrdersById = new Map<string, { createdAt: Date; total: number }>();
 
-    for (const order of todayOrdersDetail) {
+    for (const order of periodOrdersDetail) {
       statusToday[order.status] = (statusToday[order.status] ?? 0) + 1;
       if (order.isOnlineOrder) onlineToday++;
       else counterToday++;
 
       if (order.paymentStatus === 'PAID') {
+        paidOrdersById.set(order.id, { createdAt: order.createdAt, total: order.total });
+
         const type = order.type || 'DINE_IN';
         if (!orderTypes[type]) orderTypes[type] = { count: 0, revenue: 0 };
         orderTypes[type].count++;
@@ -153,24 +240,39 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
         channelsToday[ch].revenue += order.total;
 
         const hour = new Date(order.createdAt).getHours();
-        const slot = hourlyToday.find(h => h.hour === hour);
-        if (slot) {
-          slot.count++;
-          slot.revenue += order.total;
-        }
+        hourlyToday[hour].count++;
+        hourlyToday[hour].revenue += order.total;
       }
     }
 
-    const todayOrderIds = await prisma.order.findMany({
-      where: { businessId, createdAt: { gte: today, lte: todayEnd }, paymentStatus: 'PAID' },
-      select: { id: true },
-    });
-    if (todayOrderIds.length > 0) {
-      const todayItems = await prisma.orderItem.findMany({
-        where: { orderId: { in: todayOrderIds.map(o => o.id) } },
+    if (periodCounterSales.length > 0) {
+      channelsToday.SUMUP_COUNTER = {
+        count: periodCounterSales.length,
+        revenue: periodCounterRevenue,
+      };
+      // Pas de "type" de commande sur une vente comptoir (pas de Order) — bucket dédié
+      // plutôt que de deviner DINE_IN/TAKEAWAY, sinon "Modes de commande" reste vide dès
+      // que le comptoir SumUp est le seul canal actif.
+      orderTypes.COMPTOIR = { count: periodCounterSales.length, revenue: periodCounterRevenue };
+      for (const sale of periodCounterSales) {
+        const method = sale.paymentType === 'CASH' ? 'CASH' : 'SUMUP';
+        if (!paymentMethods[method]) paymentMethods[method] = { count: 0, revenue: 0 };
+        paymentMethods[method].count++;
+        paymentMethods[method].revenue += sale.amountCents;
+
+        const hour = new Date(sale.occurredAt).getHours();
+        hourlyToday[hour].count++;
+        hourlyToday[hour].revenue += sale.amountCents;
+      }
+    }
+
+    const itemQtyToday: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    if (paidOrdersById.size > 0) {
+      const periodItems = await prisma.orderItem.findMany({
+        where: { orderId: { in: [...paidOrdersById.keys()] } },
         include: { menuItem: { select: { id: true, name: true } } },
       });
-      for (const oi of todayItems) {
+      for (const oi of periodItems) {
         const id = oi.menuItemId;
         if (!itemQtyToday[id]) {
           itemQtyToday[id] = { name: oi.menuItem.name, quantity: 0, revenue: 0 };
@@ -179,29 +281,47 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
         itemQtyToday[id].revenue += oi.price * oi.quantity;
       }
     }
+    // Comptoir SumUp — clé par nom d'article (pas de menuItemId, import CSV texte libre).
+    const periodCounterItems = await getCounterSaleItems(prisma, businessId, periodFrom, periodTo);
+    for (const ci of periodCounterItems) {
+      const id = `sumup:${ci.description}`;
+      if (!itemQtyToday[id]) {
+        itemQtyToday[id] = { name: ci.description, quantity: 0, revenue: 0 };
+      }
+      itemQtyToday[id].quantity += ci.quantity;
+      itemQtyToday[id].revenue += ci.amountCents;
+    }
 
     const topItemsToday = Object.entries(itemQtyToday)
       .map(([id, data]) => ({ id, ...data }))
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 8);
+      .slice(0, 10);
 
     const salesByDay: { date: string; count: number; total: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
+    for (let i = spanDays - 1; i >= 0; i--) {
+      const d = new Date(periodTo);
       d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
-      const dayOrders = weekPaidOrders.filter(
+      const dayOrders = [...paidOrdersById.values()].filter(
         o => new Date(o.createdAt).toISOString().slice(0, 10) === key
+      );
+      const daySales = periodCounterSales.filter(
+        t => new Date(t.occurredAt).toISOString().slice(0, 10) === key
       );
       salesByDay.push({
         date: key,
-        count: dayOrders.length,
-        total: dayOrders.reduce((s, o) => s + o.total, 0),
+        count: dayOrders.length + daySales.length,
+        total:
+          dayOrders.reduce((s, o) => s + o.total, 0) +
+          daySales.reduce((s, t) => s + t.amountCents, 0),
       });
     }
 
     res.json({
-      todayOrders: todayOrdersCount,
+      // Sans le comptoir, la carte "Commandes" affichait 0 alors que son propre sous-titre
+      // "X payées" (todayPaidCount, qui lui inclut déjà le comptoir) disait le contraire —
+      // contradiction visible dès qu'il n'y a aucune commande app, seulement du comptoir.
+      todayOrders: periodOrdersCount + periodCounterSales.length,
       todayPaidCount,
       todayRevenue,
       avgBasketToday,
@@ -212,6 +332,7 @@ router.get('/dashboard', ...reportsRead, async (req: AuthRequest, res: Response)
       onlineToday,
       counterToday,
       recentOrders,
+      recentCounterSales,
       topItemsToday,
       hourlyToday,
       orderTypes,
@@ -269,13 +390,17 @@ router.get('/customers-summary', ...reportsRead, async (req: AuthRequest, res: R
     for (const o of orders) {
       const phone = o.customerPhone?.trim();
       if (!phone) continue;
-      const key = phone.replace(/\s/g, '');
+      // Même client, formats différents ("0612345678" vs "+33612345678" vs "06 12 34 56 78") :
+      // on déduplique sur l'identité E.164 (déjà utilisée pour SMS/WhatsApp), pas juste les espaces,
+      // sinon un même client apparaît deux fois et son historique/CA est sous-évalué.
+      const key = normalizePhoneE164(phone);
       const existing = byPhone.get(key);
       const paid = o.paymentStatus === 'PAID' ? o.total : 0;
+      const name = o.customerName?.trim() || null;
       if (!existing) {
         byPhone.set(key, {
           phone,
-          name: o.customerName?.trim() || 'Client',
+          name: name || 'Client',
           email: o.customerEmail,
           orderCount: 1,
           paidTotalCents: paid,
@@ -284,7 +409,7 @@ router.get('/customers-summary', ...reportsRead, async (req: AuthRequest, res: R
       } else {
         existing.orderCount++;
         existing.paidTotalCents += paid;
-        if (!existing.name && o.customerName) existing.name = o.customerName.trim();
+        if (existing.name === 'Client' && name) existing.name = name;
         if (!existing.email && o.customerEmail) existing.email = o.customerEmail;
       }
     }
@@ -314,34 +439,44 @@ router.get('/sales', ...reportsRead, async (req: AuthRequest, res: Response) => 
       : new Date(new Date().setDate(new Date().getDate() - 30));
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const orders = await prisma.order.findMany({
-      where: {
-        businessId,
-        createdAt: { gte: dateFrom, lte: dateTo },
-        paymentStatus: 'PAID',
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [orders, counterSales] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          businessId,
+          createdAt: { gte: dateFrom, lte: dateTo },
+          paymentStatus: 'PAID',
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      getCounterSales(prisma, businessId, dateFrom, dateTo),
+    ]);
 
-    // Group by day, week, or month
-    const grouped: Record<string, { count: number; total: number; orders: number[] }> = {};
-    for (const order of orders) {
-      let key: string;
-      const d = new Date(order.createdAt);
+    const bucketKey = (d: Date): string => {
       if (groupBy === 'month') {
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      } else if (groupBy === 'week') {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
+      if (groupBy === 'week') {
         const startOfWeek = new Date(d);
         startOfWeek.setDate(d.getDate() - d.getDay());
-        key = startOfWeek.toISOString().slice(0, 10);
-      } else {
-        key = d.toISOString().slice(0, 10);
+        return startOfWeek.toISOString().slice(0, 10);
       }
+      return d.toISOString().slice(0, 10);
+    };
 
+    // Group by day, week, or month — commandes app + ventes comptoir SumUp (pas de Order)
+    const grouped: Record<string, { count: number; total: number; orders: number[] }> = {};
+    for (const order of orders) {
+      const key = bucketKey(new Date(order.createdAt));
       if (!grouped[key]) grouped[key] = { count: 0, total: 0, orders: [] };
       grouped[key].count++;
       grouped[key].total += order.total;
       grouped[key].orders.push(order.orderNumber);
+    }
+    for (const sale of counterSales) {
+      const key = bucketKey(new Date(sale.occurredAt));
+      if (!grouped[key]) grouped[key] = { count: 0, total: 0, orders: [] };
+      grouped[key].count++;
+      grouped[key].total += sale.amountCents;
     }
 
     const salesData = Object.entries(grouped)
@@ -373,23 +508,26 @@ router.get('/categories', ...reportsRead, async (req: AuthRequest, res: Response
     const dateFrom = from ? new Date(from as string) : new Date(0);
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const categories = await prisma.menuCategory.findMany({
-      where: { businessId, isActive: true },
-      include: {
-        items: {
-          include: {
-            orderItems: {
-              where: {
-                order: {
-                  createdAt: { gte: dateFrom, lte: dateTo },
-                  paymentStatus: 'PAID',
+    const [categories, counterItems] = await Promise.all([
+      prisma.menuCategory.findMany({
+        where: { businessId, isActive: true },
+        include: {
+          items: {
+            include: {
+              orderItems: {
+                where: {
+                  order: {
+                    createdAt: { gte: dateFrom, lte: dateTo },
+                    paymentStatus: 'PAID',
+                  },
                 },
               },
             },
           },
         },
-      },
-    });
+      }),
+      getCounterSaleItems(prisma, businessId, dateFrom, dateTo),
+    ]);
 
     const categoryData = categories.map(cat => {
       const totalSold = cat.items.reduce((sum, item) => {
@@ -406,6 +544,20 @@ router.get('/categories', ...reportsRead, async (req: AuthRequest, res: Response
         revenue,
       };
     });
+
+    // Comptoir SumUp — catégorie en texte libre (import CSV), pas un vrai MenuCategory :
+    // ajoutées à part plutôt que rapprochées par nom (fragile, taxonomies différentes).
+    const counterByCategory = new Map<string, { totalSold: number; revenue: number }>();
+    for (const item of counterItems) {
+      const key = item.category?.trim() || 'Comptoir (sans catégorie)';
+      const row = counterByCategory.get(key) ?? { totalSold: 0, revenue: 0 };
+      row.totalSold += item.quantity;
+      row.revenue += item.amountCents;
+      counterByCategory.set(key, row);
+    }
+    for (const [name, row] of counterByCategory) {
+      categoryData.push({ id: `sumup:${name}`, name, nameAr: null, ...row });
+    }
 
     res.json(categoryData);
   } catch (error) {
@@ -521,19 +673,22 @@ router.get('/items-performance', ...reportsRead, async (req: AuthRequest, res: R
       : new Date(new Date().setDate(new Date().getDate() - 30));
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const orderItems = await prisma.orderItem.findMany({
-      where: {
-        order: {
-          businessId,
-          createdAt: { gte: dateFrom, lte: dateTo },
-          paymentStatus: 'PAID',
+    const [orderItems, counterItems] = await Promise.all([
+      prisma.orderItem.findMany({
+        where: {
+          order: {
+            businessId,
+            createdAt: { gte: dateFrom, lte: dateTo },
+            paymentStatus: 'PAID',
+          },
         },
-      },
-      include: {
-        menuItem: { select: { id: true, name: true, nameAr: true, price: true } },
-        order: { select: { createdAt: true } },
-      },
-    });
+        include: {
+          menuItem: { select: { id: true, name: true, nameAr: true, price: true } },
+          order: { select: { createdAt: true } },
+        },
+      }),
+      getCounterSaleItems(prisma, businessId, dateFrom, dateTo),
+    ]);
 
     // Aggregate by item
     const itemMap: Record<
@@ -564,6 +719,25 @@ router.get('/items-performance', ...reportsRead, async (req: AuthRequest, res: R
       itemMap[id].orders++;
       const hour = new Date(oi.order.createdAt).getHours();
       itemMap[id].hourly[hour]++;
+    }
+    // Comptoir SumUp — pas de menuItemId (import CSV en texte libre), clé par nom d'article ;
+    // fusionne naturellement avec un article du menu qui porterait le même nom.
+    for (const ci of counterItems) {
+      const id = `sumup:${ci.description}`;
+      if (!itemMap[id]) {
+        itemMap[id] = {
+          name: ci.description,
+          nameAr: '',
+          quantity: 0,
+          revenue: 0,
+          orders: 0,
+          hourly: new Array(24).fill(0),
+        };
+      }
+      itemMap[id].quantity += ci.quantity;
+      itemMap[id].revenue += ci.amountCents;
+      itemMap[id].orders++;
+      itemMap[id].hourly[ci.occurredAt.getHours()]++;
     }
 
     const items = Object.entries(itemMap)
@@ -598,14 +772,17 @@ router.get('/peak-hours', ...reportsRead, async (req: AuthRequest, res: Response
       : new Date(new Date().setDate(new Date().getDate() - 30));
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const orders = await prisma.order.findMany({
-      where: {
-        businessId,
-        paymentStatus: 'PAID',
-        createdAt: { gte: dateFrom, lte: dateTo },
-      },
-      select: { createdAt: true, total: true },
-    });
+    const [orders, counterSales] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          businessId,
+          paymentStatus: 'PAID',
+          createdAt: { gte: dateFrom, lte: dateTo },
+        },
+        select: { createdAt: true, total: true },
+      }),
+      getCounterSales(prisma, businessId, dateFrom, dateTo),
+    ]);
 
     const hourly: { hour: number; count: number; revenue: number }[] = [];
     for (let h = 0; h < 24; h++) {
@@ -617,6 +794,11 @@ router.get('/peak-hours', ...reportsRead, async (req: AuthRequest, res: Response
       hourly[hour].count++;
       hourly[hour].revenue += order.total;
     }
+    for (const sale of counterSales) {
+      const hour = new Date(sale.occurredAt).getHours();
+      hourly[hour].count++;
+      hourly[hour].revenue += sale.amountCents;
+    }
 
     const dow: { day: number; count: number; revenue: number }[] = [];
     for (let d = 0; d < 7; d++) {
@@ -627,6 +809,11 @@ router.get('/peak-hours', ...reportsRead, async (req: AuthRequest, res: Response
       const day = new Date(order.createdAt).getDay();
       dow[day].count++;
       dow[day].revenue += order.total;
+    }
+    for (const sale of counterSales) {
+      const day = new Date(sale.occurredAt).getDay();
+      dow[day].count++;
+      dow[day].revenue += sale.amountCents;
     }
 
     res.json({ hourly, dow });
@@ -651,14 +838,17 @@ router.get('/payment-methods', ...reportsRead, async (req: AuthRequest, res: Res
     const dateFrom = from ? new Date(from as string) : new Date(0);
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const orders = await prisma.order.findMany({
-      where: {
-        businessId,
-        paymentStatus: 'PAID',
-        createdAt: { gte: dateFrom, lte: dateTo },
-      },
-      select: { paymentMethod: true, total: true },
-    });
+    const [orders, counterSales] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          businessId,
+          paymentStatus: 'PAID',
+          createdAt: { gte: dateFrom, lte: dateTo },
+        },
+        select: { paymentMethod: true, total: true },
+      }),
+      getCounterSales(prisma, businessId, dateFrom, dateTo),
+    ]);
 
     const methods: Record<string, { count: number; revenue: number }> = {};
     for (const order of orders) {
@@ -666,6 +856,14 @@ router.get('/payment-methods', ...reportsRead, async (req: AuthRequest, res: Res
       if (!methods[method]) methods[method] = { count: 0, revenue: 0 };
       methods[method].count++;
       methods[method].revenue += order.total;
+    }
+    // Ventes comptoir SumUp — pas de paymentMethod sur Order (aucune Order créée) : CASH
+    // rejoint le même libellé que les espèces app, POS (carte SumUp) a son propre libellé.
+    for (const sale of counterSales) {
+      const method = sale.paymentType === 'CASH' ? 'CASH' : 'SUMUP';
+      if (!methods[method]) methods[method] = { count: 0, revenue: 0 };
+      methods[method].count++;
+      methods[method].revenue += sale.amountCents;
     }
 
     res.json(methods);
@@ -690,14 +888,17 @@ router.get('/order-types', ...reportsRead, async (req: AuthRequest, res: Respons
       : new Date(new Date().setDate(new Date().getDate() - 30));
     const dateTo = to ? new Date(to as string) : new Date();
 
-    const orders = await prisma.order.findMany({
-      where: {
-        businessId,
-        paymentStatus: 'PAID',
-        createdAt: { gte: dateFrom, lte: dateTo },
-      },
-      select: { type: true, total: true, isOnlineOrder: true },
-    });
+    const [orders, counterSales] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          businessId,
+          paymentStatus: 'PAID',
+          createdAt: { gte: dateFrom, lte: dateTo },
+        },
+        select: { type: true, total: true, isOnlineOrder: true },
+      }),
+      getCounterSales(prisma, businessId, dateFrom, dateTo),
+    ]);
 
     const types: Record<string, { count: number; revenue: number }> = {};
     for (const order of orders) {
@@ -705,6 +906,13 @@ router.get('/order-types', ...reportsRead, async (req: AuthRequest, res: Respons
       if (!types[type]) types[type] = { count: 0, revenue: 0 };
       types[type].count++;
       types[type].revenue += order.total;
+    }
+    // Comptoir SumUp — pas de "type" de commande (pas de Order) : bucket dédié.
+    if (counterSales.length > 0) {
+      types.COMPTOIR = {
+        count: counterSales.length,
+        revenue: counterSales.reduce((s, t) => s + t.amountCents, 0),
+      };
     }
 
     res.json(types);

@@ -4,15 +4,21 @@ import { useEffect, useState } from 'react'
 import { ChefHat, Copy, Loader2, Store, Tablet, X } from 'lucide-react'
 import type { DeviceSlot, SlotCapacityRow } from '@/lib/device-onboarding'
 import { DEVICE_SLOT_LABELS } from '@/lib/device-onboarding'
+import { isModuleEnabled } from '@/lib/modules'
 import { cn } from '@/lib/cn'
 
 type RegisterKind = DeviceSlot
 
-const KIND_OPTIONS: { value: RegisterKind; label: string; hint: string; Icon: typeof Store }[] = [
+const ALL_KIND_OPTIONS: { value: RegisterKind; label: string; hint: string; Icon: typeof Store }[] = [
   { value: 'pos-sunmi', label: 'Caisse (POS SUNMI)', hint: 'Terminal SUNMI V2 — comptoir principal', Icon: Store },
   { value: 'pos-tablet', label: 'Caisse (tablette)', hint: 'iPad / tablette Android en paysage', Icon: Tablet },
   { value: 'kds', label: 'Écran cuisine (KDS)', hint: 'Tablette murale — tickets en temps réel', Icon: ChefHat },
 ]
+
+// Version une-tablette : sans module POS, ne proposer que le KDS au jumelage.
+const KIND_OPTIONS = isModuleEnabled('pos')
+  ? ALL_KIND_OPTIONS
+  : ALL_KIND_OPTIONS.filter((o) => o.value === 'kds')
 
 export function DeviceRegisterModal({
   open,
@@ -29,7 +35,7 @@ export function DeviceRegisterModal({
   busy: boolean
   onCreate: (slot: DeviceSlot, label: string) => Promise<{ code: string; expiresAt: string }>
 }) {
-  const [kind, setKind] = useState<RegisterKind>('pos-sunmi')
+  const [kind, setKind] = useState<RegisterKind>(KIND_OPTIONS[0].value)
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<{ code: string; expiresAt: string; slot: DeviceSlot; label: string } | null>(
@@ -42,7 +48,7 @@ export function DeviceRegisterModal({
 
   useEffect(() => {
     if (!open) return
-    setKind('pos-sunmi')
+    setKind(KIND_OPTIONS[0].value)
     setName('')
     setError(null)
     setSuccess(null)
@@ -54,7 +60,7 @@ export function DeviceRegisterModal({
   async function handleCreate() {
     const trimmed = name.trim()
     if (!trimmed) {
-      setError('Donnez un nom au terminal (ex. POS Comptoir, KDS Four).')
+      setError(`Donnez un nom au terminal (ex. ${isModuleEnabled('pos') ? 'POS Comptoir, ' : ''}KDS Four).`)
       return
     }
     if (slotFull) {
@@ -112,7 +118,7 @@ export function DeviceRegisterModal({
               </p>
             </div>
             <ol className="space-y-2 text-sm text-cream/55">
-              <li>1. Ouvrez l’application sur le terminal (POS, KDS…).</li>
+              <li>1. Ouvrez l’application sur le terminal.</li>
               <li>2. À la première connexion, saisissez le code à 6 chiffres.</li>
               <li>3. Le terminal restera lié à cette boutique.</li>
             </ol>
@@ -161,7 +167,7 @@ export function DeviceRegisterModal({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex : POS Comptoir, KDS Four"
+                placeholder={isModuleEnabled('pos') ? 'Ex : POS Comptoir, KDS Four' : 'Ex : KDS Four'}
                 className="mt-1.5 w-full rounded-xl border border-white/15 bg-charcoal px-3 py-2.5 text-sm text-cream placeholder:text-cream/30 focus:border-tomato/40 focus:outline-none"
               />
             </label>

@@ -6,6 +6,7 @@ import {
   type DeliveryIssueReason,
 } from './delivery-handover';
 import { appendDriverTrail } from './driver-trail';
+import { ensureInvoiceForPaidOrder } from './invoice-from-order';
 import { notifyOrderStatusChange } from './notifications';
 import { assertOrderStatusTransition, type OrderStatus } from './order-status';
 import { emitOrderTrackUpdate } from './order-track-events';
@@ -249,6 +250,13 @@ export async function confirmDeliveryHandover(
 
   void notifyOrderStatusChange(order).catch(err =>
     console.error('[notifications] delivered:', err)
+  );
+
+  // Livraison confirmée par le livreur (code client validé) = vente comptabilisée —
+  // c'est ici, pas au paiement, que la facture CRM se génère pour une commande livraison
+  // (idempotent : si déjà facturée par un autre chemin, réutilise la facture existante).
+  ensureInvoiceForPaidOrder(prisma, order.businessId, order.id).catch(err =>
+    console.error('[invoice] auto à la livraison:', order.id, err)
   );
 
   if (io) {

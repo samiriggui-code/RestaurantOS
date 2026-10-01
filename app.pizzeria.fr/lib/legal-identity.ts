@@ -14,8 +14,8 @@ export const LEGAL_IDENTITY = {
   nafCode: '56.10C',
   nafLabel: 'Restauration de type rapide',
   rcsCity: 'Bordeaux',
-  website: 'https://www.lazpizzafarguesainthilaire.com',
-  contactEmail: 'contact@lazpizzafarguesainthilaire.com',
+  website: 'https://lazpizza.fr',
+  contactEmail: 'atmane.chennit@lazpizza.fr',
   directorPublication: 'Atmane Chennit, gérant',
   hostingProvider: 'Hostinger / infrastructure VPS sécurisée (TLS)',
 } as const

@@ -17,6 +17,8 @@ import {
   terminateSumupReaderCheckout,
   SumupApiError,
 } from '../lib/sumup';
+import { syncSumupTransactions, listCachedSumupTransactions } from '../lib/sumup-transaction-sync';
+import { importSalesJournal } from '../lib/sumup-sales-journal-import';
 
 const router = Router();
 
@@ -175,6 +177,80 @@ router.post(
       await terminateSumupReaderCheckout(reader.id);
       res.json({ ok: true });
     } catch (error) {
+      sumupErrorResponse(res, error);
+    }
+  }
+);
+
+/**
+ * POST /api/payments/sumup/transactions/sync — tire l'historique SumUp depuis la
+ * dernière transaction connue jusqu'à maintenant et l'upsert dans le cache local.
+ */
+router.post(
+  '/transactions/sync',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const result = await syncSumupTransactions(prisma, req.user!.businessId);
+      res.json(result);
+    } catch (error) {
+      sumupErrorResponse(res, error);
+    }
+  }
+);
+
+/**
+ * GET /api/payments/sumup/transactions — transactions comptoir/en ligne en cache.
+ * ?billed=unbilled (défaut) | billed | all, ?paymentType=POS|CASH|ECOM, ?limit=, ?from=, ?to= (ISO)
+ */
+router.get('/transactions', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const { billed, paymentType, limit, from, to } = req.query as {
+      billed?: 'billed' | 'unbilled' | 'all';
+      paymentType?: string;
+      limit?: string;
+      from?: string;
+      to?: string;
+    };
+    const transactions = await listCachedSumupTransactions(prisma, req.user!.businessId, {
+      billed,
+      paymentType,
+      limit: limit ? Number(limit) : undefined,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+    });
+    res.json({ transactions });
+  } catch (error) {
+    sumupErrorResponse(res, error);
+  }
+});
+
+/**
+ * POST /api/payments/sumup/transactions/import-journal — rattache le détail produit du
+ * "Rapport de ventes" (export manuel SumUp, le seul avec le détail article) aux
+ * transactions en cache. Resynchronise d'abord pour être sûr que les transactions du
+ * jour existent déjà (sinon rien à rattacher). N'écrit jamais de montant.
+ */
+router.post(
+  '/transactions/import-journal',
+  authenticate,
+  requireRole('ADMIN', 'MANAGER'),
+  logAction('UPDATE', 'SUMUP_SALES_JOURNAL_IMPORT'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { csv } = req.body as { csv?: string };
+      if (!csv?.trim()) return res.status(400).json({ error: 'csv requis' });
+
+      const prisma: PrismaClient = req.app.get('prisma');
+      await syncSumupTransactions(prisma, req.user!.businessId);
+      const result = await importSalesJournal(prisma, req.user!.businessId, csv);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof SumupApiError) return sumupErrorResponse(res, error);
+      if (error instanceof Error) return res.status(400).json({ error: error.message });
       sumupErrorResponse(res, error);
     }
   }

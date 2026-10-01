@@ -9,7 +9,7 @@ const LEGAL = {
   siret: '981 700 842 00017',
   vatNumber: 'FR81 981 700 842',
   legalForm: 'Société à responsabilité limitée',
-  website: 'www.lazpizzafarguesainthilaire.com',
+  website: 'lazpizza.fr',
 } as const
 
 export type TicketBranding = {

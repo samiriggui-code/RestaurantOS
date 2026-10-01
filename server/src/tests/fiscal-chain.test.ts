@@ -286,7 +286,14 @@ function createFakeFiscalPrisma(businessId: string) {
     findUnique: jest.fn(async () => null),
   };
 
-  const tx = { fiscalSequence, fiscalTicket, fiscalEvent, fiscalClosure };
+  const tx = {
+    fiscalSequence,
+    fiscalTicket,
+    fiscalEvent,
+    fiscalClosure,
+    // SELECT … FOR UPDATE de lockFiscalSequence — sans effet dans le fake
+    $queryRaw: jest.fn(async () => []),
+  };
 
   const prisma = {
     business: {

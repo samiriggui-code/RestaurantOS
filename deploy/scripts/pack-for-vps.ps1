@@ -28,6 +28,7 @@ try {
     --exclude="android/.gradle" `
     --exclude="android/.gradle-user-home" `
     --exclude="app.pizzeria.fr/.next" `
+    --exclude="app.pizzeria.fr/public/pizzas" `
     --exclude="server/dist" `
     --exclude="server/uploads" `
     --exclude="server/backups" `
@@ -59,10 +60,10 @@ set -e
 mkdir -p /opt/pizzeria
 FISCAL_RESET_PREFIX
 tar -xzf REMOTE_TAR -C /opt/pizzeria
-sed -i 's/\r$//' /opt/pizzeria/deploy/scripts/vps-install.sh
-sed -i 's/\r$//' /opt/pizzeria/deploy/scripts/vps-docker-clean.sh
-chmod +x /opt/pizzeria/deploy/scripts/vps-install.sh
-chmod +x /opt/pizzeria/deploy/scripts/vps-docker-clean.sh
+# Le tar part d'une copie de travail Windows (CRLF) : tous les .sh repassent en LF,
+# sinon `set -o pipefail` échoue (ex. fiscal-backup-minio.sh, install-backup-cron.sh).
+find /opt/pizzeria/deploy -name '*.sh' -exec sed -i 's/\r$//' {} +
+chmod +x /opt/pizzeria/deploy/scripts/*.sh
 /opt/pizzeria/deploy/scripts/vps-install.sh
 '@ -replace 'REMOTE_TAR', $RemotePath -replace 'FISCAL_RESET_PREFIX', $(if ($FiscalReset) { "export FORCE_FISCAL_LAB_RESET=1" } else { "" })
 $localSh = Join-Path $env:TEMP "pizzeria-vps-remote.sh"

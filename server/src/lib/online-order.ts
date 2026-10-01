@@ -134,6 +134,56 @@ export function validateOnlineOrderBody(body: OnlineOrderBody): string | null {
   return null;
 }
 
+/**
+ * Vérifie que la commande est réalisable à l'instant présent : créneau/zone de livraison,
+ * formules promo, et désormais disponibilité des articles (un article vendu ou une
+ * catégorie désactivée entre l'ajout au panier — qui reste en localStorage indéfiniment —
+ * et le paiement ne doit pas passer). Appelée AVANT de créer le paiement SumUp (pour éviter
+ * de débiter un client pour rien) et re-vérifiée à la création de la commande (fenêtre de
+ * course résiduelle, très courte, entre la préparation du paiement et sa capture).
+ */
+export async function validateOrderFeasibility(
+  prisma: PrismaClient,
+  businessId: string,
+  body: OnlineOrderBody
+): Promise<string | null> {
+  if (body.checkout.orderType === 'delivery') {
+    const pizzaSubtotal = pizzaSubtotalFromLines(body.lines);
+    const quote = await computeDeliveryQuote(
+      prisma,
+      businessId,
+      body.checkout.postalCode!.trim(),
+      body.checkout.city!.trim(),
+      pizzaSubtotal
+    );
+    if (!quote.ok) return quote.error ?? 'Livraison impossible';
+    if (Math.abs(body.deliveryFee - quote.fee) > 0.05) return 'Frais de livraison invalides';
+  }
+
+  const slotError = await validateTimeSlot(prisma, businessId, body.checkout.timeSlot);
+  if (slotError) return slotError;
+
+  const formuleError = await validateFormuleLines(
+    prisma,
+    businessId,
+    body.lines.map(l => ({ slug: l.slug, unitPrice: l.unitPrice, offerTag: l.offerTag }))
+  );
+  if (formuleError) return formuleError;
+
+  for (const line of body.lines) {
+    if (line.slug === SNAPSHOT_SLUG) continue;
+    const item = await prisma.menuItem.findFirst({
+      where: { slug: line.slug, category: { businessId } },
+      select: { isActive: true, isAvailable: true },
+    });
+    if (item && (!item.isActive || !item.isAvailable)) {
+      return `Article indisponible : ${line.name}`;
+    }
+  }
+
+  return null;
+}
+
 export type CreateOnlineOrderOptions = {
   cardPaid?: { sumupCheckoutId: string };
 };
@@ -150,35 +200,9 @@ export async function createOnlineOrder(
     return { error: validationError, status: 400 as const };
   }
 
-  if (body.checkout.orderType === 'delivery') {
-    const pizzaSubtotal = pizzaSubtotalFromLines(body.lines);
-    const quote = await computeDeliveryQuote(
-      prisma,
-      businessId,
-      body.checkout.postalCode!.trim(),
-      body.checkout.city!.trim(),
-      pizzaSubtotal
-    );
-    if (!quote.ok) {
-      return { error: quote.error ?? 'Livraison impossible', status: 400 as const };
-    }
-    if (Math.abs(body.deliveryFee - quote.fee) > 0.05) {
-      return { error: 'Frais de livraison invalides', status: 400 as const };
-    }
-  }
-
-  const slotError = await validateTimeSlot(prisma, businessId, body.checkout.timeSlot);
-  if (slotError) {
-    return { error: slotError, status: 400 as const };
-  }
-
-  const formuleError = await validateFormuleLines(
-    prisma,
-    businessId,
-    body.lines.map(l => ({ slug: l.slug, unitPrice: l.unitPrice, offerTag: l.offerTag }))
-  );
-  if (formuleError) {
-    return { error: formuleError, status: 400 as const };
+  const feasibilityError = await validateOrderFeasibility(prisma, businessId, body);
+  if (feasibilityError) {
+    return { error: feasibilityError, status: 400 as const };
   }
 
   const scheduledAt = parseTimeSlotToDate(body.checkout.timeSlot);

@@ -4,10 +4,12 @@ import { Server as SocketIOServer } from 'socket.io';
 import { AuthRequest } from '../types';
 import { ingestMarketplaceOrder, type MarketplaceOrderPayload } from '../lib/marketplace-order';
 import {
+  resolveMarketplaceWebhookSecret,
   verifyMarketplaceWebhookAuth,
   type MarketplaceProvider,
 } from '../lib/marketplace-integrations';
-
+import { parseBusinessSettings } from '../lib/business-settings';
+import { getBusinessId } from '../lib/business';
 const router = Router();
 
 async function handleWebhook(
@@ -26,7 +28,16 @@ async function handleWebhook(
           ? req.body.toString('utf8')
           : JSON.stringify(req.body ?? {}));
 
-    const auth = verifyMarketplaceWebhookAuth(provider, rawBody, req.headers);
+    const settings = parseBusinessSettings(
+      (
+        await prisma.business.findUnique({
+          where: { id: getBusinessId() },
+          select: { settings: true },
+        })
+      )?.settings
+    );
+    const secret = resolveMarketplaceWebhookSecret(settings, provider);
+    const auth = verifyMarketplaceWebhookAuth(provider, rawBody, req.headers, secret);
     if (!auth.ok) {
       return res.status(401).json({ ok: false, error: auth.error });
     }

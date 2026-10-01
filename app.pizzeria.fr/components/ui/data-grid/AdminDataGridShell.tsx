@@ -19,10 +19,14 @@ type AdminDataGridShellProps<TData extends object> = {
   onSearchChange?: (value: string) => void
   searchPlaceholder?: string
   headerExtra?: ReactNode
+  /** Rangée pleine largeur sous le titre (filtres date / catégorie alignés). */
+  toolbar?: ReactNode
   className?: string
   expandedRowId?: string | null
   renderSubRow?: (row: TData) => ReactNode
   getRowClassName?: (row: Row<TData>) => string | undefined
+  /** Tailles de page proposées dans le sélecteur — défaut PAGE_SIZES (10/20/50). */
+  paginationSizes?: readonly number[]
 }
 
 export function AdminDataGridShell<TData extends object>({
@@ -36,11 +40,15 @@ export function AdminDataGridShell<TData extends object>({
   onSearchChange,
   searchPlaceholder = 'Rechercher…',
   headerExtra,
+  toolbar,
   className,
   expandedRowId,
   renderSubRow,
   getRowClassName,
+  paginationSizes,
 }: AdminDataGridShellProps<TData>) {
+  const showInlineSearch = Boolean(onSearchChange) && !toolbar
+
   return (
     <DataGrid
       table={table}
@@ -66,27 +74,34 @@ export function AdminDataGridShell<TData extends object>({
             </span>
           )}
           {subtitle ? (
-            <span className="hidden truncate text-xs text-cream/40 lg:inline">{subtitle}</span>
+            <span className="hidden truncate text-xs text-cream/45 lg:inline">{subtitle}</span>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {onSearchChange && (
-            <div className="relative w-[min(100%,220px)]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/30" />
-              <input
-                type="search"
-                value={search ?? ''}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={searchPlaceholder}
-                className="w-full rounded-xl border border-white/15 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-cream outline-none focus:border-tomato/40"
-              />
-            </div>
-          )}
-          {headerExtra}
-        </div>
+        {(showInlineSearch || headerExtra) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {showInlineSearch && (
+              <div className="relative w-[min(100%,240px)]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/30" />
+                <input
+                  type="search"
+                  value={search ?? ''}
+                  onChange={(e) => onSearchChange?.(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="w-full rounded-xl border border-white/15 bg-white/[0.03] py-2 pl-9 pr-3 text-sm text-cream outline-none focus:border-tomato/40"
+                />
+              </div>
+            )}
+            {headerExtra}
+          </div>
+        )}
       </div>
+      {toolbar ? (
+        <div className="flex flex-wrap items-end gap-2 border-b border-white/10 bg-white/[0.015] px-4 py-3">
+          {toolbar}
+        </div>
+      ) : null}
       <DataGridTable />
-      <DataGridPagination />
+      <DataGridPagination sizes={paginationSizes} />
     </DataGrid>
   )
 }

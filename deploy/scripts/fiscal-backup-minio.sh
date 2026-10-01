@@ -56,7 +56,7 @@ docker run --rm \
   --network "$MINIO_NETWORK" \
   --entrypoint /bin/sh \
   -v "$BACKUP_DIR:/backups:ro" \
-  minio/mc:latest \
+  quay.io/minio/mc:latest \
   -c "
     set -e
     mc alias set local '${MINIO_ENDPOINT}' '${MINIO_ACCESS}' '${MINIO_SECRET}' --api S3v4
@@ -69,7 +69,7 @@ if [[ -n "$TAR_FISCAL" && -f "$TAR_FISCAL" ]]; then
     --network "$MINIO_NETWORK" \
     --entrypoint /bin/sh \
     -v "$BACKUP_DIR:/backups:ro" \
-    minio/mc:latest \
+    quay.io/minio/mc:latest \
     -c "
       mc alias set local '${MINIO_ENDPOINT}' '${MINIO_ACCESS}' '${MINIO_SECRET}' --api S3v4
       mc cp /backups/$(basename "$TAR_FISCAL") local/${MINIO_BUCKET}/fiscal/

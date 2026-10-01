@@ -19,14 +19,16 @@ type AddToCartControlProps = {
   item: CatalogItem
   categoryId: string
   className?: string
+  /** Taille pré-sélectionnée à l'arrivée (ex. Méga depuis le lien promo "En profiter"). */
+  defaultSizeId?: PizzaSizeId
 }
 
-export function AddToCartControl({ item, categoryId, className }: AddToCartControlProps) {
+export function AddToCartControl({ item, categoryId, className, defaultSizeId }: AddToCartControlProps) {
   const { addItem } = useCart()
   const isPizza = PIZZA_CATEGORY_IDS.has(categoryId)
   const supplementKey = SUPPLEMENT_PRICE_KEY_BY_SLUG[item.slug]
   const isSizedSupplement = categoryId === 'supplements' && Boolean(supplementKey)
-  const [sizeId, setSizeId] = useState<PizzaSizeId>('31')
+  const [sizeId, setSizeId] = useState<PizzaSizeId>(defaultSizeId ?? '31')
   const [added, setAdded] = useState(false)
 
   const unitPrice = isPizza
@@ -117,10 +119,15 @@ export function AddToCartControl({ item, categoryId, className }: AddToCartContr
   )
 }
 
-export function AddToCartRow({ item, categoryId }: AddToCartControlProps) {
+export function AddToCartRow({ item, categoryId, defaultSizeId }: AddToCartControlProps) {
   return (
     <div className="flex items-center gap-3 border-t border-white/5 px-4 py-3 sm:px-5">
-      <AddToCartControl item={item} categoryId={categoryId} className="mt-0 flex-1 border-0 pt-0" />
+      <AddToCartControl
+        item={item}
+        categoryId={categoryId}
+        defaultSizeId={defaultSizeId}
+        className="mt-0 flex-1 border-0 pt-0"
+      />
     </div>
   )
 }

@@ -1,10 +1,6 @@
 import { AdminPosHub } from '@/components/admin/AdminPosHub'
-import { ModuleGuard } from '@/components/ops/ModuleGuard'
 
+/** Suivi caisse = encaissements comptoir SumUp (API), indépendant du module POS (désactivé). */
 export default function AdminPosPage() {
-  return (
-    <ModuleGuard module="pos" title="Suivi caisse">
-      <AdminPosHub />
-    </ModuleGuard>
-  )
+  return <AdminPosHub />
 }

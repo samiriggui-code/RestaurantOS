@@ -177,12 +177,12 @@ router.post('/pin', async (req: AuthRequest, res: Response) => {
 
     if (device === 'pos' && !canAccessPos(user.role)) {
       return res.status(403).json({
-        error: 'Ce PIN est réservé à la cuisine — utilisez le PIN caisse (ex. 1234).',
+        error: 'Ce PIN est réservé à la cuisine — utilisez un PIN caisse.',
       });
     }
     if (device === 'kitchen' && !canAccessKitchen(user.role)) {
       return res.status(403).json({
-        error: 'Ce PIN ne peut pas ouvrir le KDS — utilisez le PIN cuisine (5678) ou admin (2468).',
+        error: 'Ce PIN ne peut pas ouvrir le KDS — utilisez un PIN cuisine ou gérant.',
       });
     }
 

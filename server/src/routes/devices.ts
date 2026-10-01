@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { PERMISSION, requirePermission } from '../lib/permissions';
 import { parseBusinessSettings } from '../lib/business-settings';
 import { getBusinessId } from '../lib/business';
+import { isModuleEnabled } from '../lib/modules';
 import {
   canGeneratePairingCode,
   canAccessDeviceApps,
@@ -29,6 +30,9 @@ import {
   touchPairedDevice,
   unpairDeviceById,
   appendDeviceAudit,
+  touchAppPresence,
+  isPresenceFresh,
+  APP_ONLINE_WINDOW_MS,
   type DeviceSlot,
   type DevicesSettings,
   type PrinterConfig,
@@ -40,6 +44,7 @@ import {
   waitDeviceDiagnosticResult,
   type DeviceDiagnosticCheck,
 } from '../lib/device-diagnostics';
+import { fetchDriversOnDuty } from '../lib/driver-access';
 
 const router = Router();
 
@@ -166,6 +171,53 @@ router.get('/public/device-status', async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * POST /api/devices/public/emergency-bypass
+ * Accès temporaire POS/KDS (PIN ADMIN/MANAGER) si jumelage / IP bloqués.
+ */
+router.post('/public/emergency-bypass', async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const business = await loadTenantBusiness(prisma);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
+
+    const pin = String((req.body as { pin?: string }).pin ?? '').trim();
+    if (!pin) return res.status(400).json({ error: 'PIN requis' });
+
+    const user = await prisma.user.findFirst({
+      where: { businessId: business.id, pin, isActive: true },
+      select: { id: true, name: true, role: true },
+    });
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'MANAGER')) {
+      return res.status(403).json({ error: 'PIN gérant / admin requis' });
+    }
+
+    const clientIp = getClientIp(req);
+    await saveDevices(
+      prisma,
+      business.id,
+      appendDeviceAudit(getDevicesFromSettings(parseBusinessSettings(business.settings)), {
+        action: 'EMERGENCY_BYPASS',
+        byUserId: user.id,
+        ip: clientIp ?? undefined,
+        userAgent: req.headers['user-agent'],
+        note: `Accès temporaire ${user.role} ${user.name}`,
+      })
+    );
+
+    const expiresInSec = 4 * 3600;
+    res.json({
+      ok: true,
+      expiresInSec,
+      expiresAt: new Date(Date.now() + expiresInSec * 1000).toISOString(),
+      by: { id: user.id, name: user.name, role: user.role },
+    });
+  } catch (error) {
+    console.error('Emergency device bypass error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /** POST /api/devices/public/pair — jumeler depuis l'appareil (sans auth staff, IP boutique requise) */
 router.post('/public/pair', async (req: AuthRequest, res: Response) => {
   try {
@@ -240,6 +292,201 @@ router.get('/public/printers', async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** POST /api/devices/public/app-heartbeat — présence totem / livreur (sans jumelage) */
+router.post('/public/app-heartbeat', async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const business = await loadTenantBusiness(prisma);
+    if (!business) return res.status(404).json({ error: 'Business not found' });
+
+    const body = req.body as {
+      app?: string;
+      driverId?: string;
+      driverName?: string;
+    };
+    const app = body.app === 'kiosk' || body.app === 'livreur' ? body.app : null;
+    if (!app) return res.status(400).json({ error: 'app=kiosk|livreur requis' });
+
+    const clientIp = getClientIp(req);
+    let devices = getDevicesFromSettings(parseBusinessSettings(business.settings));
+    devices = await saveDevices(
+      prisma,
+      business.id,
+      touchAppPresence(devices, app, {
+        clientIp,
+        userAgent: req.headers['user-agent'],
+        driverId: typeof body.driverId === 'string' ? body.driverId.trim() : undefined,
+        driverName: typeof body.driverName === 'string' ? body.driverName.trim() : undefined,
+      })
+    );
+
+    const lastSeenAt =
+      app === 'kiosk'
+        ? (devices.appPresence?.kiosk?.lastSeenAt ?? null)
+        : (devices.appPresence?.livreur?.[0]?.lastSeenAt ?? null);
+
+    res.json({ ok: true, app, lastSeenAt });
+  } catch (error) {
+    console.error('App heartbeat error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/devices/fleet — vue parc CRM (POS · KDS · livreur · totem)
+ */
+router.get('/fleet', ...devicesRead, async (req: AuthRequest, res: Response) => {
+  try {
+    const prisma: PrismaClient = req.app.get('prisma');
+    const io: SocketIOServer = req.app.get('io');
+    const businessId = req.user!.businessId;
+    const devices = await loadDevices(prisma, businessId);
+    const paired = devices.pairedDevices ?? [];
+
+    type FleetSurface = {
+      id: string;
+      label: string;
+      kind: 'paired';
+      status: 'online' | 'offline' | 'unpaired' | 'idle';
+      detail: string;
+      lastSeenAt: string | null;
+      deviceId: string | null;
+      labelDevice: string | null;
+      lastIp: string | null;
+    };
+
+    const pairedSurface = async (slot: DeviceSlot): Promise<FleetSurface> => {
+      const device = paired.find(d => d.slot === slot) ?? null;
+      let socketOnline = false;
+      if (device) {
+        const sockets = await io.in(`device:${device.id}`).fetchSockets();
+        socketOnline = sockets.length > 0;
+      }
+      const lastSeenAt = device?.lastSeenAt ?? null;
+      const recent = isPresenceFresh(lastSeenAt);
+      const status: 'online' | 'offline' | 'unpaired' | 'idle' = !device
+        ? 'unpaired'
+        : socketOnline
+          ? 'online'
+          : recent
+            ? 'idle'
+            : 'offline';
+      return {
+        id: slot as string,
+        label: DEVICE_SLOT_LABELS[slot],
+        kind: 'paired' as const,
+        status,
+        detail: !device
+          ? 'Non jumelé'
+          : socketOnline
+            ? `Connecté · ${device.label}`
+            : recent
+              ? `Vu récemment · ${device.label}`
+              : lastSeenAt
+                ? `Hors ligne · vu ${new Date(lastSeenAt).toLocaleString('fr-FR')}`
+                : `Jumelé · ${device.label}`,
+        lastSeenAt,
+        deviceId: device?.id ?? null,
+        labelDevice: device?.label ?? null,
+        lastIp: device?.lastIp ?? device?.pairedFromIp ?? null,
+      };
+    };
+
+    // Version une-tablette : POS et totem n'existent pas → pas de cartes « hors ligne » fantômes.
+    const posEnabled = isModuleEnabled('pos');
+    const kioskEnabled = isModuleEnabled('kiosk');
+    const [posSunmi, posTablet, kds] = await Promise.all([
+      posEnabled ? pairedSurface('pos-sunmi') : null,
+      posEnabled ? pairedSurface('pos-tablet') : null,
+      pairedSurface('kds'),
+    ]);
+
+    const driversOnDuty = await fetchDriversOnDuty(prisma, businessId);
+    const livreurSessions = (devices.appPresence?.livreur ?? []).filter(s =>
+      isPresenceFresh(s.lastSeenAt)
+    );
+    const livreurOnline = livreurSessions.length > 0;
+    const livreurLast =
+      devices.appPresence?.livreur?.[0]?.lastSeenAt ?? livreurSessions[0]?.lastSeenAt ?? null;
+    const livreurNames = [
+      ...new Set([
+        ...livreurSessions.map(s => s.driverName).filter(Boolean),
+        ...driversOnDuty.map(d => d.name),
+      ]),
+    ] as string[];
+
+    const kioskPresence = devices.appPresence?.kiosk;
+    const kioskOnline = isPresenceFresh(kioskPresence?.lastSeenAt);
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const kioskOrdersToday = kioskEnabled
+      ? await prisma.order.count({
+          where: {
+            businessId,
+            channel: 'KIOSK',
+            createdAt: { gte: startOfDay },
+            status: { not: 'CANCELLED' },
+          },
+        })
+      : 0;
+    const lastKioskOrder = kioskEnabled
+      ? await prisma.order.findFirst({
+          where: { businessId, channel: 'KIOSK' },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true, orderNumber: true },
+        })
+      : null;
+
+    res.json({
+      surfaces: [
+        ...(posSunmi ? [posSunmi] : []),
+        ...(posTablet ? [posTablet] : []),
+        kds,
+        {
+          id: 'livreur',
+          label: 'App livreur',
+          kind: 'app',
+          status: livreurOnline ? 'online' : driversOnDuty.length > 0 ? 'idle' : 'offline',
+          detail: livreurOnline
+            ? `En ligne · ${livreurSessions.length} session(s)`
+            : driversOnDuty.length > 0
+              ? `Planifiés : ${driversOnDuty.map(d => d.name).join(', ')}`
+              : 'Aucune session active',
+          lastSeenAt: livreurLast,
+          driversOnDuty: driversOnDuty.map(d => ({ id: d.id, name: d.name })),
+          activeNames: livreurNames,
+        },
+        ...(kioskEnabled
+          ? [
+              {
+                id: 'kiosk',
+                label: 'Totem kiosque',
+                kind: 'app',
+                status: kioskOnline ? 'online' : kioskOrdersToday > 0 ? 'idle' : 'offline',
+                detail: kioskOnline
+                  ? 'Écran actif'
+                  : kioskOrdersToday > 0
+                    ? `${kioskOrdersToday} commande(s) aujourd’hui`
+                    : lastKioskOrder
+                      ? `Dernière #${lastKioskOrder.orderNumber} · ${new Date(lastKioskOrder.createdAt).toLocaleString('fr-FR')}`
+                      : 'Aucune activité',
+                lastSeenAt:
+                  kioskPresence?.lastSeenAt ?? lastKioskOrder?.createdAt?.toISOString() ?? null,
+                ordersToday: kioskOrdersToday,
+                lastIp: kioskPresence?.lastIp ?? null,
+              },
+            ]
+          : []),
+      ],
+      onlineWindowMs: APP_ONLINE_WINDOW_MS,
+      at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Devices fleet error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -156,13 +156,13 @@ RestaurantOS utilise `EMAIL_*` (server). Équivalent gsms → pizzeria :
 
 ### Auth & modules
 
-| Variable                        | Notes                                                            |
-| ------------------------------- | ---------------------------------------------------------------- |
-| `JWT_SECRET` / `REFRESH_SECRET` | **Nouveaux** en prod (`openssl rand -base64 32`)                 |
-| `BUSINESS_ID`                   | UUID seed Prisma du client                                       |
-| `ENABLED_MODULES`               | V1 La Z Pizza : `menu,pos,kitchen,orders,reports,users,settings` |
-| `DRIVER_ACCESS_PIN`             | PIN livreur (ou `settings.driverAccessPin` en BDD)               |
-| `NODE_ENV`                      | `production`                                                     |
+| Variable                        | Notes                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `JWT_SECRET` / `REFRESH_SECRET` | **Nouveaux** en prod (`openssl rand -base64 32`)                                     |
+| `BUSINESS_ID`                   | UUID seed Prisma du client                                                           |
+| `ENABLED_MODULES`               | V1 La Z Pizza : `menu,kitchen,orders,reports,users,settings,expenses,loyalty,shifts` |
+| `DRIVER_ACCESS_PIN`             | PIN livreur (ou `settings.driverAccessPin` en BDD)                                   |
+| `NODE_ENV`                      | `production`                                                                         |
 
 ### APK Android (`android/app/build.gradle.kts`)
 

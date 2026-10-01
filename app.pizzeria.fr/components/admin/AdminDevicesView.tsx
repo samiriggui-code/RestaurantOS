@@ -23,8 +23,10 @@ import { DeviceRegisterModal } from '@/components/admin/DeviceRegisterModal'
 import { DeviceConfigSheet } from '@/components/admin/DeviceConfigSheet'
 import { StoreScopeBar } from '@/components/admin/StoreScopeBar'
 import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
+import { DeviceFleetOverview } from '@/components/admin/DeviceFleetOverview'
 import { AdminPageHeader, AdminPageShell, AdminSectionTabs } from '@/components/admin/AdminSectionTabs'
 import { getStaffSession, getStaffUser } from '@/lib/staff-auth'
+import { isModuleEnabled } from '@/lib/modules'
 import {
   captureWanIp,
   completeOnboarding,
@@ -363,7 +365,11 @@ export function AdminDevicesView({ embedded = false }: { embedded?: boolean }) {
     <AdminPageShell>
       <AdminPageHeader
         title="Devices & boutiques"
-        description="POS, KDS, applis livreur — jumelage et isolation par point de vente."
+        description={
+          isModuleEnabled('pos')
+            ? 'POS, KDS, applis livreur — jumelage et isolation par point de vente.'
+            : 'KDS, app livreur — jumelage de la tablette boutique.'
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {state && sumupOnlineBadge(state.sumupOnlineConfigured)}
@@ -419,9 +425,15 @@ function DevicesHubPanel({
   pairedForSlot: (slot: DeviceSlot) => PairedDevice[]
   isSlotFull: (slot: DeviceSlot) => boolean
 }) {
+  // Version une-tablette : sans module POS, seul le slot KDS est jumelable.
+  const posEnabled = isModuleEnabled('pos')
   const SLOTS: { slot: DeviceSlot; icon: LucideIcon; testHref: string }[] = [
-    { slot: 'pos-sunmi', icon: Store, testHref: '/pos' },
-    { slot: 'pos-tablet', icon: Tablet, testHref: '/pos' },
+    ...(posEnabled
+      ? [
+          { slot: 'pos-sunmi' as DeviceSlot, icon: Store, testHref: '/pos' },
+          { slot: 'pos-tablet' as DeviceSlot, icon: Tablet, testHref: '/pos' },
+        ]
+      : []),
     { slot: 'kds', icon: ChefHat, testHref: '/kitchen' },
   ]
 
@@ -430,6 +442,8 @@ function DevicesHubPanel({
       {stores.length > 0 && (
         <StoreScopeBar stores={stores} selectedId={selectedStoreId} onSelect={onStoreSelect} />
       )}
+
+      <DeviceFleetOverview showManageLink={false} />
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -533,14 +547,20 @@ function DevicesHubPanel({
       </section>
 
       <section className="space-y-3 border-t border-white/10 pt-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-cream/50">Apps sans jumelage</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-cream/50">
+          Apps mobiles / totem
+        </h2>
+        <p className="text-xs text-cream/45">
+          Livreur et totem n&apos;exigent pas de code de jumelage — leur présence apparaît dans le parc
+          ci-dessus dès qu&apos;un écran est ouvert.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
             <div className="flex items-center gap-2">
               <Truck className="h-5 w-5 text-violet-300" />
               <p className="font-medium text-cream">App livreur</p>
             </div>
-            <p className="mt-2 text-xs text-cream/45">PIN livreur — pas de code boutique. APK ou navigateur.</p>
+            <p className="mt-2 text-xs text-cream/45">PIN livreur — APK ou navigateur. Statut live dans le parc.</p>
             <Link
               href={publicSitePath('/livreur')}
               target="_blank"
@@ -555,7 +575,7 @@ function DevicesHubPanel({
               <Tablet className="h-5 w-5 text-purple-300" />
               <p className="font-medium text-cream">Totem kiosque</p>
             </div>
-            <p className="mt-2 text-xs text-cream/45">Self-service sur place — pas de jumelage CRM.</p>
+            <p className="mt-2 text-xs text-cream/45">Self-service — heartbeat automatique quand l&apos;écran tourne.</p>
             <Link
               href="/kiosk"
               target="_blank"
@@ -679,7 +699,9 @@ function SetupPanel({
       <section className="space-y-3 border-t border-white/10 pt-4">
         <h3 className="text-sm font-medium text-cream">Inventaire matériel jumelé</h3>
         <p className="text-xs text-cream/50">
-          Quotas : 1× SUNMI · 1× tablette caisse · 1× KDS · 2 imprimantes Epson (IP LAN, onglet Réseau).
+          {isModuleEnabled('pos')
+            ? 'Quotas : 1× SUNMI · 1× tablette caisse · 1× KDS · 2 imprimantes Epson (IP LAN, onglet Réseau).'
+            : 'Quotas : 1× tablette boutique (KDS) · imprimantes Epson (IP LAN, onglet Réseau).'}
         </p>
         <div className="overflow-x-auto rounded-xl border border-white/10">
           <table className="w-full min-w-[520px] text-left text-xs">
@@ -687,8 +709,8 @@ function SetupPanel({
               <tr>
                 <th className="px-3 py-2 font-medium">Magasin</th>
                 <th className="px-3 py-2 font-medium">IP boutique</th>
-                <th className="px-3 py-2 font-medium">SUNMI</th>
-                <th className="px-3 py-2 font-medium">Tablette</th>
+                {isModuleEnabled('pos') && <th className="px-3 py-2 font-medium">SUNMI</th>}
+                {isModuleEnabled('pos') && <th className="px-3 py-2 font-medium">Tablette</th>}
                 <th className="px-3 py-2 font-medium">KDS</th>
                 <th className="px-3 py-2 font-medium">Imprimantes LAN</th>
               </tr>
@@ -697,12 +719,16 @@ function SetupPanel({
               <tr>
                 <td className="px-3 py-2">{inventory?.businessName ?? 'La Z Pizza'}</td>
                 <td className="px-3 py-2 font-mono">{inventory?.wanIp?.split('/')[0] ?? '—'}</td>
-                <td className="px-3 py-2">
-                  {state?.slotCapacity?.find((s) => s.slot === 'pos-sunmi')?.used ?? 0} / 1
-                </td>
-                <td className="px-3 py-2">
-                  {state?.slotCapacity?.find((s) => s.slot === 'pos-tablet')?.used ?? 0} / 1
-                </td>
+                {isModuleEnabled('pos') && (
+                  <td className="px-3 py-2">
+                    {state?.slotCapacity?.find((s) => s.slot === 'pos-sunmi')?.used ?? 0} / 1
+                  </td>
+                )}
+                {isModuleEnabled('pos') && (
+                  <td className="px-3 py-2">
+                    {state?.slotCapacity?.find((s) => s.slot === 'pos-tablet')?.used ?? 0} / 1
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   {state?.slotCapacity?.find((s) => s.slot === 'kds')?.used ?? 0} / 1
                 </td>
@@ -758,7 +784,7 @@ function SetupPanel({
               }}
               className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
             >
-              Activer POS / KDS
+              {isModuleEnabled('pos') ? 'Activer POS / KDS' : 'Activer KDS'}
             </button>
             <button
               type="button"
@@ -811,7 +837,12 @@ function NetworkPanel({
           <ul className="list-inside list-disc space-y-1 text-cream/60">
             <li>
               <strong className="text-cream/80">Oui :</strong> enregistre l&apos;IP publique de la box du shop
-              (ex. Free/Orange) pour autoriser <code className="text-cream/70">/pos</code> et{' '}
+              (ex. Free/Orange) pour autoriser{' '}
+              {isModuleEnabled('pos') && (
+                <>
+                  <code className="text-cream/70">/pos</code> et{' '}
+                </>
+              )}
               <code className="text-cream/70">/kitchen</code> depuis ce réseau uniquement.
             </li>
             <li>
@@ -820,15 +851,21 @@ function NetworkPanel({
             </li>
             <li>
               <strong className="text-cream/80">Non :</strong> ça ne scanne pas le réseau et ne détecte pas les
-              tablettes automatiquement. Le jumelage se fait par <strong>code à 6 chiffres</strong> (onglets SUNMI /
-              Tablette / KDS).
+              tablettes automatiquement. Le jumelage se fait par <strong>code à 6 chiffres</strong>{' '}
+              ({isModuleEnabled('pos') ? 'onglets SUNMI / Tablette / KDS' : 'onglet KDS'}).
             </li>
           </ul>
         </div>
         <p className="text-xs text-cream/50">
           <strong className="text-cream/70">Procédure sur place :</strong> CRM → générer le code 6 chiffres →
-          tablette : ouvrir <code className="text-cream/60">/kitchen</code> ou{' '}
-          <code className="text-cream/60">/pos</code> → saisir le code → PIN employé.
+          tablette : ouvrir <code className="text-cream/60">/kitchen</code>
+          {isModuleEnabled('pos') && (
+            <>
+              {' '}
+              ou <code className="text-cream/60">/pos</code>
+            </>
+          )}{' '}
+          → saisir le code → PIN employé.
         </p>
         <p className="text-xs text-amber-400/80">
           En dev local (<code>localhost</code>) cette étape est ignorée — la garde IP est désactivée.
@@ -1232,6 +1269,9 @@ function PairedRow({
         <p className="font-medium text-cream">{device.label}</p>
         <p className="text-xs text-cream/40">
           Jumelé le {new Date(device.pairedAt).toLocaleString('fr-FR')}
+          {device.lastSeenAt
+            ? ` · vu ${new Date(device.lastSeenAt).toLocaleString('fr-FR')}`
+            : ''}
           {ip ? ` · IP ${ip}` : ''}
         </p>
         {device.userAgent && (

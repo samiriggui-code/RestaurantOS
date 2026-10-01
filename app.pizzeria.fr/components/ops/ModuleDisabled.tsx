@@ -28,14 +28,8 @@ export function ModuleDisabled({
       </div>
       <h1 className="font-display text-2xl font-bold text-cream">{label}</h1>
       <p className="text-sm leading-relaxed text-cream/55">
-        Ce module est <strong className="text-cream/80">désactivé pour La Z Pizza</strong> dans le
-        périmètre V1. Les routes API et la structure BDD peuvent rester en place, mais l&apos;interface
-        n&apos;est pas livrée en production tant que le module n&apos;est pas explicitement activé.
-      </p>
-      <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-left text-xs text-amber-100/90">
-        Pour l&apos;activer : ajouter <code className="text-amber-50">{module}</code> dans{' '}
-        <code className="text-amber-50">ENABLED_MODULES</code> (serveur) et{' '}
-        <code className="text-amber-50">NEXT_PUBLIC_ENABLED_MODULES</code> (Next), puis redémarrer.
+        Cette fonctionnalité n&apos;est pas activée sur votre compte. Contactez votre prestataire
+        pour en savoir plus.
       </p>
       <Link href="/admin" className="inline-block text-sm text-tomato-light hover:underline">
         ← Retour au tableau de bord

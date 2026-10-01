@@ -1,15 +1,27 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { useFeedbackState } from '@/lib/use-feedback-state'
 import Link from 'next/link'
 import {
   Edit2,
   FileText,
+  Landmark,
   Loader2,
   Mail,
   Plus,
   Printer,
+  Receipt,
   Search,
   Send,
   ShoppingBag,
@@ -26,6 +38,7 @@ import { cn } from '@/lib/cn'
 import { AdminPageHeader } from '@/components/admin/AdminSectionTabs'
 import { ADMIN_STAT_GRID, AdminStatCard } from '@/components/admin/AdminStatCard'
 import { AdminPrintPreview } from '@/components/admin/AdminPrintPreview'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 
 type InvoiceLine = {
   id?: string
@@ -50,9 +63,11 @@ type Invoice = {
   issueDate: string
   totalCents: number
   orderId?: string | null
-  order?: { orderNumber: number } | null
+  order?: { orderNumber: number; channel?: string | null } | null
   lines?: InvoiceLine[]
   missingFields?: string[]
+  pennylaneSyncedAt?: string | null
+  pennylaneSyncError?: string | null
 }
 
 type OrderSource = {
@@ -164,6 +179,7 @@ export function AdminInvoicesView() {
   const [printPreview, setPrintPreview] = useState<{ html: string; invoiceNumber: number } | null>(null)
   const [printLoadingId, setPrintLoadingId] = useState<string | null>(null)
   const [facturXLoadingId, setFacturXLoadingId] = useState<string | null>(null)
+  const [pennylaneLoadingId, setPennylaneLoadingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const { error, setError } = useFeedbackState()
 
@@ -360,6 +376,25 @@ export function AdminInvoicesView() {
     }
   }
 
+  async function syncPennylane(inv: Invoice) {
+    const session = getStaffSession()
+    if (!session) return
+    setPennylaneLoadingId(inv.id)
+    setError(null)
+    try {
+      await staffFetch<{ pennylaneInvoiceId: number; created: boolean }>(
+        `/invoices/${inv.id}/pennylane-sync`,
+        { token: session.token, method: 'POST' },
+      )
+      load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Envoi Pennylane impossible')
+      load()
+    } finally {
+      setPennylaneLoadingId(null)
+    }
+  }
+
   async function confirmSend(inv: Invoice, email: string) {
     const session = getStaffSession()
     if (!session) return
@@ -393,6 +428,188 @@ export function AdminInvoicesView() {
     () => (statusFilter === 'ALL' ? invoices : invoices.filter((i) => i.status === statusFilter)),
     [invoices, statusFilter],
   )
+
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [invoiceSorting, setInvoiceSorting] = useState<SortingState>([{ id: 'issueDate', desc: true }])
+  const [invoicePagination, setInvoicePagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  const invoiceColumns = useMemo<ColumnDef<Invoice>[]>(
+    () => [
+      {
+        accessorKey: 'invoiceNumber',
+        header: ({ column }) => <DataGridColumnHeader title="N°" column={column} />,
+        cell: ({ row }) => <span className="font-mono text-cream">{row.original.invoiceNumber}</span>,
+      },
+      {
+        id: 'client',
+        accessorFn: (row) => row.clientName,
+        header: ({ column }) => <DataGridColumnHeader title="Client" column={column} />,
+        cell: ({ row }) => {
+          const inv = row.original
+          return (
+            <div className="text-cream">
+              {inv.clientName}
+              {inv.order ? <span className="ml-2 text-xs text-cream/40">cmd. {inv.order.orderNumber}</span> : null}
+              {inv.missingFields?.length ? (
+                <p className="mt-0.5 text-xs text-amber-300">Manque : {inv.missingFields.join(', ')}</p>
+              ) : null}
+              {inv.pennylaneSyncedAt ? (
+                <p className="mt-0.5 text-xs text-emerald-300/80">Pennylane OK</p>
+              ) : inv.pennylaneSyncError ? (
+                <p className="mt-0.5 text-xs text-red-300/90" title={inv.pennylaneSyncError}>
+                  Pennylane : erreur
+                </p>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        id: 'issueDate',
+        accessorFn: (row) => new Date(row.issueDate).getTime(),
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/70">{new Date(row.original.issueDate).toLocaleDateString('fr-FR')}</span>
+        ),
+      },
+      {
+        accessorKey: 'totalCents',
+        header: ({ column }) => <DataGridColumnHeader title="Total" column={column} />,
+        cell: ({ row }) => <span className="font-semibold text-cream">{formatEUR(row.original.totalCents)}</span>,
+      },
+      {
+        accessorKey: 'status',
+        header: ({ column }) => <DataGridColumnHeader title="Statut" column={column} />,
+        cell: ({ row }) => {
+          const inv = row.original
+          return (
+            <span
+              className={cn(
+                'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                inv.status === 'SENT'
+                  ? 'bg-emerald-500/15 text-emerald-200'
+                  : inv.status === 'DRAFT'
+                    ? 'bg-amber-500/15 text-amber-200'
+                    : inv.status === 'ISSUED'
+                      ? 'bg-blue-500/15 text-blue-200'
+                      : 'bg-white/10 text-cream/60',
+              )}
+            >
+              {STATUS_LABEL[inv.status] ?? inv.status}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const inv = row.original
+          return (
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                disabled={printLoadingId === inv.id}
+                onClick={() => void printInvoice(inv)}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5 disabled:opacity-50"
+              >
+                {printLoadingId === inv.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Printer className="h-3.5 w-3.5" />
+                )}
+                PDF
+              </button>
+              {(inv.clientSiret || inv.type === 'B2B') && (
+                <button
+                  type="button"
+                  disabled={facturXLoadingId === inv.id}
+                  onClick={() => void downloadFacturX(inv)}
+                  title="Export XML Factur-X (profil minimum) — PDP sept. 2027"
+                  className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 px-2.5 py-1.5 text-xs text-sky-200 hover:bg-sky-500/10 disabled:opacity-50"
+                >
+                  {facturXLoadingId === inv.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileCode className="h-3.5 w-3.5" />
+                  )}
+                  Factur-X
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void openEdit(inv)}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+                Modifier
+              </button>
+              <button
+                type="button"
+                disabled={sendingId === inv.id || inv.status === 'SENT'}
+                onClick={() => void sendInvoice(inv)}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5 disabled:opacity-50"
+              >
+                {sendingId === inv.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                Envoyer
+              </button>
+              {inv.status !== 'DRAFT' && inv.status !== 'CANCELLED' && (
+                inv.order?.channel === 'DELIVEROO' || inv.order?.channel === 'UBER_EATS' ? (
+                  <span
+                    title="Déjà comptabilisée par le connecteur natif Deliveroo/Uber Eats dans Pennylane — ne pas la pousser en double."
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-cream/35"
+                  >
+                    <Landmark className="h-3.5 w-3.5" />
+                    Déjà dans Pennylane
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={pennylaneLoadingId === inv.id}
+                    onClick={() => void syncPennylane(inv)}
+                    title={
+                      inv.pennylaneSyncedAt
+                        ? 'Déjà synchronisée — recliquer pour vérifier côté Pennylane'
+                        : 'Envoyer vers Pennylane (brouillon comptable)'
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 px-2.5 py-1.5 text-xs text-violet-200 hover:bg-violet-500/10 disabled:opacity-50"
+                  >
+                    {pennylaneLoadingId === inv.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Landmark className="h-3.5 w-3.5" />
+                    )}
+                    {inv.pennylaneSyncedAt ? 'Pennylane ✓' : 'Pennylane'}
+                  </button>
+                )
+              )}
+            </div>
+          )
+        },
+      },
+    ],
+    [printLoadingId, facturXLoadingId, sendingId, pennylaneLoadingId],
+  )
+
+  const invoicesTable = useReactTable({
+    data: visibleInvoices,
+    columns: invoiceColumns,
+    state: { pagination: invoicePagination, sorting: invoiceSorting, globalFilter: invoiceSearch },
+    onPaginationChange: setInvoicePagination,
+    onSortingChange: setInvoiceSorting,
+    onGlobalFilterChange: setInvoiceSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
 
   const draftCount = invoices.filter((i) => i.status === 'DRAFT').length
 
@@ -457,6 +674,22 @@ export function AdminInvoicesView() {
           tone={invoiceStats.drafts > 0 ? 'text-amber-300' : undefined}
         />
       </div>
+
+      <Link
+        href="/admin/pos"
+        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-5 hover:bg-white/[0.04]"
+      >
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold text-cream">
+            <Receipt className="h-4 w-4 text-tomato-light" />
+            Facturer une vente comptoir SumUp
+          </h2>
+          <p className="text-xs text-cream/45">
+            Paiements CB / espèces au comptoir — géré depuis Suivi caisse.
+          </p>
+        </div>
+        <span className="text-sm text-tomato-light">Suivi caisse →</span>
+      </Link>
 
       {formMode !== 'closed' ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 space-y-4">
@@ -723,9 +956,15 @@ export function AdminInvoicesView() {
           manuellement.
         </p>
       ) : (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-cream/45">{visibleInvoices.length} facture(s)</p>
+        <AdminDataGridShell
+          title="Factures"
+          table={invoicesTable}
+          recordCount={invoicesTable.getFilteredRowModel().rows.length}
+          search={invoiceSearch}
+          onSearchChange={setInvoiceSearch}
+          searchPlaceholder="N°, client…"
+          emptyMessage="Aucun résultat pour ce filtre"
+          headerExtra={
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -738,114 +977,8 @@ export function AdminInvoicesView() {
                 </option>
               ))}
             </select>
-          </div>
-        <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-cream/45">
-                <th className="px-4 py-3">N°</th>
-                <th className="px-4 py-3">Client</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Total</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleInvoices.map((inv) => (
-                <tr key={inv.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                  <td className="px-4 py-3 font-mono text-cream">{inv.invoiceNumber}</td>
-                  <td className="px-4 py-3 text-cream">
-                    {inv.clientName}
-                    {inv.order ? (
-                      <span className="ml-2 text-xs text-cream/40">cmd. {inv.order.orderNumber}</span>
-                    ) : null}
-                    {inv.missingFields?.length ? (
-                      <p className="mt-0.5 text-xs text-amber-300">
-                        Manque : {inv.missingFields.join(', ')}
-                      </p>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3 text-cream/70">
-                    {new Date(inv.issueDate).toLocaleDateString('fr-FR')}
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-cream">{formatEUR(inv.totalCents)}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'rounded-full px-2.5 py-0.5 text-xs font-semibold',
-                        inv.status === 'SENT'
-                          ? 'bg-emerald-500/15 text-emerald-200'
-                          : inv.status === 'DRAFT'
-                            ? 'bg-amber-500/15 text-amber-200'
-                            : inv.status === 'ISSUED'
-                              ? 'bg-blue-500/15 text-blue-200'
-                              : 'bg-white/10 text-cream/60'
-                      )}
-                    >
-                      {STATUS_LABEL[inv.status] ?? inv.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        disabled={printLoadingId === inv.id}
-                        onClick={() => void printInvoice(inv)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5 disabled:opacity-50"
-                      >
-                        {printLoadingId === inv.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Printer className="h-3.5 w-3.5" />
-                        )}
-                        PDF
-                      </button>
-                      {(inv.clientSiret || inv.type === 'B2B') && (
-                        <button
-                          type="button"
-                          disabled={facturXLoadingId === inv.id}
-                          onClick={() => void downloadFacturX(inv)}
-                          title="Export XML Factur-X (profil minimum) — PDP sept. 2027"
-                          className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 px-2.5 py-1.5 text-xs text-sky-200 hover:bg-sky-500/10 disabled:opacity-50"
-                        >
-                          {facturXLoadingId === inv.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <FileCode className="h-3.5 w-3.5" />
-                          )}
-                          Factur-X
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void openEdit(inv)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                        Modifier
-                      </button>
-                      <button
-                        type="button"
-                        disabled={sendingId === inv.id || inv.status === 'SENT'}
-                        onClick={() => void sendInvoice(inv)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-cream hover:bg-white/5 disabled:opacity-50"
-                      >
-                        {sendingId === inv.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Send className="h-3.5 w-3.5" />
-                        )}
-                        Envoyer
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        </>
+          }
+        />
       )}
 
       {printPreview && (

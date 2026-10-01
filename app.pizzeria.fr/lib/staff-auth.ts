@@ -21,6 +21,7 @@ const DEVICE_REFRESH = 'device_refreshToken'
 const DEVICE_USER = 'device_staffUser'
 
 const BUSINESS_KEY = 'businessId'
+const KITCHEN_DISPLAY_ENABLED_KEY = 'businessKitchenDisplayEnabled'
 
 export type StaffUser = {
   id: string
@@ -88,7 +89,7 @@ function saveSession(
   data: {
     accessToken: string
     refreshToken?: string
-    business?: { id: string } | null
+    business?: { id: string; kitchenDisplayEnabled?: boolean } | null
     user?: StaffUser | null
   },
 ) {
@@ -97,6 +98,9 @@ function saveSession(
   localStorage.setItem(k.token, data.accessToken)
   if (data.refreshToken) localStorage.setItem(k.refresh, data.refreshToken)
   if (data.business?.id) localStorage.setItem(BUSINESS_KEY, data.business.id)
+  if (data.business && 'kitchenDisplayEnabled' in data.business) {
+    localStorage.setItem(KITCHEN_DISPLAY_ENABLED_KEY, String(data.business.kitchenDisplayEnabled ?? true))
+  }
   if (data.user) localStorage.setItem(k.user, JSON.stringify(data.user))
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('staff-auth-changed'))
@@ -153,6 +157,22 @@ export function getCrmSession(): StaffSession | null {
 
 export function getDeviceSession(): StaffSession | null {
   return getStaffSession('device')
+}
+
+/** Reflète Paramètres → Suivi cuisine → « Écran cuisine activé (KDS) », mis en cache à la
+ * dernière connexion (CRM ou PIN device) — pas de refetch temps réel, un simple re-login
+ * après bascule du réglage suffit. */
+export function isKitchenDisplayEnabled(): boolean {
+  if (typeof window === 'undefined') return true
+  const raw = localStorage.getItem(KITCHEN_DISPLAY_ENABLED_KEY)
+  return raw !== 'false'
+}
+
+/** À appeler juste après un PUT /settings réussi, pour que le cache local reflète
+ * immédiatement la bascule sans attendre une reconnexion. */
+export function setKitchenDisplayEnabledCache(enabled: boolean) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(KITCHEN_DISPLAY_ENABLED_KEY, String(enabled))
 }
 
 export function clearCrmSession() {

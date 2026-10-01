@@ -1,75 +1,76 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { ArrowRight, MapPin, Store, Truck } from 'lucide-react'
-import { CartUpsellStrip } from '@/components/cart/CartUpsellStrip'
-import { MenuFormulePanel } from '@/components/cart/MenuFormulePanel'
-import { PanierLineCard } from '@/components/cart/PanierLineCard'
-import { CheckoutPayment } from '@/components/checkout/CheckoutPayment'
-import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice'
-import { LoyaltyBalanceHint } from '@/components/checkout/LoyaltyBalanceHint'
-import { formatPriceEUR } from '@/lib/menu-types'
-import type { DeliveryQuote } from '@/lib/delivery'
-import { deliveryZoneHint } from '@/lib/delivery'
-import { DELIVERY_TOWNS, PIZZERIA } from '@/lib/pizzeria-content'
-import type { CartLine, CheckoutDraft, OrderType } from '@/lib/cart-types'
-import { customerFullName } from '@/lib/cart-types'
-import type { CheckoutStepId } from '@/lib/checkout-flow'
-import { cn } from '@/lib/cn'
-import { isOrderTestSlotsEnabled } from '@/lib/order-test-mode'
+import Link from 'next/link';
+import { ArrowRight, MapPin, Store, Truck } from 'lucide-react';
+import { CartUpsellStrip } from '@/components/cart/CartUpsellStrip';
+import { MenuFormulePanel } from '@/components/cart/MenuFormulePanel';
+import { PanierLineCard } from '@/components/cart/PanierLineCard';
+import { CheckoutPayment } from '@/components/checkout/CheckoutPayment';
+import { LegalCheckoutNotice } from '@/components/legal/LegalCheckoutNotice';
+import { LoyaltyBalanceHint } from '@/components/checkout/LoyaltyBalanceHint';
+import { formatPriceEUR } from '@/lib/menu-types';
+import { isModuleEnabled } from '@/lib/modules';
+import type { DeliveryQuote } from '@/lib/delivery';
+import { deliveryZoneHint } from '@/lib/delivery';
+import { DELIVERY_TOWNS, PIZZERIA } from '@/lib/pizzeria-content';
+import type { CartLine, CheckoutDraft, OrderType } from '@/lib/cart-types';
+import { customerFullName } from '@/lib/cart-types';
+import type { CheckoutStepId } from '@/lib/checkout-flow';
+import { cn } from '@/lib/cn';
+import { isOrderTestSlotsEnabled } from '@/lib/order-test-mode';
 
 export type CheckoutStepPanelsProps = {
-  step: CheckoutStepId
-  variant: 'page' | 'sheet'
-  lines: CartLine[]
-  orderType: OrderType | null
-  customerFirstName: string
-  customerLastName: string
-  customerPhone: string
-  customerEmail: string
-  addressLine: string
-  postalCode: string
-  city: string
-  instructions: string
-  timeSlot: string
-  slots: string[]
-  slotsLoading: boolean
-  slotsClosedReason: string | null
-  paymentMode: 'online' | 'counter'
-  deliveryQuote: DeliveryQuote | null
-  deliveryFee: number
-  subtotal: number
-  total: number
-  checkoutDraft: CheckoutDraft | null
-  error: string | null
-  cityOptions: { name: string; minOrder: number }[]
-  belowDeliveryMinimum: boolean
-  amountToMinimum: number
-  deliveryPizzaBelowMinimum: boolean
-  pizzaSubtotal: number
-  onSetOrderType: (type: OrderType) => void
-  onSetCustomerFirstName: (v: string) => void
-  onSetCustomerLastName: (v: string) => void
-  onSetCustomerPhone: (v: string) => void
-  onSetCustomerEmail: (v: string) => void
-  onSetAddressLine: (v: string) => void
-  onSetPostalCode: (v: string) => void
-  onSetCity: (v: string) => void
-  onSetInstructions: (v: string) => void
-  onSetTimeSlot: (v: string) => void
-  onSetPaymentMode: (mode: 'online' | 'counter') => void
-  onUpdateQty: (lineId: string, qty: number) => void
-  onRemoveLine: (lineId: string) => void
-  onBrowseMenu: () => void
-  onPaymentSuccess: (token: string, orderNumber: number) => void
-  onPaymentError: (message: string) => void
-}
+  step: CheckoutStepId;
+  variant: 'page' | 'sheet';
+  lines: CartLine[];
+  orderType: OrderType | null;
+  customerFirstName: string;
+  customerLastName: string;
+  customerPhone: string;
+  customerEmail: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  instructions: string;
+  timeSlot: string;
+  slots: string[];
+  slotsLoading: boolean;
+  slotsClosedReason: string | null;
+  paymentMode: 'online' | 'counter';
+  deliveryQuote: DeliveryQuote | null;
+  deliveryFee: number;
+  subtotal: number;
+  total: number;
+  checkoutDraft: CheckoutDraft | null;
+  error: string | null;
+  cityOptions: { name: string; minOrder: number }[];
+  belowDeliveryMinimum: boolean;
+  amountToMinimum: number;
+  deliveryPizzaBelowMinimum: boolean;
+  pizzaSubtotal: number;
+  onSetOrderType: (type: OrderType) => void;
+  onSetCustomerFirstName: (v: string) => void;
+  onSetCustomerLastName: (v: string) => void;
+  onSetCustomerPhone: (v: string) => void;
+  onSetCustomerEmail: (v: string) => void;
+  onSetAddressLine: (v: string) => void;
+  onSetPostalCode: (v: string) => void;
+  onSetCity: (v: string) => void;
+  onSetInstructions: (v: string) => void;
+  onSetTimeSlot: (v: string) => void;
+  onSetPaymentMode: (mode: 'online' | 'counter') => void;
+  onUpdateQty: (lineId: string, qty: number) => void;
+  onRemoveLine: (lineId: string) => void;
+  onBrowseMenu: () => void;
+  onPaymentSuccess: (token: string, orderNumber: number) => void;
+  onPaymentError: (message: string) => void;
+};
 
 const inputClass =
-  'w-full rounded-lg border border-white/10 bg-charcoal/80 px-3 py-2 text-sm text-cream placeholder:text-cream/35'
+  'w-full rounded-lg border border-white/10 bg-charcoal/80 px-3 py-2 text-sm text-cream placeholder:text-cream/35';
 
 const inputClassSheet =
-  'w-full rounded-lg border border-white/10 bg-charcoal/80 px-3 py-2 text-xs text-cream placeholder:text-cream/35'
+  'w-full rounded-lg border border-white/10 bg-charcoal/80 px-3 py-2 text-xs text-cream placeholder:text-cream/35';
 
 export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
   const {
@@ -117,21 +118,21 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
     onBrowseMenu,
     onPaymentSuccess,
     onPaymentError,
-  } = props
+  } = props;
 
-  const compact = variant === 'sheet'
+  const compact = variant === 'sheet';
 
   if (step === 'recap') {
-    if (compact) return null
+    if (compact) return null;
     return (
       <div className="space-y-4">
         {!compact && <MenuFormulePanel />}
         <ul className="space-y-3">
-          {lines.map((line) => (
+          {lines.map(line => (
             <PanierLineCard
               key={line.lineId}
               line={line}
-              onUpdateQty={(qty) => onUpdateQty(line.lineId, qty)}
+              onUpdateQty={qty => onUpdateQty(line.lineId, qty)}
               onRemove={() => onRemoveLine(line.lineId)}
             />
           ))}
@@ -147,7 +148,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           </button>
         )}
       </div>
-    )
+    );
   }
 
   if (step === 'mode') {
@@ -157,7 +158,12 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
         <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'sm:grid-cols-2')}>
           {(
             [
-              { id: 'pickup' as const, label: 'À emporter', icon: Store, desc: PIZZERIA.fullAddress },
+              {
+                id: 'pickup' as const,
+                label: 'À emporter',
+                icon: Store,
+                desc: PIZZERIA.fullAddress,
+              },
               {
                 id: 'delivery' as const,
                 label: 'Livraison',
@@ -165,7 +171,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
                 desc: `${deliveryZoneHint()} — frais selon adresse`,
               },
             ] as const
-          ).map((mode) => (
+          ).map(mode => (
             <button
               key={mode.id}
               type="button"
@@ -174,7 +180,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
                 'flex items-start gap-3 rounded-2xl border p-4 text-left transition',
                 orderType === mode.id
                   ? 'border-tomato bg-tomato/10 ring-1 ring-tomato/30'
-                  : 'border-white/10 bg-charcoal/60 hover:border-white/20',
+                  : 'border-white/10 bg-charcoal/60 hover:border-white/20'
               )}
             >
               <mode.icon className="mt-0.5 h-5 w-5 shrink-0 text-tomato-light" />
@@ -187,11 +193,11 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
         </div>
         {!compact && <CartUpsellStrip />}
       </div>
-    )
+    );
   }
 
   if (step === 'address') {
-    const ic = compact ? inputClassSheet : inputClass
+    const ic = compact ? inputClassSheet : inputClass;
     return (
       <div className="space-y-2">
         {!compact && (
@@ -203,21 +209,21 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
         <input
           placeholder="N° et rue *"
           value={addressLine}
-          onChange={(e) => onSetAddressLine(e.target.value)}
+          onChange={e => onSetAddressLine(e.target.value)}
           className={ic}
         />
         <div className="grid grid-cols-2 gap-2">
           <input
             placeholder="CP *"
             value={postalCode}
-            onChange={(e) => onSetPostalCode(e.target.value)}
+            onChange={e => onSetPostalCode(e.target.value)}
             maxLength={5}
             className={ic}
           />
           {cityOptions.length > 1 ? (
-            <select value={city} onChange={(e) => onSetCity(e.target.value)} className={ic}>
+            <select value={city} onChange={e => onSetCity(e.target.value)} className={ic}>
               <option value="">Ville *</option>
-              {cityOptions.map((t) => (
+              {cityOptions.map(t => (
                 <option key={t.name} value={t.name}>
                   {t.name}
                 </option>
@@ -227,7 +233,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
             <input
               placeholder="Ville *"
               value={city}
-              onChange={(e) => onSetCity(e.target.value)}
+              onChange={e => onSetCity(e.target.value)}
               className={ic}
             />
           )}
@@ -239,7 +245,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
               'rounded-lg border px-2.5 py-2 text-[11px] leading-snug',
               deliveryQuote.ok
                 ? 'border-emerald-500/30 bg-emerald-950/30 text-emerald-100'
-                : 'border-amber-500/30 bg-amber-950/20 text-amber-100',
+                : 'border-amber-500/30 bg-amber-950/20 text-amber-100'
             )}
           >
             {deliveryQuote.ok ? (
@@ -272,11 +278,11 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           <p className="text-xs text-cream/35">Zones : {DELIVERY_TOWNS.join(', ')} et alentours.</p>
         )}
       </div>
-    )
+    );
   }
 
   if (step === 'details') {
-    const ic = compact ? inputClassSheet : inputClass
+    const ic = compact ? inputClassSheet : inputClass;
     return (
       <div className="space-y-2">
         {!compact && deliveryPizzaBelowMinimum && deliveryQuote && (
@@ -300,14 +306,14 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           <input
             placeholder="Prénom *"
             value={customerFirstName}
-            onChange={(e) => onSetCustomerFirstName(e.target.value)}
+            onChange={e => onSetCustomerFirstName(e.target.value)}
             autoComplete="given-name"
             className={ic}
           />
           <input
             placeholder="Nom *"
             value={customerLastName}
-            onChange={(e) => onSetCustomerLastName(e.target.value)}
+            onChange={e => onSetCustomerLastName(e.target.value)}
             autoComplete="family-name"
             className={ic}
           />
@@ -316,7 +322,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           type="tel"
           placeholder="Téléphone *"
           value={customerPhone}
-          onChange={(e) => onSetCustomerPhone(e.target.value)}
+          onChange={e => onSetCustomerPhone(e.target.value)}
           className={ic}
         />
         <LoyaltyBalanceHint phone={customerPhone} />
@@ -324,7 +330,7 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           type="email"
           placeholder="Email (optionnel)"
           value={customerEmail}
-          onChange={(e) => onSetCustomerEmail(e.target.value)}
+          onChange={e => onSetCustomerEmail(e.target.value)}
           className={ic}
         />
         {slots.length > 0 ? (
@@ -334,12 +340,8 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
                 Mode test — créneaux ouverts jusqu&apos;à 23h45.
               </p>
             )}
-            <select
-              value={timeSlot}
-              onChange={(e) => onSetTimeSlot(e.target.value)}
-              className={ic}
-            >
-              {slots.map((s) => (
+            <select value={timeSlot} onChange={e => onSetTimeSlot(e.target.value)} className={ic}>
+              {slots.map(s => (
                 <option key={s} value={s}>
                   Créneau {s}
                 </option>
@@ -355,11 +357,11 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           placeholder="Instructions (interphone, code…)"
           rows={compact ? 2 : 2}
           value={instructions}
-          onChange={(e) => onSetInstructions(e.target.value)}
+          onChange={e => onSetInstructions(e.target.value)}
           className={ic}
         />
       </div>
-    )
+    );
   }
 
   if (step === 'confirm' && checkoutDraft) {
@@ -369,7 +371,9 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           <dl className="space-y-2">
             <div className="flex justify-between gap-3">
               <dt className="text-cream/45">Mode</dt>
-              <dd className="text-cream">{orderType === 'delivery' ? 'Livraison' : 'À emporter'}</dd>
+              <dd className="text-cream">
+                {orderType === 'delivery' ? 'Livraison' : 'À emporter'}
+              </dd>
             </div>
             {orderType === 'delivery' && (
               <div className="flex justify-between gap-3">
@@ -392,37 +396,39 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           </dl>
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-charcoal/60 p-3">
-          <p className="mb-2 text-xs font-semibold text-cream">Paiement</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => onSetPaymentMode('online')}
-              className={cn(
-                'rounded-lg border px-3 py-2 text-left text-xs',
-                paymentMode === 'online'
-                  ? 'border-tomato bg-tomato/15 text-cream'
-                  : 'border-white/15 text-cream/60',
-              )}
-            >
-              <strong className="block">En ligne</strong>
-              CB · Apple Pay
-            </button>
-            <button
-              type="button"
-              onClick={() => onSetPaymentMode('counter')}
-              className={cn(
-                'rounded-lg border px-3 py-2 text-left text-xs',
-                paymentMode === 'counter'
-                  ? 'border-tomato bg-tomato/15 text-cream'
-                  : 'border-white/15 text-cream/60',
-              )}
-            >
-              <strong className="block">Comptoir</strong>
-              À la caisse
-            </button>
+        {/* Paiement au comptoir : encaissable uniquement depuis l'écran caisse (module pos). */}
+        {isModuleEnabled('pos') && (
+          <div className="rounded-xl border border-white/10 bg-charcoal/60 p-3">
+            <p className="mb-2 text-xs font-semibold text-cream">Paiement</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onSetPaymentMode('online')}
+                className={cn(
+                  'rounded-lg border px-3 py-2 text-left text-xs',
+                  paymentMode === 'online'
+                    ? 'border-tomato bg-tomato/15 text-cream'
+                    : 'border-white/15 text-cream/60'
+                )}
+              >
+                <strong className="block">En ligne</strong>
+                CB · Apple Pay
+              </button>
+              <button
+                type="button"
+                onClick={() => onSetPaymentMode('counter')}
+                className={cn(
+                  'rounded-lg border px-3 py-2 text-left text-xs',
+                  paymentMode === 'counter'
+                    ? 'border-tomato bg-tomato/15 text-cream'
+                    : 'border-white/15 text-cream/60'
+                )}
+              >
+                <strong className="block">Comptoir</strong>À la caisse
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <LegalCheckoutNotice compact={compact} />
 
@@ -438,18 +444,18 @@ export function CheckoutStepPanels(props: CheckoutStepPanelsProps) {
           onError={onPaymentError}
         />
       </div>
-    )
+    );
   }
 
   if (error) {
-    return <p className="text-sm text-red-400">{error}</p>
+    return <p className="text-sm text-red-400">{error}</p>;
   }
 
-  return null
+  return null;
 }
 
 export function CheckoutEmptyCart({ variant }: { variant: 'page' | 'sheet' }) {
-  if (variant === 'sheet') return null
+  if (variant === 'sheet') return null;
   return (
     <div className="mx-auto max-w-md text-center">
       <h1 className="font-display text-2xl font-bold text-cream">Panier vide</h1>
@@ -458,5 +464,5 @@ export function CheckoutEmptyCart({ variant }: { variant: 'page' | 'sheet' }) {
         Voir la carte →
       </Link>
     </div>
-  )
+  );
 }

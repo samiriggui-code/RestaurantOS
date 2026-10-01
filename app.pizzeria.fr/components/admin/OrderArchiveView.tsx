@@ -1,13 +1,34 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import { useFeedbackState } from '@/lib/use-feedback-state'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { FileText, Loader2, Mail, Phone, Printer, RefreshCw, Search, Ban, X } from 'lucide-react'
-import { getStaffSession } from '@/lib/staff-auth'
-import { staffFetch } from '@/lib/staff-api'
-import { ORDER_CHANNEL_OPTIONS } from '@/lib/admin-nav'
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import { useFeedbackState } from '@/lib/use-feedback-state';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import {
+  CalendarRange,
+  FileText,
+  Loader2,
+  Mail,
+  Phone,
+  Printer,
+  RefreshCw,
+  Search,
+  Ban,
+  X,
+} from 'lucide-react';
+import { getStaffSession, getStaffUser } from '@/lib/staff-auth';
+import { staffFetch } from '@/lib/staff-api';
+import { ORDER_CHANNEL_OPTIONS } from '@/lib/admin-nav';
 import {
   CANCEL_REASON_LABEL,
   cancelOrder,
@@ -25,14 +46,21 @@ import {
   updateOrderStatus,
   type OpsOrder,
   type OrderCancelReason,
-} from '@/lib/ops-orders'
-import { ARCHIVE_PERIODS, periodToDateRange, type ArchivePeriod } from '@/lib/order-period'
-import { formatEUR } from '@/lib/money'
-import { OrderItemLineTotal, OrderItemLines } from '@/components/ops/OrderItemLines'
-import { cn } from '@/lib/cn'
-import { useAdminRefresh } from '@/components/admin/AdminLiveProvider'
-import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider'
-import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs'
+} from '@/lib/ops-orders';
+import {
+  ARCHIVE_PERIODS,
+  periodToDateRange,
+  type ArchivePeriod,
+  type CustomRange,
+} from '@/lib/order-period';
+import { defaultCustomRange } from '@/components/admin/PeriodPicker';
+import { formatEUR } from '@/lib/money';
+import { OrderItemLineTotal, OrderItemLines } from '@/components/ops/OrderItemLines';
+import { cn } from '@/lib/cn';
+import { useAdminRefresh } from '@/components/admin/AdminLiveProvider';
+import { useAdminFeedback } from '@/components/admin/AdminFeedbackProvider';
+import { AdminPageHeader, AdminPageShell } from '@/components/admin/AdminSectionTabs';
+import { AdminDataGridShell, DataGridColumnHeader } from '@/components/ui/data-grid';
 
 const STATUS_FILTERS = [
   { value: '', label: 'Tous statuts' },
@@ -40,233 +68,369 @@ const STATUS_FILTERS = [
   { value: 'CANCELLED', label: 'Annulées' },
   { value: 'CONFIRMED,PREPARING,READY', label: 'Encore actives' },
   { value: 'PENDING_PAYMENT', label: 'Impayées (comptoir)' },
-]
+];
 
 type InvoiceFromOrder = {
-  id: string
-  invoiceNumber: number
-  status: string
-  clientEmail: string | null
-  _existing?: boolean
-}
+  id: string;
+  invoiceNumber: number;
+  status: string;
+  clientEmail: string | null;
+  _existing?: boolean;
+};
 
-export type OrderArchiveMode = 'all' | 'online' | 'counter'
+export type OrderArchiveMode = 'all' | 'online' | 'counter';
+
+/** Au-delà, la liste est tronquée sans avertissement sinon (pas de cap serveur strict, mais
+ * on ne veut pas non plus charger un nombre arbitraire de lignes). */
+const ORDERS_LIMIT = 500;
 
 type Props = {
-  title: string
-  subtitle: string
-  mode: OrderArchiveMode
-}
+  title: string;
+  subtitle: string;
+  mode: OrderArchiveMode;
+};
 
 export function OrderArchiveView({ title, subtitle, mode }: Props) {
-  const { notifySuccess } = useAdminFeedback()
-  const searchParams = useSearchParams()
-  const highlightOrderId = searchParams.get('order')
-  const [orders, setOrders] = useState<OpsOrder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState<ArchivePeriod>('today')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [channelFilter, setChannelFilter] = useState('')
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<OpsOrder | null>(null)
-  const { error, setError } = useFeedbackState()
-  const [invoicing, setInvoicing] = useState(false)
-  const [invoiceResult, setInvoiceResult] = useState<InvoiceFromOrder | null>(null)
-  const [sendingInvoice, setSendingInvoice] = useState(false)
-  const [sendEmailTarget, setSendEmailTarget] = useState('')
-  const [showSendEmailModal, setShowSendEmailModal] = useState(false)
-  const [reprinting, setReprinting] = useState(false)
-  const [cancelOpen, setCancelOpen] = useState(false)
-  const [cancelReason, setCancelReason] = useState<OrderCancelReason>('CLIENT_REFUSED')
-  const [cancelNote, setCancelNote] = useState('')
-  const [cancelling, setCancelling] = useState(false)
+  const { notifySuccess } = useAdminFeedback();
+  const searchParams = useSearchParams();
+  const highlightOrderId = searchParams.get('order');
+  const [orders, setOrders] = useState<OpsOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<ArchivePeriod>('today');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [channelFilter, setChannelFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<OpsOrder | null>(null);
+  const { error, setError } = useFeedbackState();
+  const [invoicing, setInvoicing] = useState(false);
+  const [invoiceResult, setInvoiceResult] = useState<InvoiceFromOrder | null>(null);
+  const [sendingInvoice, setSendingInvoice] = useState(false);
+  const [sendEmailTarget, setSendEmailTarget] = useState('');
+  const [showSendEmailModal, setShowSendEmailModal] = useState(false);
+  const [reprinting, setReprinting] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState<OrderCancelReason>('CLIENT_REFUSED');
+  const [cancelNote, setCancelNote] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [custom, setCustom] = useState<CustomRange>(() => defaultCustomRange());
+  const [truncated, setTruncated] = useState(false);
 
-  const REPRINT_WINDOW_MS = 24 * 60 * 60 * 1000
+  const range = useMemo(
+    () => periodToDateRange(period, period === 'custom' ? custom : undefined),
+    [period, custom]
+  );
+
+  const REPRINT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   function canReprintReceipt(order: OpsOrder): boolean {
-    if (order.paymentStatus !== 'PAID') return false
-    const paidAt = new Date(order.createdAt).getTime()
-    return Date.now() - paidAt <= REPRINT_WINDOW_MS
+    if (order.paymentStatus !== 'PAID') return false;
+    const paidAt = new Date(order.createdAt).getTime();
+    return Date.now() - paidAt <= REPRINT_WINDOW_MS;
   }
 
   async function reprintReceipt() {
-    if (!selected) return
-    const session = getStaffSession()
-    if (!session) return
+    if (!selected) return;
+    const session = getStaffSession();
+    if (!session) return;
     if (!canReprintReceipt(selected)) {
-      setError('Réimpression limitée à 24 h après encaissement')
-      return
+      setError('Réimpression limitée à 24 h après encaissement');
+      return;
     }
-    setReprinting(true)
-    setError(null)
+    setReprinting(true);
+    setError(null);
     try {
-      const { content } = await requestOrderPrint(selected.id, 'RECEIPT', session.token, { reprint: true })
-      printTicketText(content, `Reçu #${selected.orderNumber} (DUPLICATA)`, 'RECEIPT')
+      const { content } = await requestOrderPrint(selected.id, 'RECEIPT', session.token, {
+        reprint: true,
+      });
+      printTicketText(content, `Reçu #${selected.orderNumber} (DUPLICATA)`, 'RECEIPT');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Réimpression impossible')
+      setError(e instanceof Error ? e.message : 'Réimpression impossible');
     } finally {
-      setReprinting(false)
+      setReprinting(false);
     }
   }
 
   const load = useCallback(async () => {
-    const session = getStaffSession()
-    if (!session) return
-    setLoading(true)
+    const session = getStaffSession();
+    if (!session) return;
+
+    setLoading(true);
     try {
-      const range = periodToDateRange(period)
       const data = await fetchOrders(session.token, {
         ...range,
         status: statusFilter || undefined,
         channel: channelFilter || undefined,
         isOnlineOrder: mode === 'online' ? true : mode === 'counter' ? false : undefined,
         includeUnpaid: statusFilter === 'PENDING_PAYMENT',
-        limit: 250,
-      })
-      setOrders(data)
-      setError(null)
+        limit: ORDERS_LIMIT,
+      });
+      setOrders(data);
+      // Pas de cap serveur strict sur /orders — si on atteint pile la limite demandée,
+      // des commandes plus anciennes existent sûrement mais ne sont pas dans la liste.
+      setTruncated(data.length >= ORDERS_LIMIT);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erreur chargement')
+      setError(e instanceof Error ? e.message : 'Erreur chargement');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [period, statusFilter, channelFilter, mode])
+  }, [range, statusFilter, channelFilter, mode]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
-  useAdminRefresh('orders', load)
-
-  useEffect(() => {
-    if (highlightOrderId) setPeriod('month')
-  }, [highlightOrderId])
+  useAdminRefresh('orders', load);
 
   useEffect(() => {
-    if (!highlightOrderId || orders.length === 0) return
-    const found = orders.find((o) => o.id === highlightOrderId)
-    if (found) setSelected(found)
-  }, [highlightOrderId, orders])
+    if (highlightOrderId) setPeriod('month');
+  }, [highlightOrderId]);
 
   useEffect(() => {
-    setInvoiceResult(null)
-  }, [selected?.id])
+    if (!highlightOrderId || orders.length === 0) return;
+    const found = orders.find(o => o.id === highlightOrderId);
+    if (found) setSelected(found);
+  }, [highlightOrderId, orders]);
 
-  const filtered = orders.filter((o) => {
-    if (!search.trim()) return true
-    const q = search.trim().toLowerCase()
-    return (
-      String(o.orderNumber).includes(q) ||
-      o.customerName?.toLowerCase().includes(q) ||
-      o.customerPhone?.includes(q)
-    )
-  })
+  useEffect(() => {
+    setInvoiceResult(null);
+  }, [selected?.id]);
 
-  const totalAmount = filtered.reduce((s, o) => s + o.total, 0)
+  // Mémoïsé : passé tel quel en `data` au tableau — un nouveau tableau à chaque rendu
+  // déclenchait autoResetPageIndex → setPagination → rendu… (onglet gelé en quittant la page).
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter(
+      o =>
+        String(o.orderNumber).includes(q) ||
+        o.customerName?.toLowerCase().includes(q) ||
+        o.customerPhone?.includes(q)
+    );
+  }, [orders, search]);
 
-  async function changeStatus(id: string, status: string) {
-    const session = getStaffSession()
-    if (!session) return
+  const totalAmount = filtered.reduce((s, o) => s + o.total, 0);
+
+  async function changeStatus(id: string, status: string, opts?: { forceDelivered?: boolean }) {
+    const session = getStaffSession();
+    if (!session) return;
     try {
-      const updated = await updateOrderStatus(id, status, session.token)
-      setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
-      setSelected((prev) => (prev?.id === id ? updated : prev))
+      const updated = await updateOrderStatus(id, status, session.token, opts);
+      setOrders(prev => prev.map(o => (o.id === id ? updated : o)));
+      setSelected(prev => (prev?.id === id ? updated : prev));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Mise à jour impossible')
+      setError(e instanceof Error ? e.message : 'Mise à jour impossible');
     }
   }
 
   const isActive = (status: string) =>
-    ['CONFIRMED', 'PREPARING', 'READY', 'PENDING'].includes(status)
+    ['CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'PENDING'].includes(status);
+
+  const staffUser = getStaffUser('crm');
+  const canForceDelivered = staffUser?.role === 'ADMIN' || staffUser?.role === 'MANAGER';
 
   const canCancelOrder = (order: OpsOrder) =>
-    !['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(order.status)
+    !['COMPLETED', 'DELIVERED', 'CANCELLED'].includes(order.status);
 
   async function confirmCancelOrder() {
-    if (!selected) return
-    const session = getStaffSession()
-    if (!session) return
-    setCancelling(true)
-    setError(null)
+    if (!selected) return;
+    const session = getStaffSession();
+    if (!session) return;
+    setCancelling(true);
+    setError(null);
     try {
       const updated = await cancelOrder(selected.id, session.token, {
         reason: cancelReason,
         note: cancelNote.trim() || undefined,
         source: 'ADMIN',
         refund: true,
-      })
-      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)))
-      setSelected(updated)
-      setCancelOpen(false)
-      setCancelNote('')
+      });
+      setOrders(prev => prev.map(o => (o.id === updated.id ? updated : o)));
+      setSelected(updated);
+      setCancelOpen(false);
+      setCancelNote('');
       notifySuccess(
         selected.sumupCheckoutId
           ? 'Commande annulée et remboursement SumUp lancé'
-          : 'Commande annulée',
-      )
+          : 'Commande annulée'
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Annulation impossible')
+      setError(e instanceof Error ? e.message : 'Annulation impossible');
     } finally {
-      setCancelling(false)
+      setCancelling(false);
     }
   }
 
   const canInvoice =
-    selected &&
-    selected.status !== 'CANCELLED' &&
-    selected.paymentStatus === 'PAID'
+    selected && selected.status !== 'CANCELLED' && selected.paymentStatus === 'PAID';
 
   async function createInvoiceFromOrder() {
-    if (!selected) return
-    const session = getStaffSession()
-    if (!session) return
-    setInvoicing(true)
-    setError(null)
+    if (!selected) return;
+    const session = getStaffSession();
+    if (!session) return;
+    setInvoicing(true);
+    setError(null);
     try {
       const invoice = await staffFetch<InvoiceFromOrder>(`/invoices/from-order/${selected.id}`, {
         method: 'POST',
         token: session.token,
-      })
-      setInvoiceResult(invoice)
+      });
+      setInvoiceResult(invoice);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Impossible de créer la facture')
+      setError(e instanceof Error ? e.message : 'Impossible de créer la facture');
     } finally {
-      setInvoicing(false)
+      setInvoicing(false);
     }
   }
 
   function openSendInvoiceEmail() {
-    if (!invoiceResult) return
-    const preset =
-      invoiceResult.clientEmail?.trim() || selected?.customerEmail?.trim() || ''
-    setSendEmailTarget(preset)
-    setShowSendEmailModal(true)
+    if (!invoiceResult) return;
+    const preset = invoiceResult.clientEmail?.trim() || selected?.customerEmail?.trim() || '';
+    setSendEmailTarget(preset);
+    setShowSendEmailModal(true);
   }
 
   async function confirmSendInvoiceEmail() {
-    if (!invoiceResult) return
-    const email = sendEmailTarget.trim()
-    if (!email) return
-    const session = getStaffSession()
-    if (!session) return
+    if (!invoiceResult) return;
+    const email = sendEmailTarget.trim();
+    if (!email) return;
+    const session = getStaffSession();
+    if (!session) return;
 
-    setSendingInvoice(true)
-    setError(null)
+    setSendingInvoice(true);
+    setError(null);
     try {
       const updated = await staffFetch<InvoiceFromOrder>(`/invoices/${invoiceResult.id}/send`, {
         method: 'POST',
         token: session.token,
         body: JSON.stringify({ email }),
-      })
-      setInvoiceResult(updated)
-      setShowSendEmailModal(false)
-      notifySuccess('Facture envoyée par email.')
+      });
+      setInvoiceResult(updated);
+      setShowSendEmailModal(false);
+      notifySuccess('Facture envoyée par email.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Envoi email impossible')
+      setError(e instanceof Error ? e.message : 'Envoi email impossible');
     } finally {
-      setSendingInvoice(false)
+      setSendingInvoice(false);
     }
   }
+
+  const [ordersSorting, setOrdersSorting] = useState<SortingState>([
+    { id: 'createdAt', desc: true },
+  ]);
+  const [ordersPagination, setOrdersPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10,
+  });
+
+  useEffect(() => {
+    setOrdersPagination(p => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+  }, [range, statusFilter, channelFilter, search]);
+
+  const orderColumns = useMemo<ColumnDef<OpsOrder>[]>(
+    () => [
+      {
+        id: 'orderNumber',
+        header: ({ column }) => <DataGridColumnHeader title="N°" column={column} />,
+        accessorFn: row => row.orderNumber,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={() => setSelected(row.original)}
+            className="font-semibold text-tomato-light hover:underline"
+          >
+            #{row.original.orderNumber}
+          </button>
+        ),
+      },
+      {
+        id: 'client',
+        header: ({ column }) => <DataGridColumnHeader title="Client" column={column} />,
+        accessorFn: row => orderCustomerLine(row),
+        cell: ({ row }) => <span className="text-cream/80">{orderCustomerLine(row.original)}</span>,
+      },
+      {
+        id: 'channel',
+        header: ({ column }) => <DataGridColumnHeader title="Canal" column={column} />,
+        accessorFn: row => orderChannelLabel(row),
+        cell: ({ row }) => (
+          <span
+            className={cn('rounded-full px-2 py-0.5 text-xs', orderChannelBadgeClass(row.original))}
+          >
+            {orderChannelLabel(row.original)}
+          </span>
+        ),
+      },
+      {
+        id: 'type',
+        header: ({ column }) => <DataGridColumnHeader title="Mode" column={column} />,
+        accessorFn: row => ORDER_TYPE_LABEL[row.type] ?? row.type,
+      },
+      {
+        id: 'createdAt',
+        header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+        accessorFn: row => new Date(row.createdAt).getTime(),
+        cell: ({ row }) => (
+          <span className="text-cream/60">
+            {new Date(row.original.createdAt).toLocaleString('fr-FR')}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        header: ({ column }) => <DataGridColumnHeader title="Statut" column={column} />,
+        accessorFn: row => ORDER_STATUS_LABEL[row.status] ?? row.status,
+        cell: ({ row }) => (
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-cream/70">
+            {ORDER_STATUS_LABEL[row.original.status] ?? row.original.status}
+          </span>
+        ),
+      },
+      {
+        id: 'paymentStatus',
+        header: ({ column }) => <DataGridColumnHeader title="Paiement" column={column} />,
+        accessorFn: row => PAYMENT_STATUS_LABEL[row.paymentStatus] ?? row.paymentStatus,
+        cell: ({ row }) => (
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-xs',
+              row.original.paymentStatus === 'PAID'
+                ? 'bg-emerald-500/15 text-emerald-200'
+                : 'bg-amber-500/15 text-amber-200'
+            )}
+          >
+            {PAYMENT_STATUS_LABEL[row.original.paymentStatus] ?? row.original.paymentStatus}
+          </span>
+        ),
+      },
+      {
+        id: 'total',
+        header: ({ column }) => <DataGridColumnHeader title="Total" column={column} />,
+        accessorFn: row => row.total,
+        cell: ({ row }) => (
+          <span className="font-medium tabular-nums text-cream">
+            {formatEUR(row.original.total)}
+          </span>
+        ),
+      },
+    ],
+    []
+  );
+
+  const ordersTable = useReactTable({
+    data: filtered,
+    columns: orderColumns,
+    state: { pagination: ordersPagination, sorting: ordersSorting },
+    onPaginationChange: setOrdersPagination,
+    onSortingChange: setOrdersSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: row => row.id,
+    // Retour page 1 géré par l'effet ci-dessus (filtres / recherche).
+    autoResetPageIndex: false,
+  });
 
   return (
     <AdminPageShell>
@@ -291,29 +455,70 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
           {error}
         </p>
       )}
+      {truncated && (
+        <p className="text-sm text-amber-300">
+          Plus de {ORDERS_LIMIT} commandes sur cette période — les plus anciennes ne sont pas
+          affichées. Réduisez la période pour tout voir.
+        </p>
+      )}
 
       {/* Une seule barre : période · recherche · statut · canal · compteur */}
       <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
-        <div
-          className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
-          role="group"
-          aria-label="Période"
-        >
-          {ARCHIVE_PERIODS.map((p) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="admin-scroll-x flex flex-wrap gap-1 rounded-xl border border-white/10 bg-[#120e0c]/60 p-1"
+            role="group"
+            aria-label="Période"
+          >
+            {ARCHIVE_PERIODS.map(p => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setPeriod(p.value)}
+                className={cn(
+                  'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  period === p.value
+                    ? 'bg-tomato/20 text-tomato-light'
+                    : 'text-cream/55 hover:bg-white/[0.04] hover:text-cream'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
-              key={p.value}
               type="button"
-              onClick={() => setPeriod(p.value)}
+              onClick={() => setPeriod('custom')}
               className={cn(
                 'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                period === p.value
+                period === 'custom'
                   ? 'bg-tomato/20 text-tomato-light'
                   : 'text-cream/55 hover:bg-white/[0.04] hover:text-cream'
               )}
             >
-              {p.label}
+              Personnalisé
             </button>
-          ))}
+          </div>
+
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.03] px-2 py-1">
+              <CalendarRange className="h-4 w-4 text-cream/40" />
+              <input
+                type="date"
+                value={custom.from.slice(0, 10)}
+                onChange={e => setCustom(c => ({ ...c, from: `${e.target.value}T00:00:00.000Z` }))}
+                className="bg-transparent text-sm text-cream outline-none"
+                title="Du"
+              />
+              <span className="text-cream/30">→</span>
+              <input
+                type="date"
+                value={custom.to.slice(0, 10)}
+                onChange={e => setCustom(c => ({ ...c, to: `${e.target.value}T23:59:59.999Z` }))}
+                className="bg-transparent text-sm text-cream outline-none"
+                title="Au"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -321,18 +526,18 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/35" />
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={e => setSearch(e.target.value)}
               placeholder="N°, nom, téléphone…"
               className="w-full rounded-xl border border-white/15 bg-[#120e0c] py-2.5 pl-10 pr-4 text-sm text-cream outline-none placeholder:text-cream/35 focus:border-tomato/40"
             />
           </div>
           <select
             value={channelFilter}
-            onChange={(e) => setChannelFilter(e.target.value)}
+            onChange={e => setChannelFilter(e.target.value)}
             aria-label="Canal"
             className="w-full shrink-0 rounded-xl border border-white/15 bg-[#120e0c] px-3 py-2.5 text-sm text-cream sm:w-auto sm:min-w-[11rem]"
           >
-            {ORDER_CHANNEL_OPTIONS.map((o) => (
+            {ORDER_CHANNEL_OPTIONS.map(o => (
               <option key={o.value || 'all'} value={o.value}>
                 {o.label}
               </option>
@@ -345,7 +550,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
           role="group"
           aria-label="Statut"
         >
-          {STATUS_FILTERS.map((f) => (
+          {STATUS_FILTERS.map(f => (
             <button
               key={f.value}
               type="button"
@@ -367,53 +572,14 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
         </p>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-tomato-light" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="py-16 text-center text-cream/40">Aucune commande sur cette période</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((order) => (
-            <button
-              key={order.id}
-              type="button"
-              onClick={() => setSelected(order)}
-              className="rounded-2xl border border-white/10 bg-[#1A1412] p-4 text-left transition hover:border-tomato/40"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-display text-xl font-bold text-tomato-light">
-                    #{order.orderNumber}
-                  </p>
-                  <p className="text-sm text-cream/80">{orderCustomerLine(order)}</p>
-                  <p className="text-xs text-cream/40">
-                    {orderChannelLabel(order)} · {ORDER_TYPE_LABEL[order.type]} ·{' '}
-                    {new Date(order.createdAt).toLocaleString('fr-FR')}
-                  </p>
-                </div>
-                <p className="font-bold text-cream">{formatEUR(order.total)}</p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-cream/70">
-                  {ORDER_STATUS_LABEL[order.status] ?? order.status}
-                </span>
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-xs',
-                    order.paymentStatus === 'PAID'
-                      ? 'bg-emerald-500/15 text-emerald-200'
-                      : 'bg-amber-500/15 text-amber-200'
-                  )}
-                >
-                  {PAYMENT_STATUS_LABEL[order.paymentStatus] ?? order.paymentStatus}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      <AdminDataGridShell
+        title="Commandes"
+        table={ordersTable}
+        recordCount={ordersTable.getFilteredRowModel().rows.length}
+        emptyMessage="Aucune commande sur cette période"
+        paginationSizes={[5, 10, 50]}
+        isLoading={loading}
+      />
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
@@ -460,7 +626,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
             </dl>
 
             <ul className="mt-4 space-y-3 border-t border-white/10 pt-4">
-              {selected.items.map((item) => (
+              {selected.items.map(item => (
                 <li key={item.id} className="flex items-start justify-between gap-3 text-sm">
                   <OrderItemLines item={item} showUnitPrice />
                   <OrderItemLineTotal item={item} />
@@ -503,7 +669,8 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                   {invoiceResult._existing ? '(déjà existante)' : 'créée'}
                 </p>
                 <p className="mt-1 text-xs text-emerald-200/80">
-                  Statut : {invoiceResult.status === 'SENT' ? 'envoyée par email' : invoiceResult.status}
+                  Statut :{' '}
+                  {invoiceResult.status === 'SENT' ? 'envoyée par email' : invoiceResult.status}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {invoiceResult.status !== 'SENT' ? (
@@ -599,7 +766,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                       → Prête
                     </button>
                   )}
-                  {selected.status === 'READY' && (
+                  {selected.status === 'READY' && selected.type !== 'DELIVERY' && (
                     <button
                       type="button"
                       onClick={() => void changeStatus(selected.id, 'COMPLETED')}
@@ -608,6 +775,26 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                       → Terminée
                     </button>
                   )}
+                  {canForceDelivered &&
+                    selected.type === 'DELIVERY' &&
+                    (selected.status === 'READY' || selected.status === 'OUT_FOR_DELIVERY') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              'Forcer « Livrée » ? À utiliser si le téléphone livreur est HS ou le code client perdu. Action auditée.'
+                            )
+                          ) {
+                            return;
+                          }
+                          void changeStatus(selected.id, 'DELIVERED', { forceDelivered: true });
+                        }}
+                        className="flex-1 rounded-xl bg-amber-600/90 py-2.5 text-sm font-semibold text-white"
+                      >
+                        Forcer livrée
+                      </button>
+                    )}
                 </>
               )}
             </div>
@@ -631,7 +818,7 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
               <input
                 type="email"
                 value={sendEmailTarget}
-                onChange={(e) => setSendEmailTarget(e.target.value)}
+                onChange={e => setSendEmailTarget(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40"
                 placeholder="client@exemple.fr"
                 autoFocus
@@ -651,7 +838,11 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
                 onClick={() => void confirmSendInvoiceEmail()}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-tomato py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {sendingInvoice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {sendingInvoice ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
                 Envoyer
               </button>
             </div>
@@ -679,32 +870,35 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
             <label className="mb-1 block text-xs font-medium text-cream/60">Motif</label>
             <select
               value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value as OrderCancelReason)}
+              onChange={e => setCancelReason(e.target.value as OrderCancelReason)}
               className="mb-3 w-full rounded-xl border border-white/10 bg-charcoal px-3 py-2.5 text-sm text-cream"
             >
-              {ORDER_CANCEL_REASONS.map((r) => (
+              {ORDER_CANCEL_REASONS.map(r => (
                 <option key={r.value} value={r.value}>
                   {r.label}
                 </option>
               ))}
             </select>
 
-            <label className="mb-1 block text-xs font-medium text-cream/60">Précision (optionnel)</label>
+            <label className="mb-1 block text-xs font-medium text-cream/60">
+              Précision (optionnel)
+            </label>
             <textarea
               value={cancelNote}
-              onChange={(e) => setCancelNote(e.target.value)}
+              onChange={e => setCancelNote(e.target.value)}
               rows={2}
               className="mb-4 w-full rounded-xl border border-white/10 bg-charcoal px-3 py-2 text-sm text-cream"
             />
 
             {selected.paymentStatus === 'PAID' && selected.sumupCheckoutId ? (
               <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                Paiement CB en ligne — un remboursement SumUp sera effectué automatiquement sur la carte du
-                client.
+                Paiement CB en ligne — un remboursement SumUp sera effectué automatiquement sur la
+                carte du client.
               </p>
             ) : selected.paymentStatus === 'PAID' ? (
               <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                Commande déjà payée au comptoir — rembourser le client manuellement (espèces ou TPE).
+                Commande déjà payée au comptoir — rembourser le client manuellement (espèces ou
+                TPE).
               </p>
             ) : null}
 
@@ -730,5 +924,5 @@ export function OrderArchiveView({ title, subtitle, mode }: Props) {
         </div>
       ) : null}
     </AdminPageShell>
-  )
+  );
 }

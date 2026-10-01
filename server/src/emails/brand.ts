@@ -5,20 +5,20 @@ export const BRAND = {
   primary: '#c0392b',
   dark: '#1a1410',
   cream: '#f5f0e8',
-  siteUrl: process.env.PUBLIC_SITE_URL ?? 'https://www.lazpizzafarguesainthilaire.com',
-} as const
+  siteUrl: process.env.PUBLIC_SITE_URL ?? 'https://lazpizza.fr',
+} as const;
 
 export type BusinessEmailContext = {
-  businessName?: string
-  legalName?: string
-  logoUrl?: string
-  address?: string
-  phone?: string
-  siret?: string
-  siren?: string
-  vatNumber?: string
-  nafCode?: string
-  nafLabel?: string
-  legalForm?: string
-  website?: string
-}
+  businessName?: string;
+  legalName?: string;
+  logoUrl?: string;
+  address?: string;
+  phone?: string;
+  siret?: string;
+  siren?: string;
+  vatNumber?: string;
+  nafCode?: string;
+  nafLabel?: string;
+  legalForm?: string;
+  website?: string;
+};

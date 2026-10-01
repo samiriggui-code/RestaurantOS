@@ -10,6 +10,7 @@ import { DeviceLaunchCards } from '@/components/ops/DeviceLaunchCards'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
 import { getApiBase } from '@/lib/api-base'
+import { isModuleEnabled } from '@/lib/modules'
 
 type BusinessSettings = {
   autoPrintOrders?: boolean
@@ -79,7 +80,9 @@ export function AdminPosConfigView({ embedded = false }: { embedded?: boolean })
         <div>
           <h1 className="font-display text-2xl font-bold text-cream">Paramètres caisse</h1>
           <p className="text-sm text-cream/50">
-            Configuration terminal SUNMI — le suivi live est dans l&apos;onglet « Suivi live ».
+            {isModuleEnabled('pos')
+              ? 'Configuration terminal SUNMI — le suivi live est dans l’onglet « Suivi live ».'
+              : 'Impression et écran cuisine — le suivi des ventes comptoir SumUp est dans l’onglet « Suivi live ».'}
           </p>
         </div>
       )}
@@ -98,27 +101,30 @@ export function AdminPosConfigView({ embedded = false }: { embedded?: boolean })
       <DeviceLaunchCards compact />
 
       <section className="rounded-2xl border border-white/10 bg-[#1A1412] p-5 space-y-4">
-        <div>
-          <h2 className="mb-2 font-semibold text-cream">URL terminal boutique (SUNMI)</h2>
-          <p className="mb-3 text-sm text-cream/50">
-            L&apos;APK WebView (<code className="text-cream/70">android/</code>) charge cette URL en
-            plein écran. Commandes comptoir, réception des commandes internet, impression tickets.
-          </p>
-          <code className="block break-all rounded-xl bg-black/30 px-3 py-2 text-sm text-tomato-light">
-            {posUrl}
-          </code>
-          <Link
-            href="/pos"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-2 text-sm text-tomato-light hover:underline"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Tester sur tablette boutique (PIN)
-          </Link>
-        </div>
+        {isModuleEnabled('pos') && (
+          <div>
+            <h2 className="mb-2 font-semibold text-cream">URL terminal boutique (SUNMI)</h2>
+            <p className="mb-3 text-sm text-cream/50">
+              L&apos;APK WebView (<code className="text-cream/70">android/</code>) charge cette URL
+              en plein écran. Commandes comptoir, réception des commandes internet, impression
+              tickets.
+            </p>
+            <code className="block break-all rounded-xl bg-black/30 px-3 py-2 text-sm text-tomato-light">
+              {posUrl}
+            </code>
+            <Link
+              href="/pos"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-2 text-sm text-tomato-light hover:underline"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Tester sur tablette boutique (PIN)
+            </Link>
+          </div>
+        )}
 
-        <div className="border-t border-white/10 pt-4">
+        <div className={isModuleEnabled('pos') ? 'border-t border-white/10 pt-4' : undefined}>
           <h3 className="mb-2 text-sm font-semibold text-cream">Écran cuisine (KDS) — même réseau</h3>
           <code className="block break-all rounded-xl bg-black/30 px-3 py-2 text-sm text-blue-300/90">
             {kitchenUrl}
@@ -163,9 +169,9 @@ export function AdminPosConfigView({ embedded = false }: { embedded?: boolean })
       <AdminPrintJobsPanel />
 
       <p className="text-xs text-cream/35">
-        Historique des ventes comptoir → filtre « Comptoir » dans{' '}
-        <Link href="/admin/orders" className="text-tomato-light hover:underline">
-          Commandes
+        Historique des ventes comptoir →{' '}
+        <Link href="/admin/pos" className="text-tomato-light hover:underline">
+          Suivi caisse
         </Link>
         {' · '}
         Paramètres KDS →{' '}

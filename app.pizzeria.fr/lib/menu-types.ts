@@ -1,6 +1,8 @@
 /** Types catalogue public — source de vérité : API `/api/public/menu` (Prisma). */
 
 export type CatalogItem = {
+  /** UUID Prisma — requis pour commandes POS/totem */
+  id?: string
   slug: string
   name: string
   description: string

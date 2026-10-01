@@ -27,7 +27,14 @@ import { DeviceFullscreenButton } from '@/components/ops/DeviceFullscreenButton'
 import { DeviceOrientationButton } from '@/components/ops/DeviceOrientationButton'
 import { KitchenTeamBoard } from '@/components/kitchen/KitchenTeamBoard'
 import { KitchenDriverAssignSheet } from '@/components/kitchen/KitchenDriverAssignSheet'
-import { getCrmSession, getDeviceSession, getStaffSession, getStaffUser, type AuthScope } from '@/lib/staff-auth'
+import {
+  getCrmSession,
+  getDeviceSession,
+  getStaffSession,
+  getStaffUser,
+  isKitchenDisplayEnabled,
+  type AuthScope,
+} from '@/lib/staff-auth'
 import { authScopeForOpsMode, type OpsViewMode } from '@/lib/ops-view-mode'
 import { canAccessAdmin } from '@/lib/roles'
 import { getKitchenSocket, joinBusinessRoom, releaseKitchenSocket, retainKitchenSocket } from '@/lib/socket'
@@ -226,6 +233,8 @@ function KitchenScreen({
     const onConnect = () => {
       setConnected(true)
       joinBusinessRoom(socket, businessId)
+      // Catch-up après micro-coupure / reconnect (ne pas compter uniquement sur les events)
+      void loadOrders(token).catch(() => {})
     }
     const onDisconnect = () => setConnected(false)
 
@@ -431,6 +440,18 @@ function KitchenScreen({
     }
   }
 
+  if (!isKitchenDisplayEnabled()) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-center text-cream">
+        <ChefHat className="h-10 w-10 text-cream/30" />
+        <h1 className="font-display text-xl font-bold text-cream">Écran cuisine désactivé</h1>
+        <p className="max-w-sm text-sm text-cream/50">
+          Le gérant a désactivé le KDS dans Suivi cuisine → Paramètres. Contactez-le pour le réactiver.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="pos-touch flex h-full min-h-0 flex-col text-cream">
       <header className="sticky top-0 z-10 shrink-0 border-b border-white/10 bg-charcoal/95 backdrop-blur">
@@ -473,6 +494,10 @@ function KitchenScreen({
                 Paramètres →{' '}
                 <Link href="/admin/kitchen" className="text-tomato-light hover:underline">
                   admin / écran cuisine
+                </Link>
+                {' · '}
+                <Link href="/admin/delivery" className="text-tomato-light hover:underline">
+                  supervision livraison
                 </Link>
               </p>
             )}

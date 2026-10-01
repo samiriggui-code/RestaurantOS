@@ -1,8 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Server as SocketIOServer } from 'socket.io';
 import { sendOrderConfirmationEmailV2, sendFiscalReceiptEmailV2 } from './mail-service';
-import { ensureInvoiceForPaidOrder } from './invoice-from-order';
-import { ensureLoyaltyCreditForPaidOrder } from './loyalty-order';
+import { runPaidOrderSideEffects } from './paid-order-side-effects';
 import { requireFiscalTicketForPaidOrder } from './fiscal/hook-paid-order';
 import { enqueueConfirmedOrderPrints } from './enqueue-order-prints';
 import { emitOrderTrackUpdate } from './order-track-events';
@@ -57,21 +56,24 @@ export async function runOnlineCardPaymentHooks(
   await emitToBusinessRoom(io, businessId, 'order:paymentUpdate', order);
   await emitToBusinessRoom(io, businessId, 'order:new', order);
 
-  const { deductStockWithAlerts } = await import('./stock-deduct-alerts');
-  void deductStockWithAlerts(
-    prisma,
-    businessId,
-    orderId,
-    order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
-  ).catch(err => console.error('Stock deduct on online payment:', err));
+  try {
+    await runPaidOrderSideEffects(prisma, {
+      businessId,
+      orderId,
+      stockItems: order.items.map(i => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
+      // Livraison : la facture attend la remise confirmée par le livreur (confirmDeliveryHandover),
+      // pas le paiement — évite de facturer une commande jamais livrée. Ticket fiscal inchangé
+      // (toujours émis au paiement, obligation légale indépendante de la facture CRM).
+      invoice: order.type !== 'DELIVERY',
+    });
+  } catch (sideErr) {
+    console.error('[online-payment] stock/facture CRITICAL:', orderId, sideErr);
+  }
 
-  void enqueueConfirmedOrderPrints(prisma, io, businessId, orderId);
-  emitOrderTrackUpdate(io, order);
-
-  void ensureInvoiceForPaidOrder(prisma, businessId, orderId).catch(err =>
-    console.error('Auto invoice on online payment:', err)
+  void enqueueConfirmedOrderPrints(prisma, io, businessId, orderId).catch(err =>
+    console.error('[prints] enqueue après paiement:', err)
   );
-  void ensureLoyaltyCreditForPaidOrder(prisma, businessId, orderId);
+  emitOrderTrackUpdate(io, order);
 
   if (order.customerEmail) {
     void sendOrderConfirmationEmailV2(prisma, businessId, {

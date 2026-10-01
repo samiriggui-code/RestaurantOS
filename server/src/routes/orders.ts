@@ -1,3 +1,4 @@
+import { parseOrderStatusFilter } from '../lib/order-status-filter';
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { Server as SocketIOServer } from 'socket.io';
@@ -95,10 +96,9 @@ router.get('/', ...ordersRead, async (req: AuthRequest, res: Response) => {
 
     const where: Record<string, unknown> = { businessId: req.user!.businessId };
     if (status) {
-      const statuses = (status as string)
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
+      const statuses = parseOrderStatusFilter(status as string);
+      // Filtre demandé mais aucun statut valide → liste vide (et non 500 ou « toutes les commandes »).
+      if (statuses.length === 0) return res.json([]);
       where.status = statuses.length > 1 ? { in: statuses } : statuses[0];
     }
     if (type) {
@@ -151,6 +151,7 @@ router.get('/', ...ordersRead, async (req: AuthRequest, res: Response) => {
     });
     res.json(orders);
   } catch (error) {
+    console.error('[orders] GET / :', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -342,12 +343,18 @@ router.patch(
     try {
       const prisma: PrismaClient = req.app.get('prisma');
       const io: SocketIOServer = req.app.get('io');
-      const { status } = req.body;
+      const { status, forceDelivered } = req.body as {
+        status?: string;
+        forceDelivered?: boolean;
+      };
 
       const result = await updateOrderStatus(prisma, io, {
         orderId: req.params.id,
         businessId: req.user!.businessId,
-        status,
+        status: status!,
+        forceDelivered: forceDelivered === true,
+        actorRole: req.user!.role,
+        actorUserId: req.user!.userId,
       });
       if (!result.ok) {
         return res.status(result.status).json({ error: result.error });

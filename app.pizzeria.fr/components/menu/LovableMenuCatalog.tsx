@@ -5,6 +5,7 @@ import { FoodImage } from '@/components/ui/FoodImage'
 import { MenuItemCard } from '@/components/menu/MenuItemCard'
 import { formatPriceEUR, isPizzaCategoryId, type CatalogCategory } from '@/lib/menu-types'
 import { getCategoryHeroImage } from '@/lib/menu-images'
+import { weeklyPromoPrice, type PizzaSizeId } from '@/lib/pizza-sizes'
 import { cn } from '@/lib/cn'
 
 const HIDDEN_BAND_IDS = new Set(['supplements'])
@@ -20,15 +21,28 @@ type LovableMenuCatalogProps = {
   /** Affiche le bloc titre « Notre carte / Pizzas du moment » */
   showHero?: boolean
   className?: string
+  /** Catégorie ouverte à l'arrivée (ex. "tomate" depuis le lien promo "En profiter"). */
+  initialCategoryId?: string
+  /** Taille pré-sélectionnée sur chaque pizza à l'arrivée (ex. Méga pour la promo 18€). */
+  defaultSizeId?: PizzaSizeId
 }
 
 export function LovableMenuCatalog({
   categories,
   showHero = true,
   className,
+  initialCategoryId,
+  defaultSizeId,
 }: LovableMenuCatalogProps) {
   const bandCategories = categories.filter((c) => !HIDDEN_BAND_IDS.has(c.id))
-  const [activeId, setActiveId] = useState(bandCategories[0]?.id ?? categories[0]?.id ?? 'tomate')
+  const [activeId, setActiveId] = useState(
+    (initialCategoryId && bandCategories.some((c) => c.id === initialCategoryId)
+      ? initialCategoryId
+      : undefined) ??
+      bandCategories[0]?.id ??
+      categories[0]?.id ??
+      'tomate',
+  )
 
   const active = bandCategories.find((c) => c.id === activeId) ?? bandCategories[0] ?? categories[0]
 
@@ -110,6 +124,21 @@ export function LovableMenuCatalog({
         <p className="mt-1 text-sm text-cream/50">{active.description}</p>
       )}
 
+      {defaultSizeId === '40' && (active.id === 'tomate' || active.id === 'creme') && (
+        <p
+          className={cn(
+            'mt-3 rounded-xl border px-3 py-2 text-xs',
+            weeklyPromoPrice(active.id, '40', 'pickup') != null
+              ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+              : 'border-red-500/30 bg-red-500/10 text-red-200',
+          )}
+        >
+          {weeklyPromoPrice(active.id, '40', 'pickup') != null
+            ? 'Taille Méga pré-sélectionnée — pizzas de cette catégorie à 18 € à emporter aujourd’hui.'
+            : 'Taille Méga pré-sélectionnée. Promo à 18 € à emporter valable du lundi au jeudi — pas active aujourd’hui, prix catalogue affiché ci-dessous.'}
+        </p>
+      )}
+
       {/* Grille produits */}
       <ul className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {active.items.map((item) => (
@@ -119,6 +148,7 @@ export function LovableMenuCatalog({
             categoryId={active.id}
             showSize={isPizzaCategoryId(active.id)}
             layout="lovable"
+            defaultSizeId={active.id === 'tomate' || active.id === 'creme' ? defaultSizeId : undefined}
           />
         ))}
       </ul>

@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Server as SocketIOServer } from 'socket.io';
 import { InvalidOrderTransitionError, transitionOrderStatus } from './order-status';
+import { ensureInvoiceForPaidOrder } from './invoice-from-order';
 import { notifyOrderStatusChange } from './notifications';
 import { emitOrderTrackUpdate } from './order-track-events';
 
@@ -17,6 +18,10 @@ export async function updateOrderStatus(
     orderId: string;
     businessId: string;
     status: string;
+    /** Escape hatch gérant : forcer DELIVERED sans code livreur. */
+    forceDelivered?: boolean;
+    actorRole?: string;
+    actorUserId?: string;
   }
 ): Promise<UpdateOrderStatusResult> {
   const existing = await prisma.order.findFirst({
@@ -27,11 +32,16 @@ export async function updateOrderStatus(
   }
 
   if (params.status === 'DELIVERED' && existing.type === 'DELIVERY') {
-    return {
-      ok: false,
-      status: 403,
-      error: 'Livraison confirmée par le livreur uniquement (code client requis)',
-    };
+    const canForce =
+      params.forceDelivered === true &&
+      (params.actorRole === 'ADMIN' || params.actorRole === 'MANAGER');
+    if (!canForce) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Livraison confirmée par le livreur uniquement (code client requis)',
+      };
+    }
   }
 
   let nextStatus;
@@ -46,7 +56,19 @@ export async function updateOrderStatus(
 
   const order = await prisma.order.update({
     where: { id: params.orderId },
-    data: { status: nextStatus },
+    data: {
+      status: nextStatus,
+      ...(params.forceDelivered && nextStatus === 'DELIVERED'
+        ? {
+            notes: [
+              existing.notes,
+              `[FORCE_DELIVERED ${new Date().toISOString()} by ${params.actorRole ?? '?'} ${params.actorUserId ?? ''}]`,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          }
+        : {}),
+    },
     include: {
       items: { include: { menuItem: true } },
       table: true,
@@ -68,6 +90,14 @@ export async function updateOrderStatus(
         data: { status: 'AVAILABLE' },
       });
     }
+  }
+
+  if (nextStatus === 'DELIVERED' && order.type === 'DELIVERY') {
+    // Même règle que la confirmation code livreur (driver-actions.ts) : facture générée à la
+    // livraison, pas au paiement. Idempotent — pas de doublon si déjà facturée ailleurs.
+    ensureInvoiceForPaidOrder(prisma, order.businessId, order.id, params.actorUserId).catch(err =>
+      console.error('[invoice] auto à la livraison (force):', order.id, err)
+    );
   }
 
   if (nextStatus === 'READY' || nextStatus === 'OUT_FOR_DELIVERY' || nextStatus === 'DELIVERED') {

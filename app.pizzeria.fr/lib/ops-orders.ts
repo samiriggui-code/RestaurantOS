@@ -120,7 +120,8 @@ export type OpsOrder = {
 
 
 
-export const KITCHEN_STATUSES = 'CONFIRMED,PENDING,PREPARING,READY,OUT_FOR_DELIVERY,DELIVERY_ISSUE'
+/** Statuts de l'enum serveur OrderStatus — `PENDING` n'existe plus (→ 500 côté API). */
+export const KITCHEN_STATUSES = 'CONFIRMED,PREPARING,READY,OUT_FOR_DELIVERY,DELIVERY_ISSUE'
 
 /** Commande visible sur le KDS (à emporter READY = file POS uniquement). */
 export function isKitchenVisibleOrder(order: OpsOrder): boolean {
@@ -820,18 +821,20 @@ export function orderChannelShortLabel(order: OpsOrder): string {
 
 
 
-export function updateOrderStatus(id: string, status: string, token: string) {
-
+export function updateOrderStatus(
+  id: string,
+  status: string,
+  token: string,
+  opts?: { forceDelivered?: boolean },
+) {
   return staffFetch<OpsOrder>(`/orders/${id}/status`, {
-
     method: 'PATCH',
-
-    body: JSON.stringify({ status }),
-
+    body: JSON.stringify({
+      status,
+      ...(opts?.forceDelivered ? { forceDelivered: true } : {}),
+    }),
     token,
-
   })
-
 }
 
 export type DriverOnDuty = { id: string; name: string }
@@ -888,6 +891,9 @@ export function createCounterOrder(
     customerPhone?: string
     notes?: string
     paymentMeta?: PaymentMeta
+    /** Canal explicite (ex. totem → KIOSK). */
+    channel?: 'POS' | 'KIOSK'
+    source?: string
   },
 ) {
   return staffFetch<OpsOrder>('/orders', {

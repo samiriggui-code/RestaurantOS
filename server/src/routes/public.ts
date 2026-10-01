@@ -20,7 +20,15 @@ import {
 } from '../lib/driver-actions';
 import { resolveDriverUserId } from '../lib/driver-access';
 import { getLoyaltyBalance } from '../lib/loyalty-order';
+import { getDevicesFromSettings } from '../lib/device-settings';
+import { requireFiscalTicketForPaidOrder } from '../lib/fiscal/hook-paid-order';
+import {
+  createSumupReaderCheckout,
+  getSumupReaderCheckoutStatus,
+  terminateSumupReaderCheckout,
+} from '../lib/sumup';
 import { randomBytes } from 'crypto';
+import { requireModule } from '../lib/modules';
 
 const router = Router();
 
@@ -51,6 +59,7 @@ router.get('/menu', async (req: AuthRequest, res: Response) => {
         shortLabel: cat.slug ?? cat.name,
         description: cat.description,
         items: cat.items.map(item => ({
+          id: item.id,
           slug: item.slug ?? item.id,
           name: item.name,
           description: item.description ?? '',
@@ -179,8 +188,10 @@ router.get('/loyalty/balance', async (req: AuthRequest, res: Response) => {
 /**
  * POST /api/public/orders
  * Commande invité — uniquement paiement au comptoir (pas de CB abandonnée en BDD).
+ * Exige le module `pos` : seul l'écran caisse sait encaisser une commande PENDING_PAYMENT —
+ * sans lui (version une-tablette), elle resterait bloquée sans jamais partir en cuisine.
  */
-router.post('/orders', async (req: AuthRequest, res: Response) => {
+router.post('/orders', requireModule('pos'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const body = req.body as OnlineOrderBody;
@@ -225,21 +236,33 @@ router.post('/orders', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * POST /api/public/kiosk-order — totem self-service (paiement comptoir)
+ * POST /api/public/kiosk-order — totem self-service (sans PIN staff)
+ * paymentMethod: COUNTER (impayé, réglé au comptoir) | CASH | CARD (après SumUp OK)
  */
-router.post('/kiosk-order', async (req: AuthRequest, res: Response) => {
+router.post('/kiosk-order', requireModule('kiosk'), async (req: AuthRequest, res: Response) => {
   try {
     const prisma: PrismaClient = req.app.get('prisma');
     const io: SocketIOServer = req.app.get('io');
     const businessId = getBusinessId();
     const body = req.body as {
       mode?: 'emporter' | 'surplace';
-      items?: { menuItemId?: string; slug?: string; quantity: number }[];
+      paymentMethod?: 'COUNTER' | 'CASH' | 'CARD';
+      items?: {
+        menuItemId?: string;
+        slug?: string;
+        quantity: number;
+        priceCents?: number;
+        sizeId?: string;
+        sizeLabel?: string;
+      }[];
     };
 
     if (!body.items?.length) {
       return res.status(400).json({ success: false, error: 'Panier vide' });
     }
+
+    const paymentMethod = body.paymentMethod ?? 'COUNTER';
+    const paid = paymentMethod === 'CASH' || paymentMethod === 'CARD';
 
     let subtotal = 0;
     const orderItemsData: {
@@ -263,14 +286,21 @@ router.post('/kiosk-order', async (req: AuthRequest, res: Response) => {
       if (!menuItem || !menuItem.isAvailable || !menuItem.isActive) {
         return res.status(400).json({ success: false, error: 'Article indisponible' });
       }
-      const price = menuItem.discountPrice ?? menuItem.price;
+      const catalogPrice = menuItem.discountPrice ?? menuItem.price;
+      const price =
+        typeof line.priceCents === 'number' &&
+        Number.isInteger(line.priceCents) &&
+        line.priceCents >= 0
+          ? line.priceCents
+          : catalogPrice;
       subtotal += price * line.quantity;
       orderItemsData.push({
         menuItemId: menuItem.id,
         quantity: line.quantity,
         price,
         notes: null,
-        selectedModifiers: {},
+        selectedModifiers:
+          line.sizeId || line.sizeLabel ? { sizeId: line.sizeId, sizeLabel: line.sizeLabel } : {},
         sortOrder: i,
       });
     }
@@ -288,13 +318,15 @@ router.post('/kiosk-order', async (req: AuthRequest, res: Response) => {
           customerPhone: 'kiosk',
           type: orderType,
           status: 'CONFIRMED',
-          paymentStatus: 'UNPAID',
-          paymentMethod: 'COUNTER',
+          paymentStatus: paid ? 'PAID' : 'UNPAID',
+          paymentMethod,
           subtotal,
           tax: 0,
           serviceCharge: 0,
           total: subtotal,
-          notes: 'Commande totem kiosque',
+          notes: paid
+            ? `Commande totem kiosque · ${paymentMethod}`
+            : 'Commande totem — règlement au comptoir',
           isOnlineOrder: false,
           channel: 'KIOSK',
           trackingToken,
@@ -305,18 +337,125 @@ router.post('/kiosk-order', async (req: AuthRequest, res: Response) => {
     });
 
     io.to(`business:${businessId}`).emit('order:new', order);
-    void enqueueConfirmedOrderPrints(prisma, io, businessId, order.id);
+    void enqueueConfirmedOrderPrints(prisma, io, businessId, order.id).catch(err =>
+      console.error('[prints] enqueue après paiement:', err)
+    );
+
+    if (paid) {
+      try {
+        await requireFiscalTicketForPaidOrder(prisma, businessId, order.id, undefined, {
+          paymentMethod: order.paymentMethod,
+        });
+      } catch (fiscalErr) {
+        console.error('[public/kiosk-order] fiscal:', fiscalErr);
+        // Commande + cuisine déjà émises — ne pas rollback (totem client)
+      }
+    }
 
     return res.status(201).json({
       success: true,
       orderId: order.id,
       orderNumber: order.orderNumber,
+      paymentStatus: order.paymentStatus,
     });
   } catch (error) {
     console.error('[public/kiosk-order]', error);
     return res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
+
+/**
+ * POST /api/public/kiosk/sumup/checkout — TPE SumUp pour totem (sans JWT staff)
+ */
+router.post(
+  '/kiosk/sumup/checkout',
+  requireModule('kiosk'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const businessId = getBusinessId();
+      const { amountCents, reference } = req.body as { amountCents?: number; reference?: string };
+      if (!Number.isInteger(amountCents) || (amountCents as number) <= 0) {
+        return res.status(400).json({ error: 'amountCents invalide' });
+      }
+      if (!reference?.trim()) return res.status(400).json({ error: 'reference requise' });
+
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { settings: true },
+      });
+      const devices = getDevicesFromSettings(parseBusinessSettings(business?.settings));
+      const reader = devices.sumupReader;
+      if (!reader) return res.status(400).json({ error: 'Aucun lecteur SumUp appairé' });
+
+      const { checkoutId } = await createSumupReaderCheckout(
+        reader.id,
+        amountCents as number,
+        reference.trim()
+      );
+      res.json({ checkoutId, readerId: reader.id });
+    } catch (error) {
+      console.error('[public/kiosk/sumup/checkout]', error);
+      res
+        .status(502)
+        .json({ error: error instanceof Error ? error.message : 'SumUp indisponible' });
+    }
+  }
+);
+
+/** GET /api/public/kiosk/sumup/checkout/:checkoutId */
+router.get(
+  '/kiosk/sumup/checkout/:checkoutId',
+  requireModule('kiosk'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const businessId = getBusinessId();
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { settings: true },
+      });
+      const devices = getDevicesFromSettings(parseBusinessSettings(business?.settings));
+      const reader = devices.sumupReader;
+      if (!reader) return res.status(400).json({ error: 'Aucun lecteur SumUp appairé' });
+
+      const status = await getSumupReaderCheckoutStatus(reader.id, req.params.checkoutId);
+      res.json(status);
+    } catch (error) {
+      console.error('[public/kiosk/sumup/status]', error);
+      res
+        .status(502)
+        .json({ error: error instanceof Error ? error.message : 'SumUp indisponible' });
+    }
+  }
+);
+
+/** POST /api/public/kiosk/sumup/checkout/:checkoutId/cancel */
+router.post(
+  '/kiosk/sumup/checkout/:checkoutId/cancel',
+  requireModule('kiosk'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const prisma: PrismaClient = req.app.get('prisma');
+      const businessId = getBusinessId();
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { settings: true },
+      });
+      const devices = getDevicesFromSettings(parseBusinessSettings(business?.settings));
+      const reader = devices.sumupReader;
+      if (!reader) return res.status(400).json({ error: 'Aucun lecteur SumUp appairé' });
+
+      await terminateSumupReaderCheckout(reader.id);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('[public/kiosk/sumup/cancel]', error);
+      res
+        .status(502)
+        .json({ error: error instanceof Error ? error.message : 'SumUp indisponible' });
+    }
+  }
+);
 
 /**
  * GET /api/public/orders/track-token/:token

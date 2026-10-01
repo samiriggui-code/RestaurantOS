@@ -19,6 +19,7 @@ import {
   Loader2,
   Plus,
   Receipt,
+  Search,
   Trash2,
   TrendingDown,
   Wallet,
@@ -80,6 +81,25 @@ const CATEGORY_TONE: Record<string, string> = {
 
 const fieldClass =
   'mt-1 w-full rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40'
+
+const filterFieldClass =
+  'w-full rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40'
+
+/** Notes destinées à l’humain — pas d’UUID / StockItem techniques. */
+function friendlyExpenseNotes(notes: string | null | undefined): string | null {
+  if (!notes || notes.startsWith('[demo]')) return null
+  let text = notes
+    .replace(/\bStockItem\s+[0-9a-f-]{36}\b/gi, '')
+    .replace(/\([A-Za-z]*\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\)/gi, '')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/^Lié à Stock\s*:\s*/i, 'Lié au stock · ')
+    .replace(/\s*[—–-]\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  if (!text || text === 'Lié au stock ·') return null
+  return text
+}
 
 function isThisMonth(d: string) {
   const date = new Date(d)
@@ -207,7 +227,7 @@ export function AdminExpensesView() {
         e.description,
         e.category,
         (e.amount / 100).toFixed(2),
-        e.notes?.startsWith('[demo]') ? '' : (e.notes ?? ''),
+        e.notes?.startsWith('[demo]') ? '' : (friendlyExpenseNotes(e.notes) ?? ''),
       ]),
     )
   }
@@ -228,14 +248,15 @@ export function AdminExpensesView() {
       {
         accessorKey: 'description',
         header: ({ column }) => <DataGridColumnHeader title="Description" column={column} />,
-        cell: ({ row }) => (
-          <div className="min-w-[160px]">
-            <p className="font-medium text-cream">{row.original.description}</p>
-            {row.original.notes && !row.original.notes.startsWith('[demo]') && (
-              <p className="mt-0.5 text-xs text-cream/35">{row.original.notes}</p>
-            )}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const note = friendlyExpenseNotes(row.original.notes)
+          return (
+            <div className="min-w-[180px] max-w-[320px]">
+              <p className="font-medium text-cream">{row.original.description}</p>
+              {note && <p className="mt-0.5 text-xs text-cream/45">{note}</p>}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'category',
@@ -243,7 +264,7 @@ export function AdminExpensesView() {
         cell: ({ row }) => {
           const tone = CATEGORY_TONE[row.original.category] ?? CATEGORY_TONE.Divers
           return (
-            <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', tone)}>
+            <span className={cn('inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium', tone)}>
               {row.original.category}
             </span>
           )
@@ -253,7 +274,7 @@ export function AdminExpensesView() {
         accessorKey: 'amount',
         header: ({ column }) => <DataGridColumnHeader title="Montant" column={column} />,
         cell: ({ row }) => (
-          <span className="font-bold tabular-nums text-red-300">−{formatEUR(row.original.amount)}</span>
+          <span className="font-semibold tabular-nums text-red-300">−{formatEUR(row.original.amount)}</span>
         ),
       },
       {
@@ -261,23 +282,25 @@ export function AdminExpensesView() {
         header: () => <span className="sr-only">Actions</span>,
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex justify-end gap-1">
+          <div className="flex justify-end gap-0.5">
             <button
               type="button"
+              title="Modifier"
               onClick={() => {
                 setEditing(row.original)
                 setShowModal(true)
               }}
-              className="rounded-lg p-2 hover:bg-white/5"
+              className="rounded-lg p-2 text-cream/50 transition-colors hover:bg-white/5 hover:text-cream"
             >
-              <Edit2 className="h-4 w-4 text-cream/60" />
+              <Edit2 className="h-4 w-4" />
             </button>
             <button
               type="button"
+              title="Supprimer"
               onClick={() => void handleDelete(row.original.id)}
-              className="rounded-lg p-2 hover:bg-red-500/10"
+              className="rounded-lg p-2 text-red-400/80 transition-colors hover:bg-red-500/10 hover:text-red-300"
             >
-              <Trash2 className="h-4 w-4 text-red-400" />
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
         ),
@@ -300,6 +323,17 @@ export function AdminExpensesView() {
     getFilteredRowModel: getFilteredRowModel(),
     getRowId: (row) => row.id,
   })
+
+  const hasActiveFilters =
+    Boolean(globalFilter.trim()) || filter !== 'Toutes' || Boolean(dateFrom) || Boolean(dateTo)
+
+  function clearFilters() {
+    setGlobalFilter('')
+    setFilter('Toutes')
+    setDateFrom('')
+    setDateTo('')
+    setPagination((p) => ({ ...p, pageIndex: 0 }))
+  }
 
   if (loading) {
     return (
@@ -396,47 +430,76 @@ export function AdminExpensesView() {
 
       <AdminDataGridShell
         title="Journal des dépenses"
-        subtitle="Recherche, filtres date et catégorie"
         table={table}
         recordCount={table.getFilteredRowModel().rows.length}
-        search={globalFilter}
-        onSearchChange={setGlobalFilter}
-        searchPlaceholder="Rechercher une dépense…"
         emptyMessage={
           expenses.length === 0
-            ? 'Aucune dépense — npm run seed:ops pour les charges démo'
-            : 'Aucun résultat pour ce filtre'
+            ? 'Aucune dépense enregistrée — créez la première avec « Nouvelle dépense ».'
+            : 'Aucun résultat pour ces filtres.'
         }
-        headerExtra={
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40"
-              title="Du"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40"
-              title="Au"
-            />
-            <select
-              value={filter}
-              onChange={(e) => {
-                setFilter(e.target.value)
-                setPagination((p) => ({ ...p, pageIndex: 0 }))
-              }}
-              className="rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-cream outline-none focus:border-tomato/40"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
+        toolbar={
+          <div className="flex w-full flex-wrap items-end gap-3">
+            <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-[11px] font-medium text-cream/50">
+              Recherche
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cream/30" />
+                <input
+                  type="search"
+                  value={globalFilter}
+                  onChange={(e) => {
+                    setGlobalFilter(e.target.value)
+                    setPagination((p) => ({ ...p, pageIndex: 0 }))
+                  }}
+                  placeholder="Rechercher une dépense…"
+                  className={cn(filterFieldClass, 'pl-9')}
+                />
+              </div>
+            </label>
+            <label className="flex w-[140px] flex-col gap-1 text-[11px] font-medium text-cream/50">
+              Du
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className={filterFieldClass}
+              />
+            </label>
+            <label className="flex w-[140px] flex-col gap-1 text-[11px] font-medium text-cream/50">
+              Au
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className={filterFieldClass}
+              />
+            </label>
+            <label className="flex min-w-[180px] flex-col gap-1 text-[11px] font-medium text-cream/50">
+              Catégorie
+              <select
+                value={filter}
+                onChange={(e) => {
+                  setFilter(e.target.value)
+                  setPagination((p) => ({ ...p, pageIndex: 0 }))
+                }}
+                className={filterFieldClass}
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex h-[38px] items-center gap-1.5 rounded-xl border border-white/12 px-3 text-xs font-medium text-cream/70 transition-colors hover:bg-white/5 hover:text-cream"
+              >
+                <X className="h-3.5 w-3.5" />
+                Effacer
+              </button>
+            )}
           </div>
         }
       />

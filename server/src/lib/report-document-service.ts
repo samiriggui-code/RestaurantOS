@@ -1,48 +1,102 @@
-import type { PrismaClient } from '@prisma/client'
-import { ReportDocument, type ReportTableSection } from '../emails/report-document'
-import { businessDocumentContext } from './business-document-context'
-import { renderPrintDocument } from './document-render'
-import { formatEUR } from './money'
+import type { PrismaClient } from '@prisma/client';
+import { ReportDocument, type ReportTableSection } from '../emails/report-document';
+import { businessDocumentContext } from './business-document-context';
+import { renderPrintDocument } from './document-render';
+import { formatEUR } from './money';
+import { getCounterSales, getCounterSaleItems } from './sumup-counter-sales';
+import { isModuleEnabled } from './modules';
+
+type ExpensesTotals = { manualCents: number; supplierInvoicesCents: number; totalCents: number };
+
+async function expensesForPeriod(
+  prisma: PrismaClient,
+  businessId: string,
+  from: Date,
+  to: Date
+): Promise<ExpensesTotals> {
+  const [manual, supplier] = await Promise.all([
+    prisma.expense.aggregate({
+      where: { businessId, date: { gte: from, lte: to } },
+      _sum: { amount: true },
+    }),
+    prisma.pennylaneSupplierInvoice.aggregate({
+      where: { businessId, date: { gte: from, lte: to } },
+      _sum: { amountCents: true },
+    }),
+  ]);
+  const manualCents = manual._sum.amount ?? 0;
+  const supplierInvoicesCents = supplier._sum.amountCents ?? 0;
+  return { manualCents, supplierInvoicesCents, totalCents: manualCents + supplierInvoicesCents };
+}
 
 export async function renderSalesReportHtml(
   prisma: PrismaClient,
   businessId: string,
   from: Date,
-  to: Date,
+  to: Date
 ): Promise<string> {
-  const biz = await businessDocumentContext(prisma, businessId)
-  const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)))
+  const biz = await businessDocumentContext(prisma, businessId);
+  const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
 
-  const orders = await prisma.order.findMany({
-    where: { businessId, paymentStatus: 'PAID', createdAt: { gte: from, lte: to } },
-    select: { createdAt: true, total: true },
-    orderBy: { createdAt: 'asc' },
-  })
+  // channel: 'WEB' — même raison que sales-vs-expenses.ts : le comptoir vient exclusivement
+  // du cache SumUp (getCounterSales), jamais de la table Order.
+  const [orders, counterSales, expenses] = await Promise.all([
+    prisma.order.findMany({
+      where: {
+        businessId,
+        channel: 'WEB',
+        paymentStatus: 'PAID',
+        createdAt: { gte: from, lte: to },
+        // Commandes en mode formation (ticket fiscal TRAINING) : immuables, on ne peut pas
+        // les supprimer (CGI art. 286) — on les exclut du rapport comme des clôtures Z.
+        NOT: { fiscalTickets: { some: { kind: 'TRAINING' } } },
+      },
+      select: { createdAt: true, total: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+    getCounterSales(prisma, businessId, from, to),
+    expensesForPeriod(prisma, businessId, from, to),
+  ]);
 
-  const grouped = new Map<string, { count: number; total: number }>()
+  const grouped = new Map<string, { count: number; total: number }>();
   for (const o of orders) {
-    const key = new Date(o.createdAt).toISOString().slice(0, 10)
-    const row = grouped.get(key) ?? { count: 0, total: 0 }
-    row.count++
-    row.total += o.total
-    grouped.set(key, row)
+    const key = new Date(o.createdAt).toISOString().slice(0, 10);
+    const row = grouped.get(key) ?? { count: 0, total: 0 };
+    row.count++;
+    row.total += o.total;
+    grouped.set(key, row);
+  }
+  // Ventes comptoir SumUp — aucune Order créée pour ces ventes, à ajouter séparément.
+  for (const sale of counterSales) {
+    const key = new Date(sale.occurredAt).toISOString().slice(0, 10);
+    const row = grouped.get(key) ?? { count: 0, total: 0 };
+    row.count++;
+    row.total += sale.amountCents;
+    grouped.set(key, row);
   }
 
-  const totalSales = orders.reduce((s, o) => s + o.total, 0)
-  const totalOrders = orders.length
+  const totalSales =
+    orders.reduce((s, o) => s + o.total, 0) + counterSales.reduce((s, t) => s + t.amountCents, 0);
+  const totalOrders = orders.length + counterSales.length;
 
-  const [employees, drivers, itemPerf] = await Promise.all([
-    prisma.user.findMany({
-      where: { businessId, isActive: true, role: { not: 'ADMIN' } },
-      select: {
-        name: true,
-        role: true,
-        orders: {
-          where: { paymentStatus: 'PAID', createdAt: { gte: from, lte: to } },
-          select: { total: true },
-        },
-      },
-    }),
+  const posEnabled = isModuleEnabled('pos');
+
+  const [employees, drivers, itemPerf, counterItems] = await Promise.all([
+    // "Performance équipe" lit Order.cashierId, renseigné uniquement par les routes du
+    // module POS (désactivé) — inutile d'interroger si la section ne sera pas affichée.
+    posEnabled
+      ? prisma.user.findMany({
+          where: { businessId, isActive: true, role: { not: 'ADMIN' } },
+          select: {
+            name: true,
+            role: true,
+            orders: {
+              where: { paymentStatus: 'PAID', createdAt: { gte: from, lte: to } },
+              select: { total: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
     prisma.user.findMany({
       where: { businessId, isActive: true, role: 'DRIVER' },
       select: {
@@ -61,14 +115,20 @@ export async function renderSalesReportHtml(
       where: { order: { businessId, paymentStatus: 'PAID', createdAt: { gte: from, lte: to } } },
       select: { quantity: true, menuItem: { select: { name: true } } },
     }),
-  ])
+    // Comptoir SumUp — sans ça, "Top articles vendus" ignore tout ce qui se vend au
+    // comptoir alors que "Ventes par article" (page Rapports) les inclut déjà.
+    getCounterSaleItems(prisma, businessId, from, to),
+  ]);
 
-  const itemQty = new Map<string, number>()
+  const itemQty = new Map<string, number>();
   for (const row of itemPerf) {
-    const name = row.menuItem.name
-    itemQty.set(name, (itemQty.get(name) ?? 0) + row.quantity)
+    const name = row.menuItem.name;
+    itemQty.set(name, (itemQty.get(name) ?? 0) + row.quantity);
   }
-  const topItems = [...itemQty.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
+  for (const row of counterItems) {
+    itemQty.set(row.description, (itemQty.get(row.description) ?? 0) + row.quantity);
+  }
+  const topItems = [...itemQty.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
 
   const sections: ReportTableSection[] = [
     {
@@ -78,36 +138,50 @@ export async function renderSalesReportHtml(
       rows: [...grouped.entries()]
         .sort((a, b) => b[0].localeCompare(a[0]))
         .map(([date, data]) => [
-          new Date(date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }),
+          new Date(date).toLocaleDateString('fr-FR', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+          }),
           String(data.count),
           formatEUR(data.total),
           data.count > 0 ? formatEUR(Math.round(data.total / data.count)) : '—',
         ]),
     },
-    {
-      title: 'Performance équipe (caisse)',
-      columns: ['Employé', 'Rôle', 'Commandes', 'CA'],
-      alignRightFrom: 2,
-      rows: employees
-        .filter((e) => e.orders.length > 0)
-        .sort((a, b) => b.orders.reduce((s, o) => s + o.total, 0) - a.orders.reduce((s, o) => s + o.total, 0))
-        .map((e) => [
-          e.name,
-          e.role,
-          String(e.orders.length),
-          formatEUR(e.orders.reduce((s, o) => s + o.total, 0)),
-        ]),
-    },
+    ...(posEnabled
+      ? [
+          {
+            title: 'Performance équipe (caisse)',
+            columns: ['Employé', 'Rôle', 'Commandes', 'CA'],
+            alignRightFrom: 2,
+            rows: employees
+              .filter(e => e.orders.length > 0)
+              .sort(
+                (a, b) =>
+                  b.orders.reduce((s, o) => s + o.total, 0) -
+                  a.orders.reduce((s, o) => s + o.total, 0)
+              )
+              .map(e => [
+                e.name,
+                e.role,
+                String(e.orders.length),
+                formatEUR(e.orders.reduce((s, o) => s + o.total, 0)),
+              ]),
+          } satisfies ReportTableSection,
+        ]
+      : []),
     {
       title: 'Performance livreurs',
       columns: ['Livreur', 'Courses', 'Livrées', 'CA'],
       alignRightFrom: 1,
       rows: drivers
-        .filter((d) => d.driverOrders.length > 0)
-        .map((d) => [
+        .filter(d => d.driverOrders.length > 0)
+        .map(d => [
           d.name,
           String(d.driverOrders.length),
-          String(d.driverOrders.filter((o) => o.status === 'DELIVERED' || o.status === 'COMPLETED').length),
+          String(
+            d.driverOrders.filter(o => o.status === 'DELIVERED' || o.status === 'COMPLETED').length
+          ),
           formatEUR(d.driverOrders.reduce((s, o) => s + o.total, 0)),
         ]),
     },
@@ -117,7 +191,17 @@ export async function renderSalesReportHtml(
       alignRightFrom: 1,
       rows: topItems.map(([name, qty]) => [name, String(qty)]),
     },
-  ]
+    {
+      title: 'Dépenses',
+      columns: ['Origine', 'Montant'],
+      alignRightFrom: 1,
+      rows: [
+        ['Manuelles (Admin → Dépenses)', formatEUR(expenses.manualCents)],
+        ['Factures fournisseurs (Pennylane)', formatEUR(expenses.supplierInvoicesCents)],
+        ['Total', formatEUR(expenses.totalCents)],
+      ],
+    },
+  ];
 
   return renderPrintDocument(
     ReportDocument({
@@ -131,8 +215,10 @@ export async function renderSalesReportHtml(
           label: 'Panier moyen',
           value: totalOrders > 0 ? formatEUR(Math.round(totalSales / totalOrders)) : formatEUR(0),
         },
+        { label: 'Dépenses', value: formatEUR(expenses.totalCents) },
+        { label: 'Net', value: formatEUR(totalSales - expenses.totalCents) },
       ],
       sections,
-    }),
-  )
+    })
+  );
 }

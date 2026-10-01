@@ -21,6 +21,7 @@ import {
   resolveSafeCheckoutStep,
   saveCheckoutSession,
 } from '@/lib/checkout-session'
+import { clearPendingPayment } from '@/lib/pending-payment-session'
 import { formatPriceEUR } from '@/lib/menu-types'
 import { pizzaSubtotalFromLines } from '@/lib/pizza-subtotal'
 import type { CartLine } from '@/lib/cart-types'
@@ -284,6 +285,7 @@ export function useCheckoutFlow({
   const handlePaymentSuccess = useCallback(
     (token: string, orderNumber: number) => {
       clearCheckoutSession()
+      clearPendingPayment()
       clearCart()
       if (variant === 'sheet') {
         setStep('track')

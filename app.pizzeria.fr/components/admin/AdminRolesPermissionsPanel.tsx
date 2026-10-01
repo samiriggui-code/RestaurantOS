@@ -1,18 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import {
+  ColumnDef,
+  PaginationState,
+  SortingState,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import { ExternalLink, Loader2, ShieldCheck } from 'lucide-react'
 import { getStaffSession } from '@/lib/staff-auth'
 import { staffFetch } from '@/lib/staff-api'
-import {
-  ROLE,
-  ROLE_LABEL,
-  canAccessAdmin,
-  canAccessDriver,
-  canAccessKitchen,
-  canAccessPos,
-} from '@/lib/roles'
+import { ROLE, ROLE_LABEL, canAccessAdmin, canAccessDriver, canAccessKitchen } from '@/lib/roles'
+import { AdminDataGridShell, DataGridColumnHeader, createDefaultPagination } from '@/components/ui/data-grid'
 import { cn } from '@/lib/cn'
 
 type StaffRow = {
@@ -21,20 +25,22 @@ type StaffRow = {
   createdAt: string
 }
 
+// Colonne "POS" volontairement absente : matériel désactivé (une seule tablette boutique,
+// back-office + KDS + livreur). canAccessPos() reste dans lib/roles.ts pour la route /pos
+// elle-même (module rétabli = colonne à réintroduire), juste pas affichée tant qu'il l'est.
 const ROLE_MATRIX: {
   role: string
   label: string
   admin: boolean
-  pos: boolean
   kitchen: boolean
   driver: boolean
 }[] = [
-  { role: ROLE.ADMIN, label: ROLE_LABEL.ADMIN, admin: true, pos: true, kitchen: true, driver: true },
-  { role: ROLE.MANAGER, label: ROLE_LABEL.MANAGER, admin: true, pos: true, kitchen: true, driver: true },
-  { role: ROLE.CASHIER, label: ROLE_LABEL.CASHIER, admin: false, pos: true, kitchen: false, driver: false },
-  { role: ROLE.CHEF, label: ROLE_LABEL.CHEF, admin: false, pos: false, kitchen: true, driver: false },
-  { role: ROLE.WAITER, label: ROLE_LABEL.WAITER, admin: false, pos: true, kitchen: true, driver: false },
-  { role: ROLE.DRIVER, label: ROLE_LABEL.DRIVER, admin: false, pos: false, kitchen: false, driver: true },
+  { role: ROLE.ADMIN, label: ROLE_LABEL.ADMIN, admin: true, kitchen: true, driver: true },
+  { role: ROLE.MANAGER, label: ROLE_LABEL.MANAGER, admin: true, kitchen: true, driver: true },
+  { role: ROLE.CASHIER, label: ROLE_LABEL.CASHIER, admin: false, kitchen: false, driver: false },
+  { role: ROLE.CHEF, label: ROLE_LABEL.CHEF, admin: false, kitchen: true, driver: false },
+  { role: ROLE.WAITER, label: ROLE_LABEL.WAITER, admin: false, kitchen: true, driver: false },
+  { role: ROLE.DRIVER, label: ROLE_LABEL.DRIVER, admin: false, kitchen: false, driver: true },
 ]
 
 function AccessCell({ ok }: { ok: boolean }) {
@@ -83,6 +89,50 @@ export function AdminRolesPermissionsPanel() {
       .finally(() => setLoading(false))
   }, [])
 
+  const [staffSearch, setStaffSearch] = useState('')
+  const [staffSorting, setStaffSorting] = useState<SortingState>([])
+  const [staffPagination, setStaffPagination] = useState<PaginationState>(() => createDefaultPagination())
+
+  const staffColumns = useMemo<ColumnDef<StaffRow>[]>(
+    () => [
+      {
+        accessorKey: 'id',
+        header: ({ column }) => <DataGridColumnHeader title="User ID" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-cream/55">{row.original.id.slice(0, 8)}…</span>
+        ),
+      },
+      {
+        accessorKey: 'role',
+        header: ({ column }) => <DataGridColumnHeader title="Rôle" column={column} />,
+        cell: ({ row }) => <RoleBadge role={row.original.role} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => <DataGridColumnHeader title="Créé le" column={column} />,
+        cell: ({ row }) => (
+          <span className="text-cream/50">{new Date(row.original.createdAt).toLocaleDateString('fr-FR')}</span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const staffTable = useReactTable({
+    data: rows,
+    columns: staffColumns,
+    state: { pagination: staffPagination, sorting: staffSorting, globalFilter: staffSearch },
+    onPaginationChange: setStaffPagination,
+    onSortingChange: setStaffSorting,
+    onGlobalFilterChange: setStaffSearch,
+    globalFilterFn: 'includesString',
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getRowId: (row) => row.id,
+  })
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-white/10 bg-[#141010] p-4">
@@ -91,8 +141,8 @@ export function AdminRolesPermissionsPanel() {
           <div>
             <h3 className="font-display text-lg text-cream">Politique rôles & accès</h3>
             <p className="mt-1 text-sm text-cream/45">
-              Définit qui accède au back-office, à la caisse, à la cuisine et à l&apos;app livreur. Les comptes
-              staff se créent dans{' '}
+              Définit qui accède au back-office, à l&apos;écran cuisine (KDS) et à l&apos;app livreur. Les
+              comptes staff se créent dans{' '}
               <Link href="/admin/users" className="text-tomato-light underline">
                 RH → Utilisateurs
               </Link>
@@ -113,7 +163,6 @@ export function AdminRolesPermissionsPanel() {
               <tr>
                 <th className="px-4 py-3">Rôle</th>
                 <th className="px-4 py-3">Back-office</th>
-                <th className="px-4 py-3">POS</th>
                 <th className="px-4 py-3">KDS</th>
                 <th className="px-4 py-3">Livreur</th>
               </tr>
@@ -124,9 +173,6 @@ export function AdminRolesPermissionsPanel() {
                   <td className="px-4 py-3 font-medium text-cream">{r.label}</td>
                   <td className="px-4 py-3">
                     <AccessCell ok={canAccessAdmin(r.role)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <AccessCell ok={canAccessPos(r.role)} />
                   </td>
                   <td className="px-4 py-3">
                     <AccessCell ok={canAccessKitchen(r.role)} />
@@ -158,44 +204,21 @@ export function AdminRolesPermissionsPanel() {
             <Loader2 className="h-6 w-6 animate-spin text-tomato" />
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-white/10 bg-white/[0.03] text-[10px] uppercase tracking-widest text-cream/40">
-                <tr>
-                  <th className="px-4 py-3">User ID</th>
-                  <th className="px-4 py-3">Rôle</th>
-                  <th className="px-4 py-3">Créé le</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-cream/40">
-                      Aucun compte staff
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((u) => (
-                    <tr key={u.id} className="border-b border-white/5">
-                      <td className="px-4 py-3 font-mono text-xs text-cream/55">{u.id.slice(0, 8)}…</td>
-                      <td className="px-4 py-3">
-                        <RoleBadge role={u.role} />
-                      </td>
-                      <td className="px-4 py-3 text-cream/50">
-                        {new Date(u.createdAt).toLocaleDateString('fr-FR')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <AdminDataGridShell
+            title="Comptes staff"
+            table={staffTable}
+            recordCount={staffTable.getFilteredRowModel().rows.length}
+            search={staffSearch}
+            onSearchChange={setStaffSearch}
+            searchPlaceholder="ID, rôle…"
+            emptyMessage={rows.length === 0 ? 'Aucun compte staff' : 'Aucun résultat pour ce filtre'}
+          />
         )}
 
         <p className="mt-4 flex items-start gap-2 text-xs text-cream/40">
           <span aria-hidden>💡</span>
-          Les nouveaux comptes staff reçoivent un rôle opérationnel (caissier, cuisine, livreur…). Seuls admin et
-          manager accèdent au back-office. PIN obligatoire sur POS / KDS pour les rôles terrain.
+          Les nouveaux comptes staff reçoivent un rôle opérationnel (cuisine, livreur…). Seuls admin et manager
+          accèdent au back-office. PIN obligatoire sur KDS pour les rôles terrain.
         </p>
       </div>
     </div>

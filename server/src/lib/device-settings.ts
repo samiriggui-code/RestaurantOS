@@ -25,7 +25,8 @@ export const DEVICE_SLOT_LIMITS: Record<DeviceSlot, number> = {
   kds: 1,
 };
 
-export type DeviceAuditAction = 'PAIR' | 'UNPAIR' | 'REPLACE' | 'WAN_CAPTURE' | 'INVENTORY';
+export type DeviceAuditAction =
+  'PAIR' | 'UNPAIR' | 'REPLACE' | 'WAN_CAPTURE' | 'INVENTORY' | 'EMERGENCY_BYPASS';
 
 export type DeviceAuditEntry = {
   at: string;
@@ -75,6 +76,21 @@ export type WanIpCapture = {
   byUserId?: string;
 };
 
+/** Présence apps sans jumelage (totem / livreur) — heartbeat client. */
+export type AppPresenceSession = {
+  lastSeenAt: string;
+  lastIp?: string;
+  userAgent?: string;
+  driverId?: string;
+  driverName?: string;
+};
+
+export type AppPresence = {
+  kiosk?: AppPresenceSession;
+  /** Sessions livreur actives (par driverId ou anonyme). */
+  livreur?: AppPresenceSession[];
+};
+
 export type DevicesSettings = {
   onboardingComplete?: boolean;
   allowedWanIps?: string[];
@@ -86,6 +102,7 @@ export type DevicesSettings = {
   lastWanIpCapture?: WanIpCapture;
   /** Journal jumelage / réseau (100 dernières entrées) */
   deviceAuditLog?: DeviceAuditEntry[];
+  appPresence?: AppPresence;
 };
 
 export type DevicesAccessStatus = {
@@ -362,6 +379,74 @@ export function touchPairedDevice(
   });
   if (!changed) return devices;
   return { ...devices, pairedDevices };
+}
+
+const APP_PRESENCE_INTERVAL_MS = 45_000;
+const LIVREUR_SESSION_MAX = 12;
+
+export function touchAppPresence(
+  devices: DevicesSettings,
+  app: 'kiosk' | 'livreur',
+  opts?: {
+    clientIp?: string | null;
+    userAgent?: string;
+    driverId?: string;
+    driverName?: string;
+  }
+): DevicesSettings {
+  const nowIso = new Date().toISOString();
+  const now = Date.now();
+  const presence = { ...(devices.appPresence ?? {}) };
+
+  if (app === 'kiosk') {
+    const prev = presence.kiosk;
+    const lastMs = prev?.lastSeenAt ? Date.parse(prev.lastSeenAt) : 0;
+    if (now - lastMs < APP_PRESENCE_INTERVAL_MS && prev) {
+      return devices;
+    }
+    presence.kiosk = {
+      lastSeenAt: nowIso,
+      lastIp: opts?.clientIp ?? prev?.lastIp,
+      userAgent: opts?.userAgent ?? prev?.userAgent,
+    };
+    return { ...devices, appPresence: presence };
+  }
+
+  const sessions = [...(presence.livreur ?? [])];
+  const key = opts?.driverId?.trim() || '_anon';
+  const idx = sessions.findIndex(s => (s.driverId?.trim() || '_anon') === key);
+  const prev = idx >= 0 ? sessions[idx] : undefined;
+  const lastMs = prev?.lastSeenAt ? Date.parse(prev.lastSeenAt) : 0;
+  const next: AppPresenceSession = {
+    lastSeenAt: nowIso,
+    lastIp: opts?.clientIp ?? prev?.lastIp,
+    userAgent: opts?.userAgent ?? prev?.userAgent,
+    driverId: opts?.driverId ?? prev?.driverId,
+    driverName: opts?.driverName ?? prev?.driverName,
+  };
+  if (idx >= 0) {
+    if (now - lastMs < APP_PRESENCE_INTERVAL_MS) return devices;
+    sessions[idx] = next;
+  } else {
+    sessions.unshift(next);
+  }
+  presence.livreur = sessions
+    .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))
+    .slice(0, LIVREUR_SESSION_MAX);
+  return { ...devices, appPresence: presence };
+}
+
+/** Présence considérée « en ligne » si vue récemment. */
+export const APP_ONLINE_WINDOW_MS = 3 * 60_000;
+
+export function isPresenceFresh(
+  lastSeenAt: string | null | undefined,
+  windowMs = APP_ONLINE_WINDOW_MS
+): boolean {
+  if (!lastSeenAt) return false;
+  const ms = Date.parse(lastSeenAt);
+  if (!Number.isFinite(ms)) return false;
+  return Date.now() - ms <= windowMs;
 }
 
 export function generatePairingCode(): string {
